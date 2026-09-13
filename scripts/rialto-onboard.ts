@@ -103,7 +103,6 @@ async function main() {
     ["contact_email", optional(contactEmail)],
     ["telegram_handle", optional(telegramHandle)],
     ["app_url", optional(appUrl)],
-    ["application_description", optional(applicationDescription)],
     ["fee_recipient", owner],
     ["requested_max_fee_bps", maxFeeBps],
   ]);
