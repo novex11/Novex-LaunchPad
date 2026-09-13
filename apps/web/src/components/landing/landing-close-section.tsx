@@ -18,7 +18,7 @@ export function LandingCloseSection() {
       <GridPattern className="opacity-80" mask="radial-gradient(ellipse 60% 50% at 50% 100%, black 20%, transparent 100%)" />
       <div className="relative grid gap-8 px-4 py-14 md:grid-cols-12 md:px-8 md:py-20">
         <div className="md:col-span-7">
-          <MonoLabel index="09">Close</MonoLabel>
+          <MonoLabel index="10">Close</MonoLabel>
           <h2 className="statement-2 mt-4">Same wallet. Same session.</h2>
           <p className="mt-4 max-w-lg text-sm text-muted-foreground md:text-base">
             Sign in once. Trade, build baskets, and redeem from one desk address.

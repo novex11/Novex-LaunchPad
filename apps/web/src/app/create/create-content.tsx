@@ -72,11 +72,6 @@ export default function CreateBasketContent() {
   const wallet = useWallet();
   const qc = useQueryClient();
   const { health } = useBackendHealth();
-  const resolvedVault = useResolveVault(depositTicker, strategy);
-  const onchainDeposit = useApproveAndDeposit(resolvedVault.vaultAddress);
-  const { priceUsd: depositTokenPriceUsd } = useDepositTokenPrice(
-    resolvedVault.vaultAddress,
-  );
 
   const [depositTicker, setDepositTicker] = useState(() => {
     const p = (searchParams.get("deposit") ?? searchParams.get("asset"))?.toUpperCase();
@@ -89,8 +84,15 @@ export default function CreateBasketContent() {
     const s = searchParams.get("strategy") as StrategyId | null;
     return s && s in STRATEGIES ? s : "balanced";
   });
+
+  const resolvedVault = useResolveVault(depositTicker, strategy);
+  const onchainDeposit = useApproveAndDeposit(resolvedVault.vaultAddress);
+  const { priceUsd: depositTokenPriceUsd } = useDepositTokenPrice(
+    resolvedVault.vaultAddress,
+  );
   const [preferred, setPreferred] = useState<string[]>(["AAPL", "MSFT"]);
   const [excluded, setExcluded] = useState<string[]>([]);
+  const [maxTokens, setMaxTokens] = useState<number>(5);
   const [costs, setCosts] = useState<DepositCosts | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -100,7 +102,7 @@ export default function CreateBasketContent() {
 
   const preview = useRewardPreview(
     depositUsd > 0
-      ? { depositTicker, depositUsd, strategy, preferred, excluded }
+      ? { depositTicker, depositUsd, strategy, preferred, excluded, maxTokens }
       : null,
     wallet.address,
   );
@@ -420,6 +422,35 @@ export default function CreateBasketContent() {
                 );
               })}
             </div>
+          </Section>
+
+          <Section n="05" title="Basket size" hint="How many tokens in your basket.">
+            <div className="flex flex-wrap gap-2">
+              {[3, 5, 8, 10, 0].map((n) => {
+                const label = n === 0 ? "All" : `${n} tokens`;
+                const on = maxTokens === n;
+                return (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => setMaxTokens(n)}
+                    className={cn(
+                      "rounded-full border px-3.5 py-1.5 font-mono text-xs font-medium transition-all active:scale-[0.98]",
+                      on
+                        ? "border-accent bg-accent-subtle text-accent-strong"
+                        : "border-border text-muted-foreground hover:border-accent/40",
+                    )}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              {maxTokens === 0
+                ? "All eligible tokens will be included in the basket."
+                : `Your basket will hold up to ${maxTokens} tokens plus the deposit asset. Preferred tokens are always included.`}
+            </p>
           </Section>
         </div>
 

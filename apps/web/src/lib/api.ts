@@ -26,6 +26,8 @@ export interface PreviewBody {
   strategy: Strategy;
   preferred?: string[];
   excluded?: string[];
+  /** Max tokens in the basket (default 5). 0 = all eligible. */
+  maxTokens?: number;
 }
 
 export type { PreviewResponse };
@@ -80,6 +82,7 @@ export async function recordDeposit(body: {
   openingNetUsd: number;
   stockbackUsd: number;
   allocation: Array<{ ticker: string; weight: number; usd: number }>;
+  vaultId?: string;
   txHash?: string;
 }) {
   const res = await fetch(`${INDEXER_URL}/deposits`, {
@@ -200,6 +203,140 @@ export interface VaultResponse {
 export async function fetchVault(id: string) {
   const res = await fetch(`${INDEXER_URL}/vault/${id}`);
   return parseJson<VaultResponse>(res);
+}
+
+// ─── Launchpad ──────────────────────────────────────────
+
+export interface LaunchpadPair {
+  pairAddress: string;
+  receiptAddress: string;
+  receiptSymbol: string;
+  creatorWallet: string;
+  tickerA: string;
+  tickerB: string;
+  categoryA: string;
+  categoryB: string;
+  weightABps: number;
+  creatorFeeBps: number;
+  tvlUsd: number;
+  totalDepositsUsd: number;
+  totalDepositors: number;
+  creatorEarningsUsd: number;
+  status: string;
+  createdAt: string;
+}
+
+export interface LaunchpadPairDetail extends LaunchpadPair {
+  tokenA: string;
+  tokenB: string;
+}
+
+export interface LaunchpadStats {
+  totalPairs: number;
+  totalTvlUsd: number;
+  totalCreatorEarningsUsd: number;
+  totalCreators: number;
+}
+
+export interface LaunchpadActivity {
+  deposits: Array<{
+    wallet: string;
+    usdgAmount: number;
+    sharesMinted: string;
+    creatorFeeUsd: number;
+    txHash: string;
+    timestamp: string;
+  }>;
+  redeems: Array<{
+    wallet: string;
+    sharesBurned: string;
+    usdgOut: number;
+    txHash: string;
+    timestamp: string;
+  }>;
+}
+
+export async function fetchLaunchpadPairs(
+  sort: "tvl" | "new" | "depositors" = "tvl",
+): Promise<{ pairs: LaunchpadPair[] }> {
+  const res = await fetch(
+    `${INDEXER_URL}/launchpad/pairs?sort=${encodeURIComponent(sort)}`,
+  );
+  return parseJson(res);
+}
+
+export async function fetchLaunchpadPair(
+  address: string,
+): Promise<{ pair: LaunchpadPairDetail; activity: LaunchpadActivity }> {
+  const res = await fetch(`${INDEXER_URL}/launchpad/pair/${address}`);
+  return parseJson(res);
+}
+
+export async function fetchLaunchpadByCreator(
+  wallet: string,
+): Promise<{ pairs: LaunchpadPair[] }> {
+  const res = await fetch(`${INDEXER_URL}/launchpad/creator/${wallet}`);
+  return parseJson(res);
+}
+
+export async function fetchLaunchpadStats(): Promise<LaunchpadStats> {
+  const res = await fetch(`${INDEXER_URL}/launchpad/stats`);
+  return parseJson(res);
+}
+
+export async function recordLaunchpadLaunch(body: {
+  pairKey: string;
+  pairAddress: string;
+  receiptAddress: string;
+  receiptSymbol: string;
+  creatorWallet: string;
+  tokenA: string;
+  tokenB: string;
+  tickerA: string;
+  tickerB: string;
+  categoryA: string;
+  categoryB: string;
+  weightABps: number;
+  creatorFeeBps: number;
+  txHash?: string;
+}) {
+  const res = await fetch(`${INDEXER_URL}/launchpad/launch`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return parseJson(res);
+}
+
+export async function recordLaunchpadDeposit(body: {
+  pairAddress: string;
+  wallet: string;
+  usdgAmount: number;
+  sharesMinted: string;
+  creatorFeeUsd: number;
+  txHash: string;
+}) {
+  const res = await fetch(`${INDEXER_URL}/launchpad/deposit`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return parseJson(res);
+}
+
+export async function recordLaunchpadRedeem(body: {
+  pairAddress: string;
+  wallet: string;
+  sharesBurned: string;
+  usdgOut: number;
+  txHash: string;
+}) {
+  const res = await fetch(`${INDEXER_URL}/launchpad/redeem`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return parseJson(res);
 }
 
 export interface BackendHealth {

@@ -12,6 +12,7 @@ const columns = [
     links: [
       { href: "/markets", label: "Markets" },
       { href: "/create", label: "Create basket" },
+      { href: "/launch", label: "Launch pair" },
       { href: "/portfolio", label: "Portfolio" },
       { href: "/redeem", label: "Redeem" },
     ],
@@ -20,6 +21,7 @@ const columns = [
     title: "Transparency",
     links: [
       { href: "/vault/tNVDA-B", label: "Vault tNVDA-B" },
+      { href: "/launchpad", label: "Launchpad" },
       { href: "/activity", label: "Activity" },
       { href: "/legal/risk", label: "Risk disclosures" },
     ],

@@ -62,6 +62,9 @@ export function LandingHeroSection() {
               </Link>
             </Button>
             <Button asChild variant="squareOutline">
+              <Link href="/launchpad">Launchpad</Link>
+            </Button>
+            <Button asChild variant="squareOutline">
               <Link href="/markets">How it pays</Link>
             </Button>
             {!wallet.authenticated && (

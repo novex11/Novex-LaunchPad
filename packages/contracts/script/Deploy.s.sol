@@ -9,7 +9,11 @@ import {CashbackReserve} from "../src/CashbackReserve.sol";
 import {EmergencyRegistry} from "../src/EmergencyRegistry.sol";
 import {ExecutionRouter} from "../src/ExecutionRouter.sol";
 import {StrategyVault} from "../src/StrategyVault.sol";
+import {PairFactory} from "../src/PairFactory.sol";
+import {LaunchpadZap} from "../src/LaunchpadZap.sol";
 import {MockSwapRouter} from "../src/mocks/MockSwapRouter.sol";
+import {MockUniswapV3Router} from "../src/mocks/MockUniswapV3Router.sol";
+import {MockWRHT} from "../src/mocks/MockWRHT.sol";
 import {MockERC20} from "../src/mocks/MockERC20.sol";
 import {MockOracle} from "../src/mocks/MockOracle.sol";
 
@@ -33,6 +37,21 @@ contract Deploy is Script {
     MockERC20 public nzdusd;
     MockERC20 public usdcad;
     MockERC20 public usdchf;
+
+    // Infra (kept as state to avoid stack-too-deep in run())
+    OracleAdapter public oracle;
+    AllocationController public controller;
+    CashbackReserve public cashback;
+    EmergencyRegistry public emergency;
+    MockSwapRouter public mockRouter;
+    ExecutionRouter public router;
+    VaultFactory public factory;
+    PairFactory public pairFactory;
+    MockUniswapV3Router public v3;
+    MockWRHT public wrht;
+    LaunchpadZap public zap;
+    address public vault;
+    address public receipt;
 
     function run() external {
         uint256 deployerPrivateKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
@@ -104,20 +123,30 @@ contract Deploy is Script {
         }
 
         // ─── 4. Deploy core infrastructure ─────────────────
-        OracleAdapter oracle = new OracleAdapter(msg.sender);
-        AllocationController controller = new AllocationController(msg.sender);
-        CashbackReserve cashback = new CashbackReserve(msg.sender);
-        EmergencyRegistry emergency = new EmergencyRegistry(msg.sender);
-        MockSwapRouter mockRouter = new MockSwapRouter();
-        ExecutionRouter router = new ExecutionRouter(msg.sender, address(mockRouter));
+        oracle = new OracleAdapter(msg.sender);
+        controller = new AllocationController(msg.sender);
+        cashback = new CashbackReserve(msg.sender);
+        emergency = new EmergencyRegistry(msg.sender);
+        mockRouter = new MockSwapRouter();
+        router = new ExecutionRouter(msg.sender, address(mockRouter));
 
-        VaultFactory factory = new VaultFactory(
+        factory = new VaultFactory(
             msg.sender,
             address(oracle),
             address(controller),
             address(cashback),
             address(emergency),
             address(router)
+        );
+
+        // Pair launchpad factory — permissionless 2-token pair vaults
+        pairFactory = new PairFactory(
+            msg.sender,
+            address(controller),
+            address(oracle),
+            address(router),
+            address(emergency),
+            address(usdg)
         );
 
         // ─── 5. Register all price feeds ───────────────────
@@ -140,8 +169,6 @@ contract Deploy is Script {
         factory.setUsdStableAsset(address(usdg));
 
         // ─── 8. Create balanced vaults per deposit asset (t{TICKER}-B) ─
-        address vault;
-        address receipt;
         {
             address[] memory depositTokens = new address[](9);
             depositTokens[0] = address(nvda);
@@ -197,11 +224,53 @@ contract Deploy is Script {
         nvda.approve(address(cashback), cashbackFund);
         cashback.fund(address(nvda), cashbackFund);
 
+        // ─── 12. Deploy Uniswap-v3 mock + WRHT wrapper + LaunchpadZap ──
+        // On mainnet these come from the Robinhood-Chain Uniswap v3 deployment
+        // and the canonical WRHT contract. On testnet / local we deploy mocks
+        // priced by the OracleAdapter so the launchpad flow is exercisable
+        // end-to-end without external DEX liquidity.
+        v3 = new MockUniswapV3Router(address(oracle));
+        wrht = new MockWRHT();
+        // Register WRHT with the oracle (needed for native-RHT seeding)
+        oracle.setPriceFeed(address(wrht), address(new MockOracle(3_000e8)));
+        // Fund the v3 router with USDG so it can pay out on swaps
+        usdg.transfer(address(v3), 200_000 ether);
+
+        zap = new LaunchpadZap(address(v3), address(wrht), address(usdg));
+
+        // ─── 13. Transfer ExecutionRouter ownership to PairFactory ─
+        // Allows the launchpad factory to auto-authorize newly launched
+        // PairVaults with the router (permissionless launches). The
+        // primary strategy vaults were already authorized in step 8.
+        router.transferOwnership(address(pairFactory));
+
         vm.stopBroadcast();
 
-        // ─── 12. Export addresses ──────────────────────────
+        _exportDeployments();
+    }
+
+    function _exportDeployments() internal {
         string memory json = "deployment";
-        // Equities
+        _serializeEquities(json);
+        _serializeForex(json);
+        _serializeInfra(json);
+        vm.serializeAddress(json, "vault", vault);
+        string memory output = vm.serializeAddress(json, "receiptToken", receipt);
+        vm.writeJson(output, "./deployments.json");
+
+        console2.log("=== Deployment Complete ===");
+        console2.log("Primary vault (tNVDA-B):", vault);
+        console2.log("Receipt Token:", receipt);
+        console2.log("Factory:", address(factory));
+        console2.log("PairFactory (launchpad):", address(pairFactory));
+        console2.log("LaunchpadZap:", address(zap));
+        console2.log("WRHT:", address(wrht));
+        console2.log("Uniswap v3 (mock):", address(v3));
+        console2.log("Equity tokens: 10, Forex tokens: 6");
+        console2.log("Addresses exported to deployments.json");
+    }
+
+    function _serializeEquities(string memory json) internal {
         vm.serializeAddress(json, "nvda", address(nvda));
         vm.serializeAddress(json, "aapl", address(aapl));
         vm.serializeAddress(json, "msft", address(msft));
@@ -212,14 +281,18 @@ contract Deploy is Script {
         vm.serializeAddress(json, "tsla", address(tsla));
         vm.serializeAddress(json, "sndk", address(sndk));
         vm.serializeAddress(json, "usdg", address(usdg));
-        // Forex
+    }
+
+    function _serializeForex(string memory json) internal {
         vm.serializeAddress(json, "eurusd", address(eurusd));
         vm.serializeAddress(json, "gbpusd", address(gbpusd));
         vm.serializeAddress(json, "audusd", address(audusd));
         vm.serializeAddress(json, "nzdusd", address(nzdusd));
         vm.serializeAddress(json, "usdcad", address(usdcad));
         vm.serializeAddress(json, "usdchf", address(usdchf));
-        // Infra
+    }
+
+    function _serializeInfra(string memory json) internal {
         vm.serializeAddress(json, "oracle", address(oracle));
         vm.serializeAddress(json, "controller", address(controller));
         vm.serializeAddress(json, "cashback", address(cashback));
@@ -227,15 +300,9 @@ contract Deploy is Script {
         vm.serializeAddress(json, "mockRouter", address(mockRouter));
         vm.serializeAddress(json, "executionRouter", address(router));
         vm.serializeAddress(json, "factory", address(factory));
-        vm.serializeAddress(json, "vault", vault);
-        string memory output = vm.serializeAddress(json, "receiptToken", receipt);
-        vm.writeJson(output, "./deployments.json");
-
-        console2.log("=== Deployment Complete ===");
-        console2.log("Primary vault (tNVDA-B):", vault);
-        console2.log("Receipt Token:", receipt);
-        console2.log("Factory:", address(factory));
-        console2.log("Equity tokens: 10, Forex tokens: 6");
-        console2.log("Addresses exported to deployments.json");
+        vm.serializeAddress(json, "pairFactory", address(pairFactory));
+        vm.serializeAddress(json, "launchpadZap", address(zap));
+        vm.serializeAddress(json, "wrht", address(wrht));
+        vm.serializeAddress(json, "uniswapV3Router", address(v3));
     }
 }

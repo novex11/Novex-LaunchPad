@@ -17,6 +17,7 @@ const WalletControls = dynamic(
 const links = [
   { href: "/markets", label: "Markets" },
   { href: "/create", label: "Create" },
+  { href: "/launchpad", label: "Launchpad" },
   { href: "/portfolio", label: "Portfolio" },
   { href: "/vault/tNVDA-B", label: "Vaults" },
   { href: "/activity", label: "Activity" },

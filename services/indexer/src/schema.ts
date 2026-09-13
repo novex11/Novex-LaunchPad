@@ -7,7 +7,11 @@ import {
   boolean,
   jsonb,
   uniqueIndex,
+  index,
 } from "drizzle-orm/pg-core";
+import { receiptTokenName } from "@novex/config";
+
+const DEFAULT_VAULT_ID = receiptTokenName("NVDA", "balanced");
 
 // ─── Positions ──────────────────────────────────────────
 
@@ -108,58 +112,72 @@ export const walletStockback = pgTable(
 
 // ─── Analytics: Swap Events ─────────────────────────────
 
-export const swapEvents = pgTable("swap_events", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  txHash: text("tx_hash").notNull(),
-  blockNumber: numeric("block_number").notNull(),
-  logIndex: numeric("log_index").notNull().default("0"),
-  vaultAddress: text("vault_address").notNull(),
-  tokenIn: text("token_in").notNull(),
-  tokenOut: text("token_out").notNull(),
-  amountIn: text("amount_in").notNull(),
-  amountOut: text("amount_out").notNull(),
-  valueUsd: numeric("value_usd", { precision: 18, scale: 4 })
-    .notNull()
-    .default("0"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+export const swapEvents = pgTable(
+  "swap_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    txHash: text("tx_hash").notNull(),
+    blockNumber: numeric("block_number").notNull(),
+    logIndex: numeric("log_index").notNull().default("0"),
+    vaultAddress: text("vault_address").notNull(),
+    tokenIn: text("token_in").notNull(),
+    tokenOut: text("token_out").notNull(),
+    amountIn: text("amount_in").notNull(),
+    amountOut: text("amount_out").notNull(),
+    valueUsd: numeric("value_usd", { precision: 18, scale: 4 })
+      .notNull()
+      .default("0"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("swap_events_tx_log_idx").on(table.txHash, table.logIndex),
+  ],
+);
 
 // ─── Analytics: Deposit Events (raw on-chain) ───────────
 
-export const depositEvents = pgTable("deposit_events", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  txHash: text("tx_hash").notNull(),
-  blockNumber: numeric("block_number").notNull(),
-  userAddress: text("user_address").notNull(),
-  amountIn: text("amount_in").notNull(),
-  sharesMinted: text("shares_minted").notNull(),
-  valueUsd: numeric("value_usd", { precision: 18, scale: 4 })
-    .notNull()
-    .default("0"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+export const depositEvents = pgTable(
+  "deposit_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    txHash: text("tx_hash").notNull(),
+    blockNumber: numeric("block_number").notNull(),
+    userAddress: text("user_address").notNull(),
+    amountIn: text("amount_in").notNull(),
+    sharesMinted: text("shares_minted").notNull(),
+    valueUsd: numeric("value_usd", { precision: 18, scale: 4 })
+      .notNull()
+      .default("0"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [uniqueIndex("deposit_events_tx_idx").on(table.txHash)],
+);
 
 // ─── Analytics: Redeem Events (raw on-chain) ────────────
 
-export const redeemEvents = pgTable("redeem_events", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  txHash: text("tx_hash").notNull(),
-  blockNumber: numeric("block_number").notNull(),
-  userAddress: text("user_address").notNull(),
-  sharesBurned: text("shares_burned").notNull(),
-  redeemMode: numeric("redeem_mode").notNull().default("0"),
-  valueUsd: numeric("value_usd", { precision: 18, scale: 4 })
-    .notNull()
-    .default("0"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+export const redeemEvents = pgTable(
+  "redeem_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    txHash: text("tx_hash").notNull(),
+    blockNumber: numeric("block_number").notNull(),
+    userAddress: text("user_address").notNull(),
+    sharesBurned: text("shares_burned").notNull(),
+    redeemMode: numeric("redeem_mode").notNull().default("0"),
+    valueUsd: numeric("value_usd", { precision: 18, scale: 4 })
+      .notNull()
+      .default("0"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [uniqueIndex("redeem_events_tx_idx").on(table.txHash)],
+);
 
 // ─── Analytics: Daily Volume Aggregates ─────────────────
 
 export const dailyVolume = pgTable("daily_volume", {
   id: uuid("id").defaultRandom().primaryKey(),
   date: text("date").notNull(),
-  vaultId: text("vault_id").notNull().default("nNVDA-B"),
+  vaultId: text("vault_id").notNull().default(DEFAULT_VAULT_ID),
   volumeUsd: numeric("volume_usd", { precision: 18, scale: 4 })
     .notNull()
     .default("0"),
@@ -179,10 +197,88 @@ export const dailyVolume = pgTable("daily_volume", {
 
 export const tvlSnapshots = pgTable("tvl_snapshots", {
   id: uuid("id").defaultRandom().primaryKey(),
-  vaultId: text("vault_id").notNull().default("nNVDA-B"),
+  vaultId: text("vault_id").notNull().default(DEFAULT_VAULT_ID),
   vaultAddress: text("vault_address").notNull(),
   navUsd: numeric("nav_usd", { precision: 18, scale: 4 }).notNull(),
   sharePrice: numeric("share_price", { precision: 18, scale: 8 }).notNull(),
   totalShares: text("total_shares").notNull().default("0"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// ─── Launchpad: launched pairs ──────────────────────────
+
+export const launchedPairs = pgTable(
+  "launched_pairs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    pairKey: text("pair_key").notNull(),
+    pairAddress: text("pair_address").notNull(),
+    receiptAddress: text("receipt_address").notNull(),
+    receiptSymbol: text("receipt_symbol").notNull(),
+    creatorWallet: text("creator_wallet").notNull(),
+    tokenA: text("token_a").notNull(),
+    tokenB: text("token_b").notNull(),
+    tickerA: text("ticker_a").notNull(),
+    tickerB: text("ticker_b").notNull(),
+    categoryA: text("category_a").notNull(),
+    categoryB: text("category_b").notNull(),
+    weightABps: numeric("weight_a_bps").notNull(),
+    creatorFeeBps: numeric("creator_fee_bps").notNull(),
+    tvlUsd: numeric("tvl_usd", { precision: 18, scale: 4 })
+      .notNull()
+      .default("0"),
+    totalDepositsUsd: numeric("total_deposits_usd", { precision: 18, scale: 4 })
+      .notNull()
+      .default("0"),
+    totalDepositors: numeric("total_depositors").notNull().default("0"),
+    creatorEarningsUsd: numeric("creator_earnings_usd", {
+      precision: 18,
+      scale: 4,
+    })
+      .notNull()
+      .default("0"),
+    /** Rolling 24h deposit + redeem volume — refreshed on each activity */
+    volume24hUsd: numeric("volume_24h_usd", { precision: 18, scale: 4 })
+      .notNull()
+      .default("0"),
+    /** Creator-supplied pair description (like Long.xyz tokenURI metadata) */
+    description: text("description").notNull().default(""),
+    /** Which token is the quote/numeraire leg (Long.xyz concept) */
+    numeraireTicker: text("numeraire_ticker").notNull().default(""),
+    status: text("status").notNull().default("active"),
+    txHash: text("tx_hash").notNull().default(""),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("launched_pairs_key_idx").on(table.pairKey),
+    uniqueIndex("launched_pairs_address_idx").on(table.pairAddress),
+  ],
+);
+
+// ─── Launchpad: pair deposits ───────────────────────────
+
+export const pairDeposits = pgTable("pair_deposits", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  pairAddress: text("pair_address").notNull(),
+  wallet: text("wallet").notNull(),
+  usdgAmount: numeric("usdg_amount", { precision: 18, scale: 4 }).notNull(),
+  sharesMinted: text("shares_minted").notNull(),
+  creatorFeeUsd: numeric("creator_fee_usd", { precision: 18, scale: 4 })
+    .notNull()
+    .default("0"),
+  txHash: text("tx_hash").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// ─── Launchpad: pair redeems ────────────────────────────
+
+export const pairRedeems = pgTable("pair_redeems", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  pairAddress: text("pair_address").notNull(),
+  wallet: text("wallet").notNull(),
+  sharesBurned: text("shares_burned").notNull(),
+  usdgOut: numeric("usdg_out", { precision: 18, scale: 4 }).notNull(),
+  txHash: text("tx_hash").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

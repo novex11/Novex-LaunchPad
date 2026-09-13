@@ -8,6 +8,8 @@ export const PreviewRequestSchema = z.object({
   strategy: StrategySchema.default("balanced"),
   preferred: z.array(z.string()).optional(),
   excluded: z.array(z.string()).optional(),
+  /** Max number of tokens in the basket (default 5). Set 0 for all eligible. */
+  maxTokens: z.number().int().min(0).max(30).optional().default(5),
 });
 
 export const QuoteRequestSchema = z.object({
@@ -26,6 +28,11 @@ export const RebalanceSimulateSchema = z.object({
 });
 
 export type PreviewRequest = z.infer<typeof PreviewRequestSchema>;
+/** Input type for buildPreview — allows omitting fields that have defaults */
+export type PreviewRequestInput = Omit<PreviewRequest, "strategy" | "maxTokens"> & {
+  strategy?: PreviewRequest["strategy"];
+  maxTokens?: PreviewRequest["maxTokens"];
+};
 export type QuoteRequest = z.infer<typeof QuoteRequestSchema>;
 
 export interface PreviewResponse {

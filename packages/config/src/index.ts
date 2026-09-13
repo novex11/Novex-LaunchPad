@@ -3,4 +3,5 @@ export * from "./tokens.js";
 export * from "./strategies.js";
 export * from "./cashback.js";
 export * from "./launch.js";
+export * from "./launchpad.js";
 export * from "./rhj-api.js";

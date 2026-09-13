@@ -32,7 +32,7 @@ export function LandingFaqSection() {
   return (
     <SectionFrame
       id="faq"
-      index="08"
+      index="09"
       eyebrow="Questions"
       title="Before you connect."
       description="Short answers. The ledger does not invent a second story after you sign."

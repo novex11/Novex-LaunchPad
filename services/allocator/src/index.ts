@@ -1,6 +1,9 @@
-import { serve } from "@hono/node-server";
+import { serve, type ServerType } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { logger } from "hono/logger";
+import { requestId } from "hono/request-id";
+import { secureHeaders } from "hono/secure-headers";
 import {
   buildPreview,
   PreviewRequestSchema,
@@ -16,6 +19,7 @@ import {
 
 const INDEXER_URL =
   process.env.INDEXER_URL ?? "http://localhost:3003";
+const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY ?? "";
 
 let resolvedTokens: StockToken[] = APPROVED_STOCK_TOKENS;
 
@@ -38,7 +42,33 @@ async function bootstrapTokens(): Promise<void> {
 }
 
 const app = new Hono();
+
+// ─── Global middleware ──────────────────────────────────
 app.use("/*", cors());
+app.use("/*", logger());
+app.use("/*", requestId());
+app.use("/*", secureHeaders());
+
+// API key auth for write endpoints
+app.use("/preview", async (c, next) => {
+  if (INTERNAL_API_KEY && c.req.header("x-api-key") !== INTERNAL_API_KEY) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+  await next();
+});
+app.use("/rebalance/*", async (c, next) => {
+  if (INTERNAL_API_KEY && c.req.header("x-api-key") !== INTERNAL_API_KEY) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+  await next();
+});
+
+// ─── Global error handler ───────────────────────────────
+app.onError((err, c) => {
+  console.error(`[allocator] Unhandled error on ${c.req.method} ${c.req.path}:`, err);
+  const message = err instanceof Error ? err.message : "Internal server error";
+  return c.json({ error: message, requestId: c.get("requestId") }, 500);
+});
 
 app.get("/health", (c) =>
   c.json({ status: "ok", service: "allocator", version: "2.0.0", tokensResolved: resolvedTokens.length }),
@@ -143,8 +173,27 @@ app.post("/rebalance/simulate", async (c) => {
 
 const port = Number(process.env.ALLOCATOR_PORT ?? 3001);
 
+let server: ServerType;
+
 bootstrapTokens().then(() => {
-  serve({ fetch: app.fetch, port, hostname: "0.0.0.0" }, () => {
-    console.log(`Allocator API listening on :${port}`);
+  server = serve({ fetch: app.fetch, port, hostname: "0.0.0.0" }, () => {
+    console.log(`[allocator] API listening on :${port}`);
   });
 });
+
+function gracefulShutdown(signal: string) {
+  console.log(`[allocator] ${signal} received, shutting down gracefully...`);
+  if (server) {
+    server.close(() => {
+      console.log("[allocator] HTTP server closed");
+      process.exit(0);
+    });
+  }
+  setTimeout(() => {
+    console.error("[allocator] Forced shutdown after timeout");
+    process.exit(1);
+  }, 10_000);
+}
+
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));

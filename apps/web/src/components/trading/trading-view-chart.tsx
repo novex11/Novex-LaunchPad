@@ -31,11 +31,18 @@ function TradingViewChartInner({
     // script resolves its container via `parentElement`, so removing the
     // wrapper (rather than clearing innerHTML) keeps that reference valid
     // if the script finishes loading after an effect re-run.
+    //
+    // The current embed script does NOT fill `__widget`; it appends its own
+    // sized container as a sibling. If `__widget` also had a height, the
+    // iframe would be pushed below the box and clipped by overflow-hidden.
+    // So: the wrapper is a positioned box and every direct child is
+    // stretched over it (see `.tradingview-widget-container` rules in
+    // globals.css) — whichever element ends up holding the iframe fills it.
     const wrapper = document.createElement("div");
+    wrapper.className = "tv-embed-wrapper";
     wrapper.style.height = `${height}px`;
     const widget = document.createElement("div");
     widget.className = "tradingview-widget-container__widget";
-    widget.style.height = `${height}px`;
     wrapper.appendChild(widget);
     el.appendChild(wrapper);
 

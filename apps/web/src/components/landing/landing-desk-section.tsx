@@ -8,8 +8,8 @@ import { LedgerCell, LedgerGrid } from "./ledger-cell";
 const PAGES = [
   { href: "/markets", title: "Markets", body: "Live prices, sparklines, buy and sell from any row." },
   { href: "/create", title: "Create", body: "Build a basket with real-time allocator preview and Stockback." },
+  { href: "/launchpad", title: "Launchpad", body: "Launch or deposit into unique 2-token pair vaults; creators earn fees on every deposit." },
   { href: "/portfolio", title: "Portfolio", body: "Basket allocation, direct holdings, and recent activity." },
-  { href: "/activity", title: "Activity", body: "Every buy, sell, deposit, redemption, and Stockback credit." },
 ];
 
 export function LandingDeskSection() {
@@ -19,7 +19,7 @@ export function LandingDeskSection() {
       index="06"
       eyebrow="The desk"
       title="Four pages. One wallet."
-      description="After the wallet signs, the desk is four pages. Credit lives on the address. There is no email profile."
+      description="After the wallet signs, the desk is four pages — Markets, Create, Launchpad, and Portfolio. Credit lives on the address. There is no email profile."
     >
       <LedgerGrid cols={4}>
         {PAGES.map((p, i) => (

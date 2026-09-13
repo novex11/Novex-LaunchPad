@@ -203,3 +203,25 @@
     font-variant-numeric: tabular-nums;
   }
 }
+
+/*
+ * TradingView embed: the script appends its own sized container next to
+ * `__widget`. Stretch every direct child of the wrapper over the box so
+ * the iframe is never pushed out of view, whichever node it lands in.
+ */
+.tv-embed-wrapper {
+  position: relative;
+  width: 100%;
+}
+.tv-embed-wrapper > div {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+}
+.tv-embed-wrapper > .tradingview-widget-container__widget:empty {
+  pointer-events: none;
+}
+.tv-embed-wrapper .tradingview-widget-copyright {
+  display: none;
+}

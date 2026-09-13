@@ -1,9 +1,14 @@
 import { createPublicClient, http, parseAbi } from "viem";
-import { robinhoodTestnet, robinhoodChain } from "@novex/config";
+import { robinhoodTestnet, robinhoodChain, receiptTokenName } from "@novex/config";
 import { createDb } from "./db.js";
 import { positions, tvlSnapshots } from "./schema.js";
 import { eq } from "drizzle-orm";
 import * as jsonStore from "./store.js";
+
+const DEFAULT_VAULT_ID = receiptTokenName(
+  process.env.DEFAULT_DEPOSIT_TICKER ?? "NVDA",
+  (process.env.DEFAULT_STRATEGY ?? "balanced") as "defensive" | "balanced" | "aggressive",
+);
 
 const USE_TESTNET = process.env.NEXT_PUBLIC_USE_TESTNET === "true";
 const chain = USE_TESTNET ? robinhoodTestnet : robinhoodChain;
@@ -77,9 +82,8 @@ async function updatePortfolioValues(): Promise<void> {
     );
 
     if (db) {
-      // Write TVL snapshot for analytics
       await db.insert(tvlSnapshots).values({
-        vaultId: "nNVDA-B",
+        vaultId: DEFAULT_VAULT_ID,
         vaultAddress: VAULT_ADDRESS.toLowerCase(),
         navUsd: String(navUsd.toFixed(4)),
         sharePrice: String(sharePrice.toFixed(8)),

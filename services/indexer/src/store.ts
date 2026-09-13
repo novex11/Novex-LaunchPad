@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { CASHBACK_CONFIG } from "@novex/config";
+import { CASHBACK_CONFIG, receiptTokenName } from "@novex/config";
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = join(__dir, "..", "data");
@@ -87,9 +87,11 @@ interface IndexerState {
   }>;
 }
 
+const DEFAULT_VAULT_ID = receiptTokenName("NVDA", "balanced");
+
 const DEFAULT_VAULTS: Record<string, VaultState> = {
-  "nNVDA-B": {
-    id: "nNVDA-B",
+  [DEFAULT_VAULT_ID]: {
+    id: DEFAULT_VAULT_ID,
     strategy: "balanced",
     depositAsset: "NVDA",
     tvlUsd: 0,
@@ -308,10 +310,13 @@ export function recordDeposit(input: RecordDepositInput): {
   const wallet = input.wallet.toLowerCase();
   const vaultId =
     input.vaultId ??
-    `n${input.depositTicker.toUpperCase()}-${input.strategy[0]?.toUpperCase() ?? "B"}`;
+    receiptTokenName(
+      input.depositTicker,
+      input.strategy as "defensive" | "balanced" | "aggressive",
+    );
 
   const vault = state.vaults[vaultId] ?? {
-    ...DEFAULT_VAULTS["nNVDA-B"],
+    ...DEFAULT_VAULTS[DEFAULT_VAULT_ID],
     id: vaultId,
     strategy: input.strategy,
     depositAsset: input.depositTicker.toUpperCase(),

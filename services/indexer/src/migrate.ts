@@ -104,6 +104,7 @@ export async function ensureSchema(): Promise<void> {
           created_at timestamp NOT NULL DEFAULT now()
         )
       `;
+      await sql`CREATE UNIQUE INDEX IF NOT EXISTS swap_events_tx_log_idx ON swap_events (tx_hash, log_index)`;
 
       await sql`
         CREATE TABLE IF NOT EXISTS deposit_events (
@@ -117,6 +118,7 @@ export async function ensureSchema(): Promise<void> {
           created_at timestamp NOT NULL DEFAULT now()
         )
       `;
+      await sql`CREATE UNIQUE INDEX IF NOT EXISTS deposit_events_tx_idx ON deposit_events (tx_hash)`;
 
       await sql`
         CREATE TABLE IF NOT EXISTS redeem_events (
@@ -130,12 +132,13 @@ export async function ensureSchema(): Promise<void> {
           created_at timestamp NOT NULL DEFAULT now()
         )
       `;
+      await sql`CREATE UNIQUE INDEX IF NOT EXISTS redeem_events_tx_idx ON redeem_events (tx_hash)`;
 
       await sql`
         CREATE TABLE IF NOT EXISTS daily_volume (
           id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
           date text NOT NULL,
-          vault_id text NOT NULL DEFAULT 'nNVDA-B',
+          vault_id text NOT NULL DEFAULT 'tNVDA-B',
           volume_usd numeric(18, 4) NOT NULL DEFAULT '0',
           deposit_volume_usd numeric(18, 4) NOT NULL DEFAULT '0',
           redeem_volume_usd numeric(18, 4) NOT NULL DEFAULT '0',
@@ -150,11 +153,66 @@ export async function ensureSchema(): Promise<void> {
       await sql`
         CREATE TABLE IF NOT EXISTS tvl_snapshots (
           id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-          vault_id text NOT NULL DEFAULT 'nNVDA-B',
+          vault_id text NOT NULL DEFAULT 'tNVDA-B',
           vault_address text NOT NULL,
           nav_usd numeric(18, 4) NOT NULL,
           share_price numeric(18, 8) NOT NULL,
           total_shares text NOT NULL DEFAULT '0',
+          created_at timestamp NOT NULL DEFAULT now()
+        )
+      `;
+
+      // ─── Launchpad tables ─────────────────────────────
+      await sql`
+        CREATE TABLE IF NOT EXISTS launched_pairs (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          pair_key text NOT NULL,
+          pair_address text NOT NULL,
+          receipt_address text NOT NULL,
+          receipt_symbol text NOT NULL,
+          creator_wallet text NOT NULL,
+          token_a text NOT NULL,
+          token_b text NOT NULL,
+          ticker_a text NOT NULL,
+          ticker_b text NOT NULL,
+          category_a text NOT NULL,
+          category_b text NOT NULL,
+          weight_a_bps numeric NOT NULL,
+          creator_fee_bps numeric NOT NULL,
+          tvl_usd numeric(18, 4) NOT NULL DEFAULT '0',
+          total_deposits_usd numeric(18, 4) NOT NULL DEFAULT '0',
+          total_depositors numeric NOT NULL DEFAULT '0',
+          creator_earnings_usd numeric(18, 4) NOT NULL DEFAULT '0',
+          status text NOT NULL DEFAULT 'active',
+          tx_hash text NOT NULL DEFAULT '',
+          created_at timestamp NOT NULL DEFAULT now(),
+          updated_at timestamp NOT NULL DEFAULT now()
+        )
+      `;
+      await sql`CREATE UNIQUE INDEX IF NOT EXISTS launched_pairs_key_idx ON launched_pairs (pair_key)`;
+      await sql`CREATE UNIQUE INDEX IF NOT EXISTS launched_pairs_address_idx ON launched_pairs (pair_address)`;
+
+      await sql`
+        CREATE TABLE IF NOT EXISTS pair_deposits (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          pair_address text NOT NULL,
+          wallet text NOT NULL,
+          usdg_amount numeric(18, 4) NOT NULL,
+          shares_minted text NOT NULL,
+          creator_fee_usd numeric(18, 4) NOT NULL DEFAULT '0',
+          tx_hash text NOT NULL,
+          created_at timestamp NOT NULL DEFAULT now()
+        )
+      `;
+
+      await sql`
+        CREATE TABLE IF NOT EXISTS pair_redeems (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          pair_address text NOT NULL,
+          wallet text NOT NULL,
+          shares_burned text NOT NULL,
+          usdg_out numeric(18, 4) NOT NULL,
+          tx_hash text NOT NULL,
           created_at timestamp NOT NULL DEFAULT now()
         )
       `;

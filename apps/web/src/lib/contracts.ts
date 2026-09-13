@@ -3,12 +3,20 @@ import strategyVaultAbi from "./abis/StrategyVault.json";
 import receiptTokenAbi from "./abis/ReceiptToken.json";
 import vaultFactoryAbi from "./abis/VaultFactory.json";
 import oracleAdapterAbi from "./abis/OracleAdapter.json";
+import pairFactoryAbi from "./abis/PairFactory.json";
+import pairVaultAbi from "./abis/PairVault.json";
+import launchpadZapAbi from "./abis/LaunchpadZap.json";
+import wrhtAbi from "./abis/WRHT.json";
 
 export {
   strategyVaultAbi,
   receiptTokenAbi,
   vaultFactoryAbi,
   oracleAdapterAbi,
+  pairFactoryAbi,
+  pairVaultAbi,
+  launchpadZapAbi,
+  wrhtAbi,
 };
 
 // ERC-20 minimal ABI for approve/balanceOf
@@ -74,9 +82,24 @@ export const RECEIPT_TOKEN_ADDRESS = envAddr(
   "NEXT_PUBLIC_RECEIPT_TOKEN_ADDRESS",
 );
 export const FACTORY_ADDRESS = envAddr("NEXT_PUBLIC_FACTORY_ADDRESS");
+export const PAIR_FACTORY_ADDRESS = envAddr(
+  "NEXT_PUBLIC_PAIR_FACTORY_ADDRESS",
+);
+export const USDG_ADDRESS = envAddr("NEXT_PUBLIC_USDG_ADDRESS");
+export const LAUNCHPAD_ZAP_ADDRESS = envAddr(
+  "NEXT_PUBLIC_LAUNCHPAD_ZAP_ADDRESS",
+);
+export const WRHT_ADDRESS = envAddr("NEXT_PUBLIC_WETH_ADDRESS");
+export const WETH_ADDRESS = WRHT_ADDRESS;
 
 /** Factory deployed — resolves vaults per deposit asset (tTSLA-B, etc.) */
 export const factoryReady = FACTORY_ADDRESS !== ZERO;
+
+/** Pair launchpad deployed */
+export const pairFactoryReady = PAIR_FACTORY_ADDRESS !== ZERO;
+
+/** Launchpad Zap deployed — enables non-USDG payment sources */
+export const launchpadZapReady = LAUNCHPAD_ZAP_ADDRESS !== ZERO;
 
 /** Legacy single-vault mode (backward compatible) */
 export const contractsReady =

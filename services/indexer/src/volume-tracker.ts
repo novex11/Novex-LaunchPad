@@ -6,6 +6,12 @@ import {
   redeemEvents,
   dailyVolume,
 } from "./schema.js";
+import { receiptTokenName } from "@novex/config";
+
+const DEFAULT_VAULT_ID = receiptTokenName(
+  process.env.DEFAULT_DEPOSIT_TICKER ?? "NVDA",
+  (process.env.DEFAULT_STRATEGY ?? "balanced") as "defensive" | "balanced" | "aggressive",
+);
 
 function todayDateStr(): string {
   return new Date().toISOString().slice(0, 10);
@@ -29,17 +35,20 @@ export async function recordSwap(
 ): Promise<void> {
   const valueUsd = data.valueUsd ?? 0;
 
-  await db.insert(swapEvents).values({
-    txHash: data.txHash,
-    blockNumber: String(data.blockNumber),
-    logIndex: String(data.logIndex ?? 0),
-    vaultAddress: data.vaultAddress.toLowerCase(),
-    tokenIn: data.tokenIn.toLowerCase(),
-    tokenOut: data.tokenOut.toLowerCase(),
-    amountIn: String(data.amountIn),
-    amountOut: String(data.amountOut),
-    valueUsd: String(valueUsd.toFixed(4)),
-  });
+  await db
+    .insert(swapEvents)
+    .values({
+      txHash: data.txHash,
+      blockNumber: String(data.blockNumber),
+      logIndex: String(data.logIndex ?? 0),
+      vaultAddress: data.vaultAddress.toLowerCase(),
+      tokenIn: data.tokenIn.toLowerCase(),
+      tokenOut: data.tokenOut.toLowerCase(),
+      amountIn: String(data.amountIn),
+      amountOut: String(data.amountOut),
+      valueUsd: String(valueUsd.toFixed(4)),
+    })
+    .onConflictDoNothing();
 
   await upsertDailyVolume(db, "swap", valueUsd);
 }
@@ -57,14 +66,17 @@ export async function recordDeposit(
     valueUsd: number;
   },
 ): Promise<void> {
-  await db.insert(depositEvents).values({
-    txHash: data.txHash,
-    blockNumber: String(data.blockNumber),
-    userAddress: data.userAddress.toLowerCase(),
-    amountIn: String(data.amountIn),
-    sharesMinted: String(data.sharesMinted),
-    valueUsd: String(data.valueUsd.toFixed(4)),
-  });
+  await db
+    .insert(depositEvents)
+    .values({
+      txHash: data.txHash,
+      blockNumber: String(data.blockNumber),
+      userAddress: data.userAddress.toLowerCase(),
+      amountIn: String(data.amountIn),
+      sharesMinted: String(data.sharesMinted),
+      valueUsd: String(data.valueUsd.toFixed(4)),
+    })
+    .onConflictDoNothing();
 
   await upsertDailyVolume(db, "deposit", data.valueUsd, data.userAddress);
 }
@@ -82,14 +94,17 @@ export async function recordRedeem(
     valueUsd: number;
   },
 ): Promise<void> {
-  await db.insert(redeemEvents).values({
-    txHash: data.txHash,
-    blockNumber: String(data.blockNumber),
-    userAddress: data.userAddress.toLowerCase(),
-    sharesBurned: String(data.sharesBurned),
-    redeemMode: String(data.redeemMode),
-    valueUsd: String(data.valueUsd.toFixed(4)),
-  });
+  await db
+    .insert(redeemEvents)
+    .values({
+      txHash: data.txHash,
+      blockNumber: String(data.blockNumber),
+      userAddress: data.userAddress.toLowerCase(),
+      sharesBurned: String(data.sharesBurned),
+      redeemMode: String(data.redeemMode),
+      valueUsd: String(data.valueUsd.toFixed(4)),
+    })
+    .onConflictDoNothing();
 
   await upsertDailyVolume(db, "redeem", data.valueUsd, data.userAddress);
 }
@@ -103,9 +118,8 @@ async function upsertDailyVolume(
   walletAddress?: string,
 ): Promise<void> {
   const today = todayDateStr();
-  const vaultId = "nNVDA-B";
+  const vaultId = DEFAULT_VAULT_ID;
 
-  // Check if row exists
   const existing = await db
     .select()
     .from(dailyVolume)
@@ -115,7 +129,6 @@ async function upsertDailyVolume(
     .limit(1);
 
   if (existing.length === 0) {
-    // Create new day row
     await db.insert(dailyVolume).values({
       date: today,
       vaultId,
@@ -128,7 +141,6 @@ async function upsertDailyVolume(
       uniqueWallets: walletAddress ? "1" : "0",
     });
   } else {
-    // Increment existing row
     const volumeCol =
       type === "swap"
         ? dailyVolume.volumeUsd
@@ -142,12 +154,18 @@ async function upsertDailyVolume(
           ? dailyVolume.depositCount
           : dailyVolume.redeemCount;
 
+    const updates: Record<string, unknown> = {
+      [volumeCol.name]: sql`CAST(${volumeCol} AS numeric) + ${String(valueUsd.toFixed(4))}`,
+      [countCol.name]: sql`CAST(${countCol} AS numeric) + 1`,
+    };
+
+    if (walletAddress) {
+      updates[dailyVolume.uniqueWallets.name] = sql`CAST(${dailyVolume.uniqueWallets} AS numeric) + 1`;
+    }
+
     await db
       .update(dailyVolume)
-      .set({
-        [volumeCol.name]: sql`CAST(${volumeCol} AS numeric) + ${String(valueUsd.toFixed(4))}`,
-        [countCol.name]: sql`CAST(${countCol} AS numeric) + 1`,
-      })
+      .set(updates)
       .where(
         sql`${dailyVolume.date} = ${today} AND ${dailyVolume.vaultId} = ${vaultId}`,
       );

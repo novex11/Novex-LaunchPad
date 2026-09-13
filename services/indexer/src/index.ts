@@ -1,10 +1,14 @@
-import { serve } from "@hono/node-server";
+import { serve, type ServerType } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { logger } from "hono/logger";
+import { requestId } from "hono/request-id";
+import { secureHeaders } from "hono/secure-headers";
 import { z } from "zod";
 import { desc, sql, eq } from "drizzle-orm";
 import * as jsonStore from "./store.js";
 import * as dbStore from "./db-store.js";
+import * as launchpadStore from "./launchpad-store.js";
 import { createDb, type Db } from "./db.js";
 import { ensureSchema } from "./migrate.js";
 import { startChainListener } from "./chain-listener.js";
@@ -27,6 +31,8 @@ if (useDb) {
 } else {
   console.log("[indexer] JSON file mode: no DATABASE_URL");
 }
+
+const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY ?? "";
 
 const DepositSchema = z.object({
   wallet: z.string().min(1),
@@ -63,8 +69,103 @@ const TradeSchema = z.object({
   txHash: z.string().optional(),
 });
 
+// ─── Launchpad schemas ──────────────────────────────────
+
+const LaunchpadLaunchSchema = z.object({
+  pairKey: z.string().min(1),
+  pairAddress: z.string().min(1),
+  receiptAddress: z.string().min(1),
+  receiptSymbol: z.string().min(1),
+  creatorWallet: z.string().min(1),
+  tokenA: z.string().min(1),
+  tokenB: z.string().min(1),
+  tickerA: z.string().min(1),
+  tickerB: z.string().min(1),
+  categoryA: z.string(),
+  categoryB: z.string(),
+  weightABps: z.number().int().min(1000).max(9000),
+  creatorFeeBps: z.number().int().min(100).max(500),
+  txHash: z.string().optional(),
+});
+
+const LaunchpadDepositSchema = z.object({
+  pairAddress: z.string().min(1),
+  wallet: z.string().min(1),
+  usdgAmount: z.number().positive(),
+  sharesMinted: z.string().min(1),
+  creatorFeeUsd: z.number().min(0),
+  txHash: z.string().min(1),
+});
+
+const LaunchpadRedeemSchema = z.object({
+  pairAddress: z.string().min(1),
+  wallet: z.string().min(1),
+  sharesBurned: z.string().min(1),
+  usdgOut: z.number().min(0),
+  txHash: z.string().min(1),
+});
+
 const app = new Hono();
+
+// ─── Global middleware ──────────────────────────────────
 app.use("/*", cors());
+app.use("/*", logger());
+app.use("/*", requestId());
+app.use("/*", secureHeaders());
+
+// API key auth for write endpoints (skip health + read-only GETs)
+app.use("/deposits", async (c, next) => {
+  if (INTERNAL_API_KEY && c.req.header("x-api-key") !== INTERNAL_API_KEY) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+  await next();
+});
+app.use("/redeems", async (c, next) => {
+  if (INTERNAL_API_KEY && c.req.header("x-api-key") !== INTERNAL_API_KEY) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+  await next();
+});
+app.use("/trades", async (c, next) => {
+  if (INTERNAL_API_KEY && c.req.header("x-api-key") !== INTERNAL_API_KEY) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+  await next();
+});
+app.use("/events/*", async (c, next) => {
+  if (INTERNAL_API_KEY && c.req.header("x-api-key") !== INTERNAL_API_KEY) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+  await next();
+});
+
+// Launchpad write endpoints (launch, deposit, redeem) require API key when set.
+// GET endpoints (list, detail, stats, creator) are public.
+app.use("/launchpad/launch", async (c, next) => {
+  if (INTERNAL_API_KEY && c.req.header("x-api-key") !== INTERNAL_API_KEY) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+  await next();
+});
+app.use("/launchpad/deposit", async (c, next) => {
+  if (INTERNAL_API_KEY && c.req.header("x-api-key") !== INTERNAL_API_KEY) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+  await next();
+});
+app.use("/launchpad/redeem", async (c, next) => {
+  if (INTERNAL_API_KEY && c.req.header("x-api-key") !== INTERNAL_API_KEY) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+  await next();
+});
+
+// ─── Global error handler ───────────────────────────────
+app.onError((err, c) => {
+  console.error(`[indexer] Unhandled error on ${c.req.method} ${c.req.path}:`, err);
+  const message = err instanceof Error ? err.message : "Internal server error";
+  return c.json({ error: message, requestId: c.get("requestId") }, 500);
+});
 
 app.get("/health", (c) =>
   c.json({
@@ -191,9 +292,10 @@ app.post("/redeems", async (c) => {
   }
 });
 
-app.get("/multiplier-events", (c) =>
-  c.json({ events: jsonStore.getMultiplierEvents() }),
-);
+app.get("/multiplier-events", (c) => {
+  const events = jsonStore.getMultiplierEvents();
+  return c.json({ events });
+});
 
 // ─── Analytics API ──────────────────────────────────────
 
@@ -340,6 +442,162 @@ app.get("/analytics/summary", async (c) => {
   });
 });
 
+// ─── Launchpad API ──────────────────────────────────────
+
+app.post("/launchpad/launch", async (c) => {
+  if (!useDb) return c.json({ error: "DB not configured" }, 503);
+  try {
+    const body = await c.req.json();
+    const parsed = LaunchpadLaunchSchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ error: parsed.error.flatten() }, 400);
+    }
+    const row = await launchpadStore.recordLaunch(db!, parsed.data);
+    return c.json({ ok: true, pair: row });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Launch failed";
+    return c.json({ error: message }, 500);
+  }
+});
+
+app.get("/launchpad/pairs", async (c) => {
+  if (!useDb) return c.json({ pairs: [] });
+  const sort = c.req.query("sort") as "tvl" | "new" | "depositors" | undefined;
+  const limit = Number(c.req.query("limit") ?? 100);
+  const rows = await launchpadStore.listPairs(db!, { sort, limit });
+  return c.json({
+    pairs: rows.map((r) => ({
+      pairAddress: r.pairAddress,
+      receiptAddress: r.receiptAddress,
+      receiptSymbol: r.receiptSymbol,
+      creatorWallet: r.creatorWallet,
+      tickerA: r.tickerA,
+      tickerB: r.tickerB,
+      categoryA: r.categoryA,
+      categoryB: r.categoryB,
+      weightABps: Number(r.weightABps),
+      creatorFeeBps: Number(r.creatorFeeBps),
+      tvlUsd: Number(r.tvlUsd),
+      totalDepositsUsd: Number(r.totalDepositsUsd),
+      totalDepositors: Number(r.totalDepositors),
+      creatorEarningsUsd: Number(r.creatorEarningsUsd),
+      status: r.status,
+      createdAt: r.createdAt.toISOString(),
+    })),
+  });
+});
+
+app.get("/launchpad/pair/:address", async (c) => {
+  if (!useDb) return c.json({ error: "DB not configured" }, 503);
+  const addr = c.req.param("address");
+  const pair = await launchpadStore.getPair(db!, addr);
+  if (!pair) return c.json({ error: "Pair not found" }, 404);
+  const activity = await launchpadStore.getPairActivity(db!, addr);
+  return c.json({
+    pair: {
+      pairAddress: pair.pairAddress,
+      receiptAddress: pair.receiptAddress,
+      receiptSymbol: pair.receiptSymbol,
+      creatorWallet: pair.creatorWallet,
+      tokenA: pair.tokenA,
+      tokenB: pair.tokenB,
+      tickerA: pair.tickerA,
+      tickerB: pair.tickerB,
+      categoryA: pair.categoryA,
+      categoryB: pair.categoryB,
+      weightABps: Number(pair.weightABps),
+      creatorFeeBps: Number(pair.creatorFeeBps),
+      tvlUsd: Number(pair.tvlUsd),
+      totalDepositsUsd: Number(pair.totalDepositsUsd),
+      totalDepositors: Number(pair.totalDepositors),
+      creatorEarningsUsd: Number(pair.creatorEarningsUsd),
+      status: pair.status,
+      createdAt: pair.createdAt.toISOString(),
+    },
+    activity: {
+      deposits: activity.deposits.map((d) => ({
+        wallet: d.wallet,
+        usdgAmount: Number(d.usdgAmount),
+        sharesMinted: d.sharesMinted,
+        creatorFeeUsd: Number(d.creatorFeeUsd),
+        txHash: d.txHash,
+        timestamp: d.createdAt.toISOString(),
+      })),
+      redeems: activity.redeems.map((r) => ({
+        wallet: r.wallet,
+        sharesBurned: r.sharesBurned,
+        usdgOut: Number(r.usdgOut),
+        txHash: r.txHash,
+        timestamp: r.createdAt.toISOString(),
+      })),
+    },
+  });
+});
+
+app.get("/launchpad/creator/:wallet", async (c) => {
+  if (!useDb) return c.json({ pairs: [] });
+  const wallet = c.req.param("wallet");
+  const rows = await launchpadStore.listByCreator(db!, wallet);
+  return c.json({
+    pairs: rows.map((r) => ({
+      pairAddress: r.pairAddress,
+      receiptSymbol: r.receiptSymbol,
+      tickerA: r.tickerA,
+      tickerB: r.tickerB,
+      tvlUsd: Number(r.tvlUsd),
+      creatorEarningsUsd: Number(r.creatorEarningsUsd),
+      totalDepositors: Number(r.totalDepositors),
+      creatorFeeBps: Number(r.creatorFeeBps),
+      createdAt: r.createdAt.toISOString(),
+    })),
+  });
+});
+
+app.post("/launchpad/deposit", async (c) => {
+  if (!useDb) return c.json({ error: "DB not configured" }, 503);
+  try {
+    const body = await c.req.json();
+    const parsed = LaunchpadDepositSchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ error: parsed.error.flatten() }, 400);
+    }
+    const row = await launchpadStore.recordPairDeposit(db!, parsed.data);
+    return c.json({ ok: true, deposit: row });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Deposit failed";
+    return c.json({ error: message }, 500);
+  }
+});
+
+app.post("/launchpad/redeem", async (c) => {
+  if (!useDb) return c.json({ error: "DB not configured" }, 503);
+  try {
+    const body = await c.req.json();
+    const parsed = LaunchpadRedeemSchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ error: parsed.error.flatten() }, 400);
+    }
+    const row = await launchpadStore.recordPairRedeem(db!, parsed.data);
+    return c.json({ ok: true, redeem: row });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Redeem failed";
+    return c.json({ error: message }, 500);
+  }
+});
+
+app.get("/launchpad/stats", async (c) => {
+  if (!useDb) {
+    return c.json({
+      totalPairs: 0,
+      totalTvlUsd: 0,
+      totalCreatorEarningsUsd: 0,
+      totalCreators: 0,
+    });
+  }
+  const stats = await launchpadStore.getLaunchpadStats(db!);
+  return c.json(stats);
+});
+
 // Legacy endpoint
 app.post("/events/deposit", async (c) => {
   const body = await c.req.json();
@@ -360,8 +618,37 @@ app.post("/events/deposit", async (c) => {
 });
 
 const port = Number(process.env.INDEXER_PORT ?? 3003);
-serve({ fetch: app.fetch, port, hostname: "0.0.0.0" }, () => {
-  console.log(`Indexer API listening on :${port}`);
-  startChainListener();
-  startMarkToMarket();
+
+let server: ServerType;
+let chainListenerCleanup: (() => void) | null = null;
+let markToMarketTimer: NodeJS.Timeout | null = null;
+
+server = serve({ fetch: app.fetch, port, hostname: "0.0.0.0" }, () => {
+  console.log(`[indexer] API listening on :${port}`);
+  chainListenerCleanup = startChainListener();
+  markToMarketTimer = startMarkToMarket();
 });
+
+function gracefulShutdown(signal: string) {
+  console.log(`[indexer] ${signal} received, shutting down gracefully...`);
+
+  if (chainListenerCleanup) {
+    chainListenerCleanup();
+  }
+  if (markToMarketTimer) {
+    clearInterval(markToMarketTimer);
+  }
+
+  server.close(() => {
+    console.log("[indexer] HTTP server closed");
+    process.exit(0);
+  });
+
+  setTimeout(() => {
+    console.error("[indexer] Forced shutdown after timeout");
+    process.exit(1);
+  }, 10_000);
+}
+
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));

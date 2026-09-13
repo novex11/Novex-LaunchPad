@@ -93,11 +93,13 @@ export function useReceiptPositions(userAddress: `0x${string}` | undefined) {
     query: { enabled: factoryReady },
   });
 
+  const vaultCountBig = vaultCount as bigint | undefined;
+
   return useQuery({
     queryKey: [
       "receipt-positions",
       userAddress,
-      factoryReady ? vaultCount?.toString() : "legacy",
+      factoryReady ? vaultCountBig?.toString() : "legacy",
     ],
     enabled: Boolean(userAddress && publicClient && (factoryReady || contractsReady)),
     queryFn: async (): Promise<OnChainReceiptPosition[]> => {
@@ -105,8 +107,8 @@ export function useReceiptPositions(userAddress: `0x${string}` | undefined) {
 
       const positions: OnChainReceiptPosition[] = [];
 
-      if (factoryReady && vaultCount && vaultCount > 0n) {
-        for (let i = 0n; i < vaultCount; i++) {
+      if (factoryReady && vaultCountBig && vaultCountBig > 0n) {
+        for (let i = 0n; i < vaultCountBig; i++) {
           const info = (await publicClient.readContract({
             address: FACTORY_ADDRESS,
             abi: vaultFactoryAbi as readonly unknown[],

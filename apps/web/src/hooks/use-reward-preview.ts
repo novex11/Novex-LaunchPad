@@ -73,6 +73,7 @@ export function useRewardPreview(
         body.strategy,
         body.preferred ?? [],
         body.excluded ?? [],
+        body.maxTokens ?? 5,
         walletAddress ?? "",
       ])
     : null;
@@ -93,6 +94,7 @@ export function useRewardPreview(
           strategy: body.strategy,
           preferred: body.preferred,
           excluded: body.excluded,
+          maxTokens: body.maxTokens,
         }),
       );
     } catch {

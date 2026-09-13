@@ -1,6 +1,9 @@
-import { serve } from "@hono/node-server";
+import { serve, type ServerType } from "@hono/node-server";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { logger } from "hono/logger";
+import { requestId } from "hono/request-id";
+import { secureHeaders } from "hono/secure-headers";
 import { z } from "zod";
 import {
   LAUNCH_CAPS,
@@ -12,8 +15,12 @@ import {
 } from "@novex/config";
 import { QuoteRequestSchema } from "@novex/sdk";
 
-const RIALTO_API_URL = "https://rialto-trade-api.rialto.xyz";
+import { RIALTO_API_URL } from "@novex/config";
+
 const RIALTO_API_KEY = process.env.RIALTO_API_KEY ?? "";
+/** Integrator fee in bps charged on top of Rialto's fee (max 50 bps) */
+const RIALTO_INTEGRATOR_FEE_BPS = Number(process.env.RIALTO_INTEGRATOR_FEE_BPS ?? "0");
+const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY ?? "";
 
 let resolvedTokens: StockToken[] = APPROVED_STOCK_TOKENS;
 
@@ -49,13 +56,19 @@ const DepositCostsSchema = z.object({
 // ─── Rialto API helpers ─────────────────────────────────
 
 interface RialtoQuote {
+  quote_id?: string;
   buy_amount: string;
   min_buy_amount: string;
   sell_amount: string;
-  platform_fee?: { total_bps: number };
+  sell_token: string;
+  buy_token: string;
+  platform_fee?: { total_bps: number; fees?: Array<{ bps: string; recipient: string }> };
+  integrator_fee?: { bps: number; recipient: string; id: string };
   network_fee?: { amount_eth: string; gas: string };
   route?: { legs: unknown[]; buy_amount: string };
   issues?: { balance: unknown; allowance: unknown };
+  tx?: { to: string; data: string; value: string; signature_offset?: number };
+  permit2?: unknown;
 }
 
 async function fetchRialtoQuote(
@@ -73,7 +86,13 @@ async function fetchRialtoQuote(
     sell_amount: sellAmount,
     taker,
     slippage_bps: String(slippageBps),
+    chain_id: "4663",
   });
+
+  // Add integrator fee if configured
+  if (RIALTO_INTEGRATOR_FEE_BPS > 0) {
+    params.set("swap_fee_bps", String(RIALTO_INTEGRATOR_FEE_BPS));
+  }
 
   try {
     const res = await fetch(`${RIALTO_API_URL}/quote?${params}`, {
@@ -90,7 +109,33 @@ async function fetchRialtoQuote(
 // ─── App ────────────────────────────────────────────────
 
 const app = new Hono();
+
+// ─── Global middleware ──────────────────────────────────
 app.use("/*", cors());
+app.use("/*", logger());
+app.use("/*", requestId());
+app.use("/*", secureHeaders());
+
+// API key auth for write endpoints
+app.use("/quote", async (c, next) => {
+  if (INTERNAL_API_KEY && c.req.header("x-api-key") !== INTERNAL_API_KEY) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+  await next();
+});
+app.use("/estimate-deposit-costs", async (c, next) => {
+  if (INTERNAL_API_KEY && c.req.header("x-api-key") !== INTERNAL_API_KEY) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+  await next();
+});
+
+// ─── Global error handler ───────────────────────────────
+app.onError((err, c) => {
+  console.error(`[quote] Unhandled error on ${c.req.method} ${c.req.path}:`, err);
+  const message = err instanceof Error ? err.message : "Internal server error";
+  return c.json({ error: message, requestId: c.get("requestId") }, 500);
+});
 
 app.get("/health", (c) =>
   c.json({
@@ -124,12 +169,15 @@ app.post("/quote", async (c) => {
       return c.json({ error: "Amount must be positive" }, 400);
     }
 
-    // Try Rialto first, fall back to formula
+    const taker =
+      c.req.header("x-wallet-address") ??
+      "0x0000000000000000000000000000000000000000";
+
     const rialtoQuote = await fetchRialtoQuote(
       from.address,
       to.address,
       amount,
-      "0x0000000000000000000000000000000000000000", // taker placeholder
+      taker,
       slippageBps,
     );
 
@@ -192,7 +240,10 @@ app.post("/estimate-deposit-costs", async (c) => {
         ? Math.max(1, allocation.filter((a) => a.usd > 0).length - 1)
         : 3);
 
-    // Try Rialto for real cost estimates if API key available
+    const taker =
+      c.req.header("x-wallet-address") ??
+      "0x0000000000000000000000000000000000000000";
+
     if (RIALTO_API_KEY && allocation && allocation.length > 0) {
       let totalMarketCost = 0;
       let totalGasCost = 0;
@@ -212,7 +263,7 @@ app.post("/estimate-deposit-costs", async (c) => {
           depositToken.address,
           token.address,
           String(leg.usd),
-          "0x0000000000000000000000000000000000000000",
+          taker,
           50,
         );
         if (rq) {
@@ -261,8 +312,27 @@ app.post("/estimate-deposit-costs", async (c) => {
 
 const port = Number(process.env.QUOTE_PORT ?? 3002);
 
+let server: ServerType;
+
 bootstrapTokens().then(() => {
-  serve({ fetch: app.fetch, port, hostname: "0.0.0.0" }, () => {
-    console.log(`Quote API listening on :${port}`);
+  server = serve({ fetch: app.fetch, port, hostname: "0.0.0.0" }, () => {
+    console.log(`[quote] API listening on :${port}`);
   });
 });
+
+function gracefulShutdown(signal: string) {
+  console.log(`[quote] ${signal} received, shutting down gracefully...`);
+  if (server) {
+    server.close(() => {
+      console.log("[quote] HTTP server closed");
+      process.exit(0);
+    });
+  }
+  setTimeout(() => {
+    console.error("[quote] Forced shutdown after timeout");
+    process.exit(1);
+  }, 10_000);
+}
+
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));

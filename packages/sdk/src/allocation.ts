@@ -24,6 +24,8 @@ export interface AllocationInput {
   preferred?: string[];
   excluded?: string[];
   prices?: Record<string, number>;
+  /** Max equity/forex slots in the basket (default 5). 0 = all eligible. */
+  maxTokens?: number;
 }
 
 export interface AllocationResult {
@@ -71,6 +73,27 @@ export function computeAllocation(input: AllocationInput): AllocationResult {
     if (preferred.has(token.ticker)) base = 2.5;
     if (token.category === "forex") base *= 0.6; // lower default weight for forex
     weights.set(token.ticker, base);
+  }
+
+  // Limit to top N tokens (default 5). Preferred tokens always stay.
+  const maxSlots = input.maxTokens ?? 5;
+  if (maxSlots > 0 && weights.size > maxSlots) {
+    const sorted = Array.from(weights.entries()).sort(
+      ([, a], [, b]) => b - a,
+    );
+    const kept = new Set<string>();
+    // Always keep preferred tokens
+    for (const [ticker] of sorted) {
+      if (preferred.has(ticker)) kept.add(ticker);
+    }
+    // Fill remaining slots with highest-weight candidates
+    for (const [ticker] of sorted) {
+      if (kept.size >= maxSlots) break;
+      kept.add(ticker);
+    }
+    for (const ticker of weights.keys()) {
+      if (!kept.has(ticker)) weights.delete(ticker);
+    }
   }
 
   const totalWeight = Array.from(weights.values()).reduce((a, b) => a + b, 0);
