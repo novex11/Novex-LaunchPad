@@ -1,0 +1,205 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+@layer utilities {
+  .statement-1 {
+    @apply text-[2.25rem] font-normal leading-[1.02] tracking-[-0.04em] sm:text-[3rem] lg:text-[3.5rem];
+  }
+
+  .statement-2 {
+    @apply text-[1.75rem] font-normal leading-[1.08] tracking-[-0.03em] sm:text-[2.25rem] lg:text-[2.625rem];
+  }
+
+  .label-mono {
+    @apply font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground;
+  }
+
+  .hairline-grid {
+    @apply divide-x divide-y divide-border border border-border;
+  }
+
+  .ledger-cell {
+    @apply relative border-border p-6 md:p-8;
+  }
+  .section-padding {
+    @apply px-4 py-20 md:px-8 md:py-28;
+  }
+
+  .section-padding-sm {
+    @apply px-4 py-12 md:px-8 md:py-16;
+  }
+
+  .container-page {
+    @apply mx-auto w-full max-w-7xl px-4 md:px-8;
+  }
+
+  .stat-value {
+    @apply font-mono text-3xl font-medium tabular-nums tracking-tight md:text-4xl;
+  }
+
+  .label-caps {
+    @apply text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground;
+  }
+
+  .tactile {
+    @apply transition-transform duration-200 active:scale-[0.98];
+  }
+
+  .divider-hatch {
+    background-image: repeating-linear-gradient(
+      -45deg,
+      var(--border) 0,
+      var(--border) 1px,
+      transparent 1px,
+      transparent 8px
+    );
+  }
+
+  .animate-ticker {
+    animation: ticker 60s linear infinite;
+  }
+
+  @keyframes ticker {
+    0% {
+      transform: translateX(0);
+    }
+    100% {
+      transform: translateX(-50%);
+    }
+  }
+
+  .animate-shimmer {
+    animation: shimmer 1.6s linear infinite;
+    background: linear-gradient(
+      90deg,
+      var(--surface-muted) 0%,
+      var(--border-subtle) 40%,
+      var(--surface-muted) 80%
+    );
+    background-size: 200% 100%;
+  }
+
+  @keyframes shimmer {
+    0% {
+      background-position: 200% 0;
+    }
+    100% {
+      background-position: -200% 0;
+    }
+  }
+
+  .animate-breathe {
+    animation: breathe 2.4s ease-in-out infinite;
+  }
+
+  @keyframes breathe {
+    0%,
+    100% {
+      transform: scale(1);
+      opacity: 1;
+    }
+    50% {
+      transform: scale(1.35);
+      opacity: 0.55;
+    }
+  }
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes fade-out {
+    from {
+      opacity: 1;
+    }
+    to {
+      opacity: 0;
+    }
+  }
+  @keyframes sheet-in-right {
+    from {
+      transform: translateX(100%);
+    }
+    to {
+      transform: translateX(0);
+    }
+  }
+  @keyframes sheet-out-right {
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(100%);
+    }
+  }
+  @keyframes sheet-in-bottom {
+    from {
+      transform: translateY(100%);
+    }
+    to {
+      transform: translateY(0);
+    }
+  }
+  @keyframes sheet-out-bottom {
+    from {
+      transform: translateY(0);
+    }
+    to {
+      transform: translateY(100%);
+    }
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+@layer base {
+  ::selection {
+    background: var(--selection-bg);
+    color: var(--selection-fg);
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+
+  h1,
+  h2,
+  h3,
+  .font-display {
+    font-family: var(--font-sans), system-ui, sans-serif;
+    letter-spacing: -0.03em;
+  }
+
+  /* Number-heavy UI: keep tabular figures everywhere */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+}

@@ -1,0 +1,28 @@
+:root {
+  /* Warm off-white canvas with sage-tinted panels */
+  --background: #fbfbf8;
+  --surface: #ffffff;
+  --surface-muted: #f3f4ee;
+  --surface-elevated: #ffffff;
+  --surface-inverse: #1a1d18;
+
+  /* Off-black text, never pure #000 */
+  --foreground: #141613;
+  --muted-foreground: #676b62;
+  --border: #e3e5dc;
+  --border-subtle: #eef0e8;
+
+  /* Sage — the single accent */
+  --accent: #6b7f5e;
+  --accent-strong: #56694b;
+  --accent-subtle: #eef1e8;
+  --accent-foreground: #ffffff;
+
+  --brand-blue: #56694b;
+  --gold: #8a6d3b;
+
+  --destructive: #b8473a;
+  --success: #3e7c4f;
+  --ring: #6b7f5e;
+  --radius: 1.25rem;
+}

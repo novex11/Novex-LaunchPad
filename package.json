@@ -1,0 +1,26 @@
+{
+  "name": "novex",
+  "private": true,
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
+    "format": "prettier --write \"**/*.{ts,tsx,md,json}\"",
+    "docker:up": "docker compose up -d --build",
+    "docker:up:local-db": "docker compose --profile local-db up -d --build",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f --tail=200",
+    "docker:ps": "docker compose ps"
+  },
+  "devDependencies": {
+    "prettier": "^3.4.2",
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.2"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20"
+  }
+}

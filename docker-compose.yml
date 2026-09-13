@@ -1,0 +1,154 @@
+name: novex
+
+# Backend stack: allocator, quote, indexer.
+# Database: uses DATABASE_URL from .env (Neon). Optional local Postgres via --profile local-db.
+#
+#   pnpm docker:up              # Neon / external DATABASE_URL from .env
+#   pnpm docker:up:local-db     # includes local Postgres on localhost:5433
+
+services:
+  postgres:
+    profiles: ["local-db"]
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-novex}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-novex}
+      POSTGRES_DB: ${POSTGRES_DB:-novex}
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-novex} -d ${POSTGRES_DB:-novex}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  indexer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: indexer
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      INDEXER_PORT: "3003"
+      # Prefer Neon/external DATABASE_URL from .env; fall back to local postgres profile
+      DATABASE_URL: ${DATABASE_URL:-postgres://${POSTGRES_USER:-novex}:${POSTGRES_PASSWORD:-novex}@postgres:5432/${POSTGRES_DB:-novex}}
+      ROBINHOOD_RPC_URL: ${ROBINHOOD_RPC_URL:-}
+      ROBINHOOD_TESTNET_RPC_URL: ${ROBINHOOD_TESTNET_RPC_URL:-}
+      NEXT_PUBLIC_USE_TESTNET: ${NEXT_PUBLIC_USE_TESTNET:-false}
+      ALCHEMY_API_KEY: ${ALCHEMY_API_KEY:-}
+      VAULT_CONTRACT_ADDRESS: ${VAULT_CONTRACT_ADDRESS:-}
+      RECEIPT_TOKEN_CONTRACT_ADDRESS: ${RECEIPT_TOKEN_CONTRACT_ADDRESS:-}
+      NEXT_PUBLIC_VAULT_ADDRESS: ${NEXT_PUBLIC_VAULT_ADDRESS:-}
+      NEXT_PUBLIC_RECEIPT_TOKEN_ADDRESS: ${NEXT_PUBLIC_RECEIPT_TOKEN_ADDRESS:-}
+      MARK_TO_MARKET_INTERVAL_MS: ${MARK_TO_MARKET_INTERVAL_MS:-60000}
+    ports:
+      - "3003:3003"
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3003/health').then(r=>r.json()).then(j=>process.exit(j.status==='ok'?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      start_period: 45s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  allocator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: allocator
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      ALLOCATOR_PORT: "3001"
+      INDEXER_URL: http://indexer:3003
+    ports:
+      - "3001:3001"
+    depends_on:
+      indexer:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  quote:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE: quote
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      QUOTE_PORT: "3002"
+      RIALTO_API_KEY: ${RIALTO_API_KEY:-}
+      ROBINHOOD_RPC_URL: ${ROBINHOOD_RPC_URL:-}
+      ROBINHOOD_TESTNET_RPC_URL: ${ROBINHOOD_TESTNET_RPC_URL:-}
+      NEXT_PUBLIC_USE_TESTNET: ${NEXT_PUBLIC_USE_TESTNET:-false}
+      ALCHEMY_API_KEY: ${ALCHEMY_API_KEY:-}
+    ports:
+      - "3002:3002"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3002/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  postgres_data:

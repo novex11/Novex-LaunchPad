@@ -1,0 +1,116 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import dynamic from "next/dynamic";
+import { usePathname } from "next/navigation";
+import { List, X } from "@phosphor-icons/react";
+import { cn } from "@/lib/utils";
+import { ThemeToggle } from "@/components/theme-toggle";
+import { MarketStatusPill } from "@/components/trading/market-status-pill";
+
+const WalletControls = dynamic(
+  () => import("./wallet-controls").then((m) => m.WalletControls),
+  { ssr: false, loading: () => <span className="inline-block h-9 w-28 border border-border bg-surface" /> },
+);
+
+const links = [
+  { href: "/markets", label: "Markets" },
+  { href: "/create", label: "Create" },
+  { href: "/portfolio", label: "Portfolio" },
+  { href: "/vault/tNVDA-B", label: "Vaults" },
+  { href: "/activity", label: "Activity" },
+  { href: "/legal/risk", label: "Risk" },
+];
+
+function isActive(pathname: string, href: string) {
+  if (href.startsWith("/vault")) return pathname.startsWith("/vault");
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+export function Wordmark({ className }: { className?: string }) {
+  return (
+    <Link href="/" className={cn("flex items-center gap-2", className)} aria-label="Novex home">
+      <span className="flex h-7 w-7 items-center justify-center bg-accent text-accent-foreground">
+        <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" aria-hidden>
+          <path d="M5 19V5l14 14V5" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </span>
+      <span className="text-sm font-semibold tracking-tight">Novex</span>
+    </Link>
+  );
+}
+
+export function Navbar() {
+  const pathname = usePathname() ?? "/";
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => setOpen(false), [pathname]);
+  useEffect(() => {
+    document.documentElement.style.overflow = open ? "hidden" : "";
+    return () => { document.documentElement.style.overflow = ""; };
+  }, [open]);
+
+  return (
+    <>
+      <header className="sticky top-0 z-50 border-b border-border bg-background/85 backdrop-blur-md">
+        <div className="flex h-14 items-center justify-between gap-4 px-4 md:px-8">
+          <Wordmark />
+          <nav className="hidden items-center gap-6 lg:flex" aria-label="Main">
+            {links.map((l) => (
+              <Link
+                key={l.href}
+                href={l.href}
+                className={cn(
+                  "text-[13px] transition-colors",
+                  isActive(pathname, l.href) ? "text-foreground" : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {l.label}
+              </Link>
+            ))}
+          </nav>
+          <div className="flex items-center gap-2">
+            <MarketStatusPill compact className="hidden rounded-none border-border sm:inline-flex" />
+            <ThemeToggle className="hidden sm:inline-flex" />
+            <WalletControls />
+            <button
+              type="button"
+              className="inline-flex h-9 w-9 items-center justify-center border border-border lg:hidden"
+              onClick={() => setOpen(true)}
+              aria-label="Open menu"
+            >
+              <List size={18} />
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {open && (
+        <div className="fixed inset-0 z-[60] bg-background lg:hidden">
+          <div className="flex h-14 items-center justify-between border-b border-border px-4">
+            <Wordmark />
+            <button type="button" onClick={() => setOpen(false)} aria-label="Close menu">
+              <X size={20} />
+            </button>
+          </div>
+          <nav className="divide-y divide-border">
+            {links.map((l, i) => (
+              <Link
+                key={l.href}
+                href={l.href}
+                className="flex items-center gap-3 px-4 py-4 font-mono text-sm uppercase tracking-wider"
+              >
+                <span className="text-accent">{String(i + 1).padStart(2, "0")}</span>
+                {l.label}
+              </Link>
+            ))}
+          </nav>
+          <div className="border-t border-border p-4">
+            <ThemeToggle />
+          </div>
+        </div>
+      )}
+    </>
+  );
+}

@@ -1,0 +1,56 @@
+import { z } from "zod";
+
+export const StrategySchema = z.enum(["defensive", "balanced", "aggressive"]);
+
+export const PreviewRequestSchema = z.object({
+  depositTicker: z.string().min(1),
+  depositUsd: z.number().positive(),
+  strategy: StrategySchema.default("balanced"),
+  preferred: z.array(z.string()).optional(),
+  excluded: z.array(z.string()).optional(),
+});
+
+export const QuoteRequestSchema = z.object({
+  fromToken: z.string(),
+  toToken: z.string(),
+  amount: z.string(),
+  slippageBps: z.number().int().min(1).max(500).default(50),
+});
+
+export const RebalanceSimulateSchema = z.object({
+  vaultId: z.string(),
+  strategy: StrategySchema,
+  currentAllocations: z.array(
+    z.object({ ticker: z.string(), weight: z.number() }),
+  ),
+});
+
+export type PreviewRequest = z.infer<typeof PreviewRequestSchema>;
+export type QuoteRequest = z.infer<typeof QuoteRequestSchema>;
+
+export interface PreviewResponse {
+  allocation: Array<{
+    ticker: string;
+    weight: number;
+    usd: number;
+    rationale: string;
+  }>;
+  stockback: {
+    depositStockbackUsd: number;
+    allocationLines: Array<{
+      ticker: string;
+      purchasedUsd: number;
+      rate: number;
+      bonusUsd: number;
+    }>;
+    totalStockbackUsd: number;
+    eligible: boolean;
+  };
+  externalCosts: {
+    estimatedGasUsd: number;
+    estimatedMarketCostUsd: number;
+    platformFeeUsd: number;
+  };
+  openingNetUsd: number;
+  violations: string[];
+}
