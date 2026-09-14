@@ -71,9 +71,10 @@ export function PairPreviewCard({
           />
         ) : (
           <div
-            className="h-full w-full"
+            className="h-full w-full bg-surface-muted"
             style={{
-              background: `linear-gradient(120deg, ${accentA} 0%, ${accentB} 100%)`,
+              backgroundImage: "radial-gradient(circle, var(--grid-dot) 1px, transparent 1px)",
+              backgroundSize: "14px 14px",
             }}
           />
         )}

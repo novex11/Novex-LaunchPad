@@ -9,12 +9,12 @@ function hueFor(input: string): number {
   return h % 360;
 }
 
-/** Deterministic two-tone gradient for a ticker pair. */
+/** Deterministic, muted two-tone colours for a ticker pair. */
 export function pairGradient(tickerA: string, tickerB: string): { a: string; b: string; css: string } {
   const ha = hueFor(tickerA.toUpperCase());
   const hb = hueFor(tickerB.toUpperCase());
-  const a = `hsl(${ha} 55% 52%)`;
-  const b = `hsl(${hb} 55% 46%)`;
+  const a = `hsl(${ha} 28% 46%)`;
+  const b = `hsl(${hb} 28% 40%)`;
   return { a, b, css: `linear-gradient(135deg, ${a} 0%, ${b} 100%)` };
 }
 
@@ -31,28 +31,32 @@ interface PairIdentityProps {
 
 /**
  * Auto-generated banner for launchpad pairs without an uploaded cover:
- * a gradient derived from both tickers, a soft grid, and overlapping logos.
+ * a neutral surface with a faint dot grid, a thin two-tone line derived from
+ * both tickers, and overlapping logos.
  */
 export function PairIdentity({ tickerA, tickerB, height = 96, className, logos = true, children }: PairIdentityProps) {
   const g = pairGradient(tickerA, tickerB);
   return (
     <div
-      className={cn("relative w-full overflow-hidden", className)}
-      style={{ height, background: g.css }}
+      className={cn("relative w-full overflow-hidden border-b border-border bg-surface-muted", className)}
+      style={{ height }}
       aria-hidden
     >
       <div
-        className="absolute inset-0 opacity-25 mix-blend-overlay"
+        className="absolute inset-0"
         style={{
-          backgroundImage: "radial-gradient(rgba(255,255,255,0.9) 1px, transparent 1px)",
+          backgroundImage: "radial-gradient(circle, var(--grid-dot) 1px, transparent 1px)",
           backgroundSize: "14px 14px",
         }}
       />
-      <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/35 to-transparent" />
+      <div
+        className="absolute inset-x-0 top-0 h-0.5"
+        style={{ background: `linear-gradient(90deg, ${g.a}, ${g.b})` }}
+      />
       {logos && (
         <div className="absolute bottom-3 left-4 flex -space-x-2">
-          <StockLogo ticker={tickerA} size="sm" className="ring-2 ring-white/60 shadow-md" />
-          <StockLogo ticker={tickerB} size="sm" className="ring-2 ring-white/60 shadow-md" />
+          <StockLogo ticker={tickerA} size="sm" className="ring-2 ring-surface" />
+          <StockLogo ticker={tickerB} size="sm" className="ring-2 ring-surface" />
         </div>
       )}
       {children}
