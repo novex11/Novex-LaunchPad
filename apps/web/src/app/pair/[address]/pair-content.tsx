@@ -1,15 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "motion/react";
-import { formatUnits, parseUnits } from "viem";
+import { formatUnits, isAddress, type Address } from "viem";
 import { useReadContract } from "wagmi";
 import {
   ArrowRight,
   CaretLeft,
   Coin,
+  Drop,
   Info,
   SealCheck,
   Sparkle,
@@ -18,310 +19,324 @@ import {
 } from "@phosphor-icons/react";
 import {
   LAUNCHPAD_CONFIG,
-  LAUNCHPAD_ROUTE_SLIPPAGE_BPS,
+  LAUNCHPAD_SLIPPAGE_BPS,
   PAIR_CATEGORY_ACCENT,
   PAIR_CATEGORY_LABEL,
+  TESTNET_FAUCET_URL,
   classifyPair,
-  getTokenByTicker,
+  depositAmountError,
+  getTokenByAddress,
+  isTestnetMode,
   isUSMarketHours,
-  isTokenizationWindowOpen,
-  type PairCategory,
 } from "@novex/config";
+import { fetchLaunchpadPair, type PairHistoryRange } from "@/lib/api";
+import { isWeth, pairVaultAbi, receiptTokenAbi } from "@/lib/contracts";
 import {
-  fetchLaunchpadPair,
-  recordLaunchpadDeposit,
-  recordLaunchpadRedeem,
-} from "@/lib/api";
-import { pairFactoryReady, receiptTokenAbi } from "@/lib/contracts";
-import {
-  usePairClaimFees,
-  usePairCreatorEarnings,
-  usePairNav,
-  usePairReceiptToken,
+  useOraclePrices,
+  usePairDeposit,
+  usePairOnchain,
   usePairRedeem,
-  usePairSharePrice,
+  useTokenBalances,
+  type TxStage,
 } from "@/hooks/use-pair-launchpad";
-import {
-  useLaunchAndSeed,
-  type LaunchStage,
-} from "@/hooks/use-launch-and-seed";
-import {
-  usePaymentSources,
-  type PaymentSource,
-} from "@/hooks/use-payment-sources";
 import { useWallet } from "@/hooks/use-wallet";
 import { useQuotes } from "@/hooks/use-quotes";
+import { usePairHistory } from "@/hooks/use-pair-history";
 import { cn, explorerUrl, formatUsd } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { NumberTicker } from "@/components/ui/number-ticker";
 import { StockLogo } from "@/components/ui/stock-logo";
-import { HatchPattern } from "@/components/motion/hatch-pattern";
 import { Sparkline } from "@/components/ui/sparkline";
+import { HatchPattern } from "@/components/motion/hatch-pattern";
 import { OnChainVerifiedBadge } from "@/components/receipt/on-chain-verified-badge";
-import { GradientHalo } from "@/components/launchpad/gradient-halo";
 import { DualLogoStack } from "@/components/launchpad/dual-logo-stack";
 import { AddressChip } from "@/components/launchpad/address-chip";
-import { PaymentSourceCard } from "@/components/launchpad/payment-source-card";
-import { StageProgressList } from "@/components/launchpad/stage-progress";
+import { StageProgressList, type ProgressStep } from "@/components/launchpad/stage-progress";
+import { DepositAmountField } from "@/components/launchpad/deposit-amount-field";
+import { PairChart, type PairChartMetric } from "@/components/pair/pair-chart";
 
 const spring = { type: "spring", stiffness: 100, damping: 20 } as const;
-const USD_PRESETS = [100, 500, 1_000, 5_000];
-
+const LEG_B_ACCENT = "#3D8BFF";
+const GAS_RESERVE_WEI = 500_000_000_000_000n;
+const REDEEM_PRESETS = [25, 50, 75, 100];
 type Tab = "deposit" | "redeem";
 
+function formatToken(amount: bigint, decimals = 18): string {
+  const n = Number(formatUnits(amount, decimals));
+  return n.toLocaleString(undefined, { maximumFractionDigits: n !== 0 && n < 1 ? 6 : 4 });
+}
+
+function usdValue(amount: bigint, price8: bigint | undefined, decimals = 18): number {
+  if (!price8) return 0;
+  return Number(formatUnits(amount * price8, decimals + 8));
+}
+
+const isBusy = (s: TxStage) => s === "approve-a" || s === "approve-b" || s === "submit";
+
 export default function PairDetailContent({ address }: { address: string }) {
-  const pairAddress = address as `0x${string}`;
+  const pairAddress = isAddress(address) ? (address as Address) : undefined;
   const wallet = useWallet();
   const qc = useQueryClient();
 
   const [tab, setTab] = useState<Tab>("deposit");
-  const [usdAmount, setUsdAmount] = useState<number>(500);
-  const [manualSourceKind, setManualSourceKind] = useState<
-    PaymentSource["kind"] | null
-  >(null);
-  const [redeemConfirming, setRedeemConfirming] = useState(false);
-  const [claimConfirming, setClaimConfirming] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [usdAmount, setUsdAmount] = useState<number>(LAUNCHPAD_CONFIG.defaultSeedUsd);
+  const [payWithEth, setPayWithEth] = useState<boolean | null>(null);
+  const [redeemPct, setRedeemPct] = useState(100);
+  const [activeFlow, setActiveFlow] = useState<Tab | null>(null);
+  const [lastStage, setLastStage] = useState<TxStage | null>(null);
+  const [chartRange, setChartRange] = useState<PairHistoryRange>("24h");
+  const [chartMetric, setChartMetric] = useState<PairChartMetric>("navUsd");
 
-  // Off-chain pair metadata + activity
+  // Off-chain profile + activity (optional — the page works from chain data alone)
   const detail = useQuery({
-    queryKey: ["pair-detail", pairAddress],
-    queryFn: () => fetchLaunchpadPair(pairAddress),
+    queryKey: ["pair-detail", pairAddress?.toLowerCase()],
+    queryFn: () => fetchLaunchpadPair(pairAddress!),
+    enabled: !!pairAddress,
     refetchInterval: 20_000,
+    retry: 1,
   });
-
-  // On-chain reads
-  const sharePriceRaw = usePairSharePrice(pairAddress);
-  const navRaw = usePairNav(pairAddress);
-  const receiptTokenRaw = usePairReceiptToken(pairAddress);
-  const receiptTokenAddress = receiptTokenRaw.data as `0x${string}` | undefined;
-  const creatorEarningsRaw = usePairCreatorEarnings(pairAddress);
-
-  const receiptBalance = useReadContract({
-    address: receiptTokenAddress,
-    abi: receiptTokenAbi as readonly unknown[],
-    functionName: "balanceOf",
-    args: wallet.address ? [wallet.address] : undefined,
-    query: { enabled: !!wallet.address && !!receiptTokenAddress },
-  });
-
-  const launchAndSeed = useLaunchAndSeed();
-  const redeemHook = usePairRedeem(pairAddress);
-  const claimHook = usePairClaimFees(pairAddress);
-
-  const pair = detail.data?.pair;
+  const meta = detail.data?.pair;
   const activity = detail.data?.activity;
 
-  const metaA = pair ? getTokenByTicker(pair.tickerA) : undefined;
-  const metaB = pair ? getTokenByTicker(pair.tickerB) : undefined;
-  const category: PairCategory =
-    metaA && metaB
-      ? classifyPair(metaA.category, metaB.category)
-      : (pair
-          ? classifyPair(pair.categoryA, pair.categoryB)
-          : "mixed");
+  const onchain = usePairOnchain(pairAddress);
+  const chain = onchain.data;
+  const historyQuery = usePairHistory(pairAddress, chartRange);
+  const historyPoints = historyQuery.data?.points ?? [];
+
+  const tokenAMeta = chain ? getTokenByAddress(chain.tokenA) : undefined;
+  const tokenBMeta = chain ? getTokenByAddress(chain.tokenB) : undefined;
+  const tickerA = tokenAMeta?.ticker ?? meta?.tickerA ?? "Token A";
+  const tickerB = tokenBMeta?.ticker ?? meta?.tickerB ?? "Token B";
+  const decA = tokenAMeta?.decimals ?? 18;
+  const decB = tokenBMeta?.decimals ?? 18;
+  const category = classifyPair(
+    tokenAMeta?.category ?? meta?.categoryA ?? "",
+    tokenBMeta?.category ?? meta?.categoryB ?? "",
+  );
   const categoryLabel = PAIR_CATEGORY_LABEL[category];
   const categoryAccent = PAIR_CATEGORY_ACCENT[category];
 
-  // Live prices per leg
-  const { byTicker } = useQuotes(pair ? [pair.tickerA, pair.tickerB] : []);
-  const quoteA = pair ? byTicker.get(pair.tickerA) : undefined;
-  const quoteB = pair ? byTicker.get(pair.tickerB) : undefined;
+  const receiptSymbolRead = useReadContract({
+    address: chain?.receiptToken,
+    abi: receiptTokenAbi,
+    functionName: "symbol",
+    query: { enabled: !!chain },
+  });
+  const receiptNameRead = useReadContract({
+    address: chain?.receiptToken,
+    abi: receiptTokenAbi,
+    functionName: "name",
+    query: { enabled: !!chain },
+  });
+  const receiptBalance = useReadContract({
+    address: chain?.receiptToken,
+    abi: receiptTokenAbi,
+    functionName: "balanceOf",
+    args: wallet.address ? [wallet.address] : undefined,
+    query: { enabled: !!chain && !!wallet.address, refetchInterval: 15_000 },
+  });
+  const userShares = (receiptBalance.data as bigint | undefined) ?? 0n;
+  const symbol = (receiptSymbolRead.data as string | undefined) ?? meta?.receiptSymbol ?? "PAIR";
+  const displayName =
+    meta?.displayName || (receiptNameRead.data as string | undefined) || symbol;
 
   const isCreator =
-    !!pair &&
-    !!wallet.address &&
-    pair.creatorWallet.toLowerCase() === wallet.address.toLowerCase();
+    !!wallet.address && !!chain && wallet.address.toLowerCase() === chain.creator.toLowerCase();
 
-  const sharePriceUsd =
-    sharePriceRaw.data != null
-      ? Number(sharePriceRaw.data as bigint) / 1e18
-      : undefined;
-  const navUsd =
-    navRaw.data != null ? Number(navRaw.data as bigint) / 1e8 : undefined;
-  const creatorEarningsUsdg =
-    creatorEarningsRaw.data != null
-      ? Number(formatUnits(creatorEarningsRaw.data as bigint, 18))
-      : 0;
-  const userReceiptBal =
-    receiptBalance.data != null ? (receiptBalance.data as bigint) : 0n;
+  const { byTicker } = useQuotes([tickerA, tickerB]);
+  const quoteA = byTicker.get(tickerA);
+  const quoteB = byTicker.get(tickerB);
 
-  // Payment sources for the deposit tab (existing pair, so we pass pair leg
-  // addresses and skip the launch step in `useLaunchAndSeed.execute`).
-  const paySources = usePaymentSources({
-    tokenA: pair?.tokenA as `0x${string}` | undefined,
-    tokenB: pair?.tokenB as `0x${string}` | undefined,
-    tokenASymbol: pair?.tickerA,
-    tokenALabel: metaA?.name ?? pair?.tickerA,
-    tokenBSymbol: pair?.tickerB,
-    tokenBLabel: metaB?.name ?? pair?.tickerB,
-    usdTarget: usdAmount,
+  const legTokens = chain ? [chain.tokenA, chain.tokenB] : [];
+  const { prices } = useOraclePrices(legTokens);
+  const priceA8 = chain ? prices.get(chain.tokenA.toLowerCase()) : undefined;
+  const priceB8 = chain ? prices.get(chain.tokenB.toLowerCase()) : undefined;
+  const priceA = priceA8 ? Number(priceA8) / 1e8 : quoteA?.price;
+  const priceB = priceB8 ? Number(priceB8) / 1e8 : quoteB?.price;
+
+  const navUsd = chain ? Number(chain.navUsd8) / 1e8 : (meta?.tvlUsd ?? 0);
+  const sharePriceUsd = chain ? Number(chain.sharePriceUsd8) / 1e8 : undefined;
+  const feeBps = chain?.creatorFeeBps ?? meta?.creatorFeeBps ?? 0;
+
+  // ─── Deposit quote ───────────────────────────────────
+  const usd8 = BigInt(Math.round((usdAmount || 0) * 1e8));
+  const depositQuote = useReadContract({
+    address: pairAddress,
+    abi: pairVaultAbi,
+    functionName: "quoteDeposit",
+    args: [usd8],
+    query: { enabled: !!pairAddress && !!chain && usd8 > 0n, refetchInterval: 15_000 },
   });
-  const source =
-    (manualSourceKind &&
-      paySources.sources.find((s) => s.kind === manualSourceKind)) ||
-    paySources.best ||
-    paySources.sources[0] ||
-    null;
+  const quoted = depositQuote.data as readonly [bigint, bigint, bigint] | undefined;
+  const needA = quoted?.[0] ?? 0n;
+  const needB = quoted?.[1] ?? 0n;
+  const grossShares = quoted?.[2] ?? 0n;
 
-  const sourceAmountWei = useMemo(() => {
-    if (!source || source.priceUsd8 === 0n) return 0n;
-    const usdScaled = BigInt(Math.round(usdAmount * 1e8));
-    return (usdScaled * 10n ** 18n) / source.priceUsd8;
-  }, [source, usdAmount]);
-  const sourceAmountDisplay = source
-    ? Number(formatUnits(sourceAmountWei, 18))
-    : 0;
-  const insufficient = source !== null && source.balance < sourceAmountWei;
+  const { balances, native, refetch: refetchBalances } = useTokenBalances(wallet.address, legTokens);
+  const balA = chain ? (balances.get(chain.tokenA.toLowerCase()) ?? 0n) : 0n;
+  const balB = chain ? (balances.get(chain.tokenB.toLowerCase()) ?? 0n) : 0n;
 
-  const creatorFeeBps = pair?.creatorFeeBps ?? 0;
-  const feeUsd = isCreator ? 0 : (usdAmount * creatorFeeBps) / 10_000;
-  const netInvested = usdAmount - feeUsd;
+  const wethLeg: Address | null = chain
+    ? isWeth(chain.tokenA)
+      ? chain.tokenA
+      : isWeth(chain.tokenB)
+        ? chain.tokenB
+        : null
+    : null;
+  const wethIsA = !!chain && wethLeg === chain.tokenA;
+  const wethIsB = !!chain && wethLeg === chain.tokenB;
+  const wethNeeded = wethIsA ? needA : wethIsB ? needB : 0n;
+  const wethBalance = wethIsA ? balA : wethIsB ? balB : 0n;
+  const useEth = wethLeg !== null && (payWithEth ?? wethBalance < wethNeeded);
+  const nativeLeg = useEth ? wethLeg : null;
+  const ethSpendable = native != null && native > GAS_RESERVE_WEI ? native - GAS_RESERVE_WEI : 0n;
+  const haveA = useEth && wethIsA ? ethSpendable : balA;
+  const haveB = useEth && wethIsB ? ethSpendable : balB;
+  const unitA = useEth && wethIsA ? "ETH" : tickerA;
+  const unitB = useEth && wethIsB ? "ETH" : tickerB;
+  const shortA = needA > haveA;
+  const shortB = needB > haveB;
 
-  const stage: LaunchStage = launchAndSeed.stage;
-  const depositConfirming =
-    stage !== "idle" && stage !== "done" && stage !== "error";
-  const overlayVisible = stage !== "idle" && stage !== "done";
+  // Headroom so reserve changes between quote and inclusion don't under-fund the deposit.
+  const withHeadroom = (x: bigint) => (x * BigInt(10_000 + LAUNCHPAD_SLIPPAGE_BPS)) / 10_000n;
+  const maxA = withHeadroom(needA) < haveA ? withHeadroom(needA) : haveA;
+  const maxB = withHeadroom(needB) < haveB ? withHeadroom(needB) : haveB;
+  const feeShares = isCreator ? 0n : (grossShares * BigInt(feeBps)) / 10_000n;
+  const netShares = grossShares - feeShares;
+  const minShares = (netShares * BigInt(10_000 - LAUNCHPAD_SLIPPAGE_BPS)) / 10_000n;
+  const feeUsd = isCreator ? 0 : ((usdAmount || 0) * feeBps) / 10_000;
+
+  const reserveValueA = chain ? usdValue(chain.reserveA, priceA8, decA) : 0;
+  const reserveValueB = chain ? usdValue(chain.reserveB, priceB8, decB) : 0;
+  const reserveTotal = reserveValueA + reserveValueB;
+  const maxUsd =
+    reserveTotal > 0 && reserveValueA > 0 && reserveValueB > 0
+      ? Math.min(
+          usdValue(haveA, priceA8, decA) / (reserveValueA / reserveTotal),
+          usdValue(haveB, priceB8, decB) / (reserveValueB / reserveTotal),
+        )
+      : undefined;
+
+  // ─── Redeem quote ────────────────────────────────────
+  const redeemShares = (userShares * BigInt(redeemPct)) / 100n;
+  const redeemQuote = useReadContract({
+    address: pairAddress,
+    abi: pairVaultAbi,
+    functionName: "quoteRedeem",
+    args: [redeemShares],
+    query: { enabled: !!pairAddress && redeemShares > 0n, refetchInterval: 15_000 },
+  });
+  const outs = redeemQuote.data as readonly [bigint, bigint, bigint] | undefined;
+  const outA = outs?.[0] ?? 0n;
+  const outB = outs?.[1] ?? 0n;
+  const outValueUsd = outs ? Number(outs[2]) / 1e8 : 0;
+
+  // ─── Transactions ────────────────────────────────────
+  const depositTx = usePairDeposit(pairAddress);
+  const redeemTx = usePairRedeem(pairAddress);
+  const flow = activeFlow === "redeem" ? redeemTx : depositTx;
+  const stage: TxStage = activeFlow ? flow.stage : "idle";
+  const overlayVisible = activeFlow !== null && (isBusy(stage) || stage === "error");
 
   useEffect(() => {
+    if (isBusy(stage)) setLastStage(stage);
     if (stage === "done") {
-      qc.invalidateQueries({ queryKey: ["pair-detail", pairAddress] });
+      void onchain.refetch();
+      void receiptBalance.refetch();
+      refetchBalances();
+      qc.invalidateQueries({ queryKey: ["pair-detail", pairAddress?.toLowerCase()] });
+      qc.invalidateQueries({ queryKey: ["pair-history"] });
       qc.invalidateQueries({ queryKey: ["launchpad-pairs"] });
       qc.invalidateQueries({ queryKey: ["launchpad-stats"] });
-      launchAndSeed.reset();
+      flow.reset();
+      setActiveFlow(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage]);
 
+  const depositBlocker = !chain
+    ? "Loading pair…"
+    : (depositAmountError(usdAmount) ??
+      (!quoted
+        ? "Loading quote…"
+        : shortA
+          ? `Not enough ${unitA}: need ${formatToken(needA, decA)}, wallet has ${formatToken(haveA, decA)}.`
+          : shortB
+            ? `Not enough ${unitB}: need ${formatToken(needB, decB)}, wallet has ${formatToken(haveB, decB)}.`
+            : null));
+
   async function handleDeposit() {
-    if (!wallet.address || !pair || usdAmount <= 0 || !source) return;
-    if (usdAmount < LAUNCHPAD_CONFIG.minDepositUsdg) {
-      setError(`Minimum deposit is ${formatUsd(LAUNCHPAD_CONFIG.minDepositUsdg)}`);
-      return;
-    }
-    if (insufficient) {
-      setError(`Not enough ${source.symbol}`);
-      return;
-    }
-    setError(null);
-    const expectedSharesUsd = Math.max(
-      0,
-      usdAmount * (1 - (isCreator ? 0 : creatorFeeBps / 10_000)),
-    );
-    const minShares =
-      (parseUnits(expectedSharesUsd.toFixed(6), 18) *
-        BigInt(10_000 - LAUNCHPAD_ROUTE_SLIPPAGE_BPS)) /
-      10_000n;
+    if (!chain || depositBlocker) return;
+    setActiveFlow("deposit");
+    setLastStage(null);
+    depositTx.reset();
     try {
-      const res = await launchAndSeed.execute({
-        tokenA: pair.tokenA as `0x${string}`,
-        tokenB: pair.tokenB as `0x${string}`,
-        weightABps: pair.weightABps,
-        creatorFeeBps: pair.creatorFeeBps,
-        receiptName: pair.receiptSymbol,
-        receiptSymbol: pair.receiptSymbol,
-        source,
-        sourceAmountWei,
+      await depositTx.execute({
+        tokenA: chain.tokenA,
+        tokenB: chain.tokenB,
+        maxA,
+        maxB,
         minShares,
-        existingPair: pairAddress,
+        nativeLeg,
       });
-      try {
-        await recordLaunchpadDeposit({
-          pairAddress,
-          wallet: wallet.address,
-          usdgAmount: usdAmount,
-          sharesMinted: "0",
-          creatorFeeUsd: feeUsd,
-          txHash: res.seedTxHash,
-        });
-      } catch {
-        /* backend indexer will backfill */
-      }
-      setUsdAmount(0);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Deposit failed");
+    } catch {
+      /* shown in the progress overlay */
     }
   }
 
   async function handleRedeem() {
-    if (!wallet.address || !pair || userReceiptBal <= 0n) return;
-    setRedeemConfirming(true);
-    setError(null);
+    if (redeemShares <= 0n || !outs) return;
+    setActiveFlow("redeem");
+    setLastStage(null);
+    redeemTx.reset();
     try {
-      let txHash: string | undefined;
-      if (pairFactoryReady) {
-        txHash = await redeemHook.execute({
-          shares: userReceiptBal,
-          minUsdgOut: 0n,
-        });
-      }
-      try {
-        await recordLaunchpadRedeem({
-          pairAddress,
-          wallet: wallet.address,
-          sharesBurned: userReceiptBal.toString(),
-          usdgOut: 0,
-          txHash: txHash ?? "",
-        });
-      } catch {
-        /* backend indexer will backfill */
-      }
-      qc.invalidateQueries({ queryKey: ["pair-detail", pairAddress] });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Redeem failed");
-    } finally {
-      setRedeemConfirming(false);
+      await redeemTx.execute({
+        shares: redeemShares,
+        minA: (outA * BigInt(10_000 - LAUNCHPAD_SLIPPAGE_BPS)) / 10_000n,
+        minB: (outB * BigInt(10_000 - LAUNCHPAD_SLIPPAGE_BPS)) / 10_000n,
+      });
+    } catch {
+      /* shown in the progress overlay */
     }
   }
 
-  async function handleClaim() {
-    if (!isCreator) return;
-    setClaimConfirming(true);
-    setError(null);
-    try {
-      await claimHook.execute();
-      qc.invalidateQueries({ queryKey: ["pair-detail", pairAddress] });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Claim failed");
-    } finally {
-      setClaimConfirming(false);
-    }
+  if (!pairAddress) {
+    return <NotFound message="That is not a valid pair address." />;
   }
-
-  if (detail.isLoading) {
+  if (onchain.isLoading) {
     return (
-      <div className="container-page py-12 text-sm text-muted-foreground">
-        Loading pair…
-      </div>
+      <div className="container-page py-12 text-sm text-muted-foreground">Loading pair…</div>
     );
   }
-
-  if (!pair) {
-    return (
-      <div className="container-page py-12">
-        <Link
-          href="/launchpad"
-          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-        >
-          <CaretLeft size={14} />
-          Launchpad
-        </Link>
-        <div className="mt-8 rounded-3xl border border-dashed border-border bg-surface p-12 text-center">
-          <p className="font-mono text-sm text-muted-foreground">
-            Pair not found on this indexer.
-          </p>
-          <Button asChild className="mt-4" variant="outline">
-            <Link href="/launchpad">Back to launchpad</Link>
-          </Button>
-        </div>
-      </div>
-    );
+  if (!chain) {
+    return <NotFound message="This address is not a Novex pair on this network." />;
   }
+
+  const progressSteps: ProgressStep[] =
+    activeFlow === "redeem"
+      ? [{ id: "submit", label: "Redeeming shares", hint: `You receive ${tickerA} and ${tickerB}` }]
+      : [
+          ...(useEth && wethIsA
+            ? []
+            : [{ id: "approve-a" as const, label: `Approve ${tickerA}`, hint: "Skipped if already approved" }]),
+          ...(useEth && wethIsB
+            ? []
+            : [{ id: "approve-b" as const, label: `Approve ${tickerB}`, hint: "Skipped if already approved" }]),
+          { id: "submit", label: "Depositing", hint: `Adds ${tickerA} + ${tickerB} and mints ${symbol}` },
+        ];
+
+  const allActivity = [
+    ...(activity?.deposits ?? []).map((d) => ({ ...d, kind: "deposit" as const })),
+    ...(activity?.redeems ?? []).map((r) => ({ ...r, kind: "redeem" as const })),
+  ]
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+    .slice(0, 12);
+
+  const creatorFeeUsd = Number(formatUnits(chain.creatorFeeShares, 18)) * (sharePriceUsd ?? 1);
 
   return (
     <div className="relative container-page min-h-[100dvh] py-8 md:py-10">
-      <GradientHalo colorA={categoryAccent} colorB="#3D8BFF" intensity={0.55} />
 
       <Link
         href="/launchpad"
@@ -331,32 +346,65 @@ export default function PairDetailContent({ address }: { address: string }) {
         Launchpad
       </Link>
 
+      {meta?.imageUrl && (
+        <div className="relative mt-5 h-40 overflow-hidden rounded-[1.75rem] border border-border md:h-52">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={meta.imageUrl} alt="" className="h-full w-full object-cover" />
+        </div>
+      )}
+
       {/* Hero header */}
       <div className="mt-5 flex flex-wrap items-start justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <DualLogoStack
-            tickerA={pair.tickerA}
-            tickerB={pair.tickerB}
-            size="lg"
-          />
+        <div className="flex items-start gap-4">
+          {meta?.logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={meta.logoUrl}
+              alt=""
+              className="h-14 w-14 rounded-2xl border border-border object-cover"
+            />
+          ) : (
+            <DualLogoStack tickerA={tickerA} tickerB={tickerB} size="lg" />
+          )}
           <div>
             <p className="label-caps flex items-center gap-2">
               <Sparkle size={12} weight="fill" />
               Launched pair · {categoryLabel}
+              {meta?.numeraireTicker && (
+                <span className="normal-case text-muted-foreground">
+                  · quote {meta.numeraireTicker}
+                </span>
+              )}
             </p>
-            <h1 className="mt-2 bg-gradient-to-br from-foreground via-foreground to-accent-strong bg-clip-text font-mono text-3xl font-semibold tracking-tight text-transparent md:text-4xl">
-              {pair.receiptSymbol}
+            <h1 className="mt-2 bg-gradient-to-br from-foreground via-foreground to-accent-strong bg-clip-text text-3xl font-semibold tracking-tight text-transparent md:text-4xl">
+              {displayName}
             </h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {metaA?.name ?? pair.tickerA} × {metaB?.name ?? pair.tickerB}
+            <p className="mt-1 font-mono text-sm text-muted-foreground">{symbol}</p>
+            <p className="mt-0.5 text-sm text-muted-foreground">
+              {tokenAMeta?.name ?? tickerA} × {tokenBMeta?.name ?? tickerB}
             </p>
+            {meta?.description && (
+              <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground">
+                {meta.description}
+              </p>
+            )}
+            {meta?.websiteUrl && (
+              <a
+                href={meta.websiteUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-2 inline-block text-sm text-accent-strong underline-offset-2 hover:underline"
+              >
+                {meta.websiteUrl.replace(/^https?:\/\//, "")}
+              </a>
+            )}
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <OnChainVerifiedBadge />
           <Badge variant="accent">
             <SealCheck size={12} weight="fill" />
-            {(pair.creatorFeeBps / 100).toFixed(1)}% creator fee
+            {(feeBps / 100).toFixed(1)}% creator fee
           </Badge>
         </div>
       </div>
@@ -364,119 +412,92 @@ export default function PairDetailContent({ address }: { address: string }) {
       {/* Deployment strip */}
       <div className="mt-5 flex flex-wrap items-center gap-2 rounded-2xl border border-border bg-surface-muted p-3 text-xs">
         <span className="rounded-full bg-accent-subtle px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wide text-accent-strong">
-          Robinhood Chain
+          {isTestnetMode() ? "Robinhood Chain Testnet" : "Robinhood Chain"}
         </span>
-        <AddressChip address={pair.pairAddress} label="Pair" />
-        <AddressChip address={pair.receiptAddress} label="Receipt" />
-        <AddressChip address={pair.creatorWallet} label="Creator" />
+        <AddressChip address={pairAddress} label="Pair" />
+        <AddressChip address={chain.receiptToken} label="Receipt" />
+        <AddressChip address={chain.creator} label="Creator" />
       </div>
 
       {/* Stats */}
       <div className="mt-8 grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Stat
-          label="On-chain TVL"
-          value={navUsd != null ? formatUsd(navUsd) : formatUsd(pair.tvlUsd)}
-        />
-        <Stat
-          label="Share price"
-          value={sharePriceUsd != null ? sharePriceUsd.toFixed(4) : "—"}
-          animatedValue={sharePriceUsd}
-          animatedDecimals={4}
-        />
-        <Stat label="Depositors" value={pair.totalDepositors.toString()} />
-        <Stat
-          label="Creator earned"
-          value={formatUsd(pair.creatorEarningsUsd)}
-          accent
-        />
+        <Stat label="On-chain TVL" value={formatUsd(navUsd)} />
+        <Stat label="Share price" value={sharePriceUsd != null ? formatUsd(sharePriceUsd) : "—"} />
+        <Stat label="Depositors" value={meta ? meta.totalDepositors.toString() : "—"} />
+        <Stat label="Creator fees earned" value={formatUsd(creatorFeeUsd)} accent />
       </div>
 
       <div className="mt-10 grid gap-8 lg:grid-cols-12">
-        {/* Left: legs + creator + activity */}
+        {/* Left: chart + legs + creator + activity */}
         <div className="lg:col-span-7">
-          {/* Combined pair performance chart */}
-          {(() => {
-            const sA = quoteA?.sparkline ?? [];
-            const sB = quoteB?.sparkline ?? [];
-            if (sA.length < 2 && sB.length < 2) return null;
-            const len = Math.max(sA.length, sB.length);
-            const wA = pair.weightABps / 10_000;
-            const wB = 1 - wA;
-            const blended: number[] = [];
-            for (let i = 0; i < len; i++) {
-              const va = sA[Math.min(i, sA.length - 1)] ?? 0;
-              const vb = sB[Math.min(i, sB.length - 1)] ?? 0;
-              blended.push(va * wA + vb * wB);
-            }
-            const up = blended[blended.length - 1]! >= blended[0]!;
-            const changeA = quoteA?.changePercent ?? 0;
-            const changeB = quoteB?.changePercent ?? 0;
-            const blendedChange = changeA * wA + changeB * wB;
-            return (
-              <section className="mb-6 rounded-[1.5rem] border border-border bg-surface p-5">
-                <div className="flex items-baseline justify-between">
-                  <div>
-                    <p className="label-caps">Pair performance · today</p>
-                    <p className="mt-1 font-mono text-2xl font-semibold tabular-nums">
-                      {blended.length > 0 ? formatUsd(blended[blended.length - 1]!) : "—"}
-                    </p>
-                  </div>
-                  <span
+          <section className="mb-6 rounded-[1.5rem] border border-border bg-surface p-5">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="flex items-center gap-1 rounded-full border border-border bg-surface-muted p-1">
+                {(
+                  [
+                    ["navUsd", "TVL"],
+                    ["sharePrice", "Share price"],
+                  ] as const
+                ).map(([metric, label]) => (
+                  <button
+                    key={metric}
+                    type="button"
+                    onClick={() => setChartMetric(metric)}
                     className={cn(
-                      "rounded-full px-3 py-1 font-mono text-sm tabular-nums",
-                      up
-                        ? "bg-emerald-500/10 text-emerald-600"
-                        : "bg-rose-500/10 text-rose-600",
+                      "rounded-full px-3 py-1 font-mono text-[11px] font-semibold uppercase tracking-wide transition-all",
+                      chartMetric === metric
+                        ? "bg-foreground text-background"
+                        : "text-muted-foreground hover:text-foreground",
                     )}
                   >
-                    {blendedChange >= 0 ? "+" : ""}{blendedChange.toFixed(2)}%
-                  </span>
-                </div>
-                <div className="mt-3">
-                  <Sparkline
-                    data={blended}
-                    width={580}
-                    height={100}
-                    positive={up}
-                    strokeWidth={2}
-                    className="w-full"
-                  />
-                </div>
-                <div className="mt-3 flex items-center justify-between text-[11px] text-muted-foreground">
-                  <span>Market open</span>
-                  <span>Now</span>
-                </div>
-              </section>
-            );
-          })()}
-
-          {/* Two side-by-side leg cards */}
-          <section className="grid gap-3 sm:grid-cols-2">
-            <LegCard
-              ticker={pair.tickerA}
-              name={metaA?.name}
-              category={metaA?.category}
-              weightBps={pair.weightABps}
-              priceUsd={quoteA?.price}
-              change24h={quoteA?.changePercent}
-              sparkline={quoteA?.sparkline}
-              address={pair.tokenA}
-              accent={categoryAccent}
-            />
-            <LegCard
-              ticker={pair.tickerB}
-              name={metaB?.name}
-              category={metaB?.category}
-              weightBps={10_000 - pair.weightABps}
-              priceUsd={quoteB?.price}
-              change24h={quoteB?.changePercent}
-              sparkline={quoteB?.sparkline}
-              address={pair.tokenB}
-              accent="#3D8BFF"
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {historyQuery.data?.source === "reconstructed" && (
+                <span className="rounded-full bg-amber-500/10 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide text-amber-600 dark:text-amber-400">
+                  Warming up
+                </span>
+              )}
+            </div>
+            <PairChart
+              points={historyPoints}
+              metric={chartMetric}
+              range={chartRange}
+              onRangeChange={setChartRange}
+              title={chartMetric === "navUsd" ? "On-chain TVL" : "Share price"}
+              loading={historyQuery.isLoading}
+              height={280}
             />
           </section>
 
-          {/* Creator panel */}
+          <section className="grid gap-3 sm:grid-cols-2">
+            <LegCard
+              ticker={tickerA}
+              name={tokenAMeta?.name}
+              category={tokenAMeta?.category}
+              weightBps={chain.weightABps}
+              priceUsd={priceA}
+              change24h={quoteA?.changePercent}
+              sparkline={quoteA?.sparkline}
+              address={chain.tokenA}
+              reserve={`${formatToken(chain.reserveA, decA)} ${tickerA}`}
+              accent={categoryAccent}
+            />
+            <LegCard
+              ticker={tickerB}
+              name={tokenBMeta?.name}
+              category={tokenBMeta?.category}
+              weightBps={10_000 - chain.weightABps}
+              priceUsd={priceB}
+              change24h={quoteB?.changePercent}
+              sparkline={quoteB?.sparkline}
+              address={chain.tokenB}
+              reserve={`${formatToken(chain.reserveB, decB)} ${tickerB}`}
+              accent={LEG_B_ACCENT}
+            />
+          </section>
+
           {isCreator && (
             <section className="mt-6 rounded-[1.75rem] border border-accent bg-accent-subtle/60 p-6">
               <div className="flex items-center gap-2 text-sm font-semibold text-accent-strong">
@@ -484,103 +505,70 @@ export default function PairDetailContent({ address }: { address: string }) {
                 Creator dashboard
               </div>
               <p className="mt-2 text-xs text-muted-foreground">
-                You launched this pair. Fees accrue with every non-creator
-                deposit and can be claimed to your wallet at any time.
+                Your fee is minted to you as {symbol} shares on every deposit made by
+                someone else. They are already in your receipt balance and can be
+                redeemed for {tickerA} + {tickerB} at any time.
               </p>
-              <div className="mt-4 flex flex-wrap items-center gap-4">
+              <div className="mt-4 flex flex-wrap gap-6">
                 <div>
-                  <p className="text-xs text-muted-foreground">
-                    Claimable USDG
-                  </p>
+                  <p className="text-xs text-muted-foreground">Fee shares earned</p>
                   <p className="mt-1 font-mono text-2xl font-semibold tabular-nums text-accent-strong">
-                    <NumberTicker value={creatorEarningsUsdg} decimals={2} startOnView={false} />
+                    {formatToken(chain.creatorFeeShares)}
                   </p>
                 </div>
-                <Button
-                  disabled={creatorEarningsUsdg <= 0 || claimConfirming}
-                  onClick={handleClaim}
-                >
-                  {claimConfirming ? "Claiming…" : "Claim fees"}
-                  <ArrowRight size={14} weight="bold" />
-                </Button>
+                <div>
+                  <p className="text-xs text-muted-foreground">Current value</p>
+                  <p className="mt-1 font-mono text-2xl font-semibold tabular-nums">
+                    {formatUsd(creatorFeeUsd)}
+                  </p>
+                </div>
               </div>
             </section>
           )}
 
-          {/* Activity */}
           <section className="mt-6 rounded-[1.75rem] border border-border bg-surface p-6">
             <h2 className="text-base font-semibold">Recent activity</h2>
-            {(!activity ||
-              (activity.deposits.length === 0 &&
-                activity.redeems.length === 0)) && (
+            {detail.isError && (
               <p className="mt-3 text-sm text-muted-foreground">
-                No activity yet. Be the first to deposit.
+                Activity is unavailable while the indexer is offline.
               </p>
             )}
-            {activity &&
-              (activity.deposits.length > 0 || activity.redeems.length > 0) && (
-                <ul className="mt-4 space-y-2">
-                  {[
-                    ...activity.deposits.map((d) => ({
-                      ...d,
-                      kind: "deposit" as const,
-                    })),
-                    ...activity.redeems.map((r) => ({
-                      ...r,
-                      kind: "redeem" as const,
-                      usdgAmount: 0,
-                      creatorFeeUsd: 0,
-                    })),
-                  ]
-                    .sort(
-                      (a, b) =>
-                        new Date(b.timestamp).getTime() -
-                        new Date(a.timestamp).getTime(),
-                    )
-                    .slice(0, 12)
-                    .map((row) => (
-                      <li
-                        key={`${row.kind}-${row.txHash}`}
-                        className="flex items-center justify-between gap-3 rounded-2xl border border-border-subtle bg-surface-muted/40 px-4 py-3"
+            {!detail.isError && allActivity.length === 0 && (
+              <p className="mt-3 text-sm text-muted-foreground">No activity yet. Be the first to deposit.</p>
+            )}
+            {allActivity.length > 0 && (
+              <ul className="mt-4 space-y-2">
+                {allActivity.map((row) => (
+                  <li
+                    key={`${row.kind}-${row.txHash}`}
+                    className="flex items-center justify-between gap-3 rounded-2xl border border-border-subtle bg-surface-muted/40 px-4 py-3"
+                  >
+                    <div className="flex items-center gap-3">
+                      <Badge variant={row.kind === "deposit" ? "success" : "secondary"}>{row.kind}</Badge>
+                      <a
+                        href={explorerUrl("tx", row.txHash)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-mono text-xs underline-offset-2 hover:underline"
                       >
-                        <div className="flex items-center gap-3">
-                          <Badge
-                            variant={
-                              row.kind === "deposit" ? "success" : "secondary"
-                            }
-                          >
-                            {row.kind}
-                          </Badge>
-                          <a
-                            href={explorerUrl("tx", row.txHash)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="font-mono text-xs underline-offset-2 hover:underline"
-                          >
-                            {row.wallet.slice(0, 6)}…{row.wallet.slice(-4)}
-                          </a>
-                        </div>
-                        <div className="text-right font-mono text-xs">
-                          <div className="tabular-nums">
-                            {row.kind === "deposit"
-                              ? formatUsd(row.usdgAmount)
-                              : formatUsd(
-                                  (row as { usdgOut: number }).usdgOut,
-                                )}
-                          </div>
-                          <div className="text-[10px] text-muted-foreground">
-                            {new Date(row.timestamp).toLocaleString(undefined, {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                              month: "short",
-                              day: "numeric",
-                            })}
-                          </div>
-                        </div>
-                      </li>
-                    ))}
-                </ul>
-              )}
+                        {row.wallet.slice(0, 6)}…{row.wallet.slice(-4)}
+                      </a>
+                    </div>
+                    <div className="text-right font-mono text-xs">
+                      <div className="tabular-nums">{formatUsd(row.valueUsd)}</div>
+                      <div className="text-[10px] text-muted-foreground">
+                        {new Date(row.timestamp).toLocaleString(undefined, {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                          month: "short",
+                          day: "numeric",
+                        })}
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
         </div>
 
@@ -589,187 +577,92 @@ export default function PairDetailContent({ address }: { address: string }) {
           <div className="lg:sticky lg:top-24">
             <div className="overflow-hidden rounded-[1.75rem] border border-border bg-surface shadow-float">
               <div className="flex border-b border-border-subtle">
-                <button
-                  type="button"
-                  onClick={() => setTab("deposit")}
-                  className={cn(
-                    "flex-1 py-3 text-sm font-semibold transition-colors",
-                    tab === "deposit"
-                      ? "bg-accent-subtle text-accent-strong"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  Deposit
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTab("redeem")}
-                  className={cn(
-                    "flex-1 py-3 text-sm font-semibold transition-colors",
-                    tab === "redeem"
-                      ? "bg-accent-subtle text-accent-strong"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  Redeem
-                </button>
+                {(["deposit", "redeem"] as const).map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setTab(t)}
+                    className={cn(
+                      "flex-1 py-3 text-sm font-semibold capitalize transition-colors",
+                      tab === t ? "bg-accent-subtle text-accent-strong" : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {t}
+                  </button>
+                ))}
               </div>
 
               {tab === "deposit" ? (
                 <div className="p-5">
-                  <label
-                    htmlFor="pair-usd"
-                    className="mb-2 flex items-baseline justify-between text-sm font-semibold"
-                  >
-                    <span>USD to deposit</span>
-                    <span className="font-mono text-xs text-muted-foreground">
-                      min ${LAUNCHPAD_CONFIG.minDepositUsdg}
-                    </span>
-                  </label>
-                  <div className="relative">
-                    <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 font-mono text-lg text-muted-foreground">
-                      $
-                    </span>
-                    <input
-                      id="pair-usd"
-                      type="number"
-                      min={LAUNCHPAD_CONFIG.minDepositUsdg}
-                      step={50}
-                      value={usdAmount}
-                      onChange={(e) =>
-                        setUsdAmount(Number(e.target.value) || 0)
-                      }
-                      className="h-14 w-full rounded-xl border border-border bg-surface-muted pl-9 pr-4 text-xl font-semibold tabular-nums outline-none transition-all focus:border-accent focus:bg-surface"
-                    />
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {USD_PRESETS.map((p) => (
-                      <button
-                        key={p}
-                        type="button"
-                        onClick={() => setUsdAmount(p)}
-                        className={cn(
-                          "rounded-full border px-3 py-1 font-mono text-xs transition-all active:scale-[0.98]",
-                          usdAmount === p
-                            ? "border-accent bg-accent-subtle text-accent-strong"
-                            : "border-border text-muted-foreground hover:border-accent/40",
-                        )}
-                      >
-                        ${p.toLocaleString()}
-                      </button>
-                    ))}
-                    {source && source.balanceUsd > 0 && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setUsdAmount(Math.floor(source.balanceUsd))
-                        }
-                        className="ml-auto rounded-full border border-accent bg-accent px-3 py-1 font-mono text-xs font-semibold text-accent-foreground"
-                      >
-                        Max
-                      </button>
-                    )}
+                  <DepositAmountField
+                    id="pair-usd"
+                    label="USD value to deposit"
+                    value={usdAmount}
+                    onChange={setUsdAmount}
+                    maxUsd={wallet.address ? maxUsd : undefined}
+                    hint={`Split across ${tickerA} + ${tickerB} at the pair's current ratio`}
+                    inputClassName="!h-14 !text-xl !rounded-xl !pl-9"
+                  />
+
+                  <div className="mt-4 grid grid-cols-2 gap-2">
+                    <NeedRow unit={unitA} ticker={tickerA} need={needA} have={haveA} decimals={decA} connected={!!wallet.address} />
+                    <NeedRow unit={unitB} ticker={tickerB} need={needB} have={haveB} decimals={decB} connected={!!wallet.address} />
                   </div>
 
-                  <p className="label-caps mt-5 flex items-center gap-2">
-                    Payment source
-                    {paySources.zapMissing && (
-                      <span className="ml-1 text-[10px] normal-case tracking-normal text-muted-foreground">
-                        (LaunchpadZap not deployed — USDG only)
+                  {wethLeg && (
+                    <label className="mt-3 flex cursor-pointer items-center justify-between gap-3 rounded-2xl border border-border bg-surface px-4 py-3 text-xs">
+                      <span>
+                        <span className="block font-semibold text-foreground">Pay the WETH leg with ETH</span>
+                        <span className="text-muted-foreground">Wrapped inside the deposit transaction.</span>
                       </span>
-                    )}
-                  </p>
-                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                    {paySources.sources.map((s) => {
-                      const isDisabled =
-                        s.kind !== "usdg" &&
-                        (paySources.zapMissing || !s.hasBalance);
-                      const isSelected = source?.kind === s.kind;
-                      return (
-                        <PaymentSourceCard
-                          key={s.kind + s.address}
-                          source={s}
-                          selected={isSelected}
-                          disabled={isDisabled}
-                          onClick={() => setManualSourceKind(s.kind)}
-                        />
-                      );
-                    })}
-                  </div>
+                      <input
+                        type="checkbox"
+                        checked={useEth}
+                        onChange={(e) => setPayWithEth(e.target.checked)}
+                        className="h-4 w-4 shrink-0 accent-[var(--accent)]"
+                      />
+                    </label>
+                  )}
 
-                  <div className="relative mt-5 rounded-2xl border border-border bg-accent-subtle/60 p-4">
+                  <div className="relative mt-4 rounded-2xl border border-border bg-accent-subtle/60 p-4">
                     <HatchPattern className="opacity-40" />
                     <dl className="relative space-y-1.5 font-mono text-xs">
                       <div className="flex justify-between">
-                        <dt className="text-muted-foreground">You pay</dt>
-                        <dd className="tabular-nums">
-                          {source
-                            ? `${sourceAmountDisplay.toLocaleString(undefined, { maximumFractionDigits: 6 })} ${source.symbol}`
-                            : "—"}
-                        </dd>
+                        <dt className="text-muted-foreground">Shares minted</dt>
+                        <dd className="tabular-nums">≈ {formatToken(netShares)} {symbol}</dd>
                       </div>
                       <div className="flex justify-between">
-                        <dt className="text-muted-foreground">USDG in</dt>
-                        <dd className="tabular-nums">{formatUsd(usdAmount)}</dd>
-                      </div>
-                      <div className="flex justify-between">
-                        <dt className="text-muted-foreground">
-                          Creator fee ({(creatorFeeBps / 100).toFixed(1)}%)
-                        </dt>
-                        <dd className="tabular-nums">
-                          {isCreator ? "waived" : `-${formatUsd(feeUsd)}`}
-                        </dd>
+                        <dt className="text-muted-foreground">Creator fee ({(feeBps / 100).toFixed(1)}%)</dt>
+                        <dd className="tabular-nums">{isCreator ? "waived (your pair)" : `${formatUsd(feeUsd)} in shares`}</dd>
                       </div>
                       <div className="flex justify-between border-t border-border pt-1.5 text-sm">
-                        <dt className="font-medium">Invested</dt>
-                        <dd className="font-medium tabular-nums">
-                          {formatUsd(netInvested)}
-                        </dd>
+                        <dt className="font-medium">Your position</dt>
+                        <dd className="font-medium tabular-nums">{formatUsd((usdAmount || 0) - feeUsd)}</dd>
                       </div>
                     </dl>
                   </div>
 
-                  {insufficient && source && (
-                    <p className="mt-3 flex items-center gap-1.5 text-xs text-destructive">
-                      <WarningCircle size={14} />
-                      Not enough {source.symbol} — need{" "}
-                      <span className="font-mono">
-                        {sourceAmountDisplay.toFixed(4)}
+                  {wallet.authenticated && depositBlocker && (
+                    <p className="mt-3 flex items-start gap-1.5 text-xs text-muted-foreground">
+                      <Info size={14} className="mt-0.5 shrink-0" />
+                      {depositBlocker}
+                    </p>
+                  )}
+                  {isTestnetMode() && wallet.address && balA === 0n && balB === 0n && (
+                    <p className="mt-3 flex items-start gap-1.5 text-xs text-muted-foreground">
+                      <Drop size={14} className="mt-0.5 shrink-0 text-accent-strong" />
+                      <span>
+                        Get free testnet {tickerA} and {tickerB} from the{" "}
+                        <a href={TESTNET_FAUCET_URL} target="_blank" rel="noopener noreferrer" className="text-accent-strong underline">
+                          Robinhood faucet ↗
+                        </a>
                       </span>
-                      , hold{" "}
-                      <span className="font-mono">
-                        {source.balanceDisplay.toFixed(4)}
-                      </span>
-                      .
                     </p>
                   )}
-                  {error && (
-                    <p className="mt-3 flex items-center gap-1.5 text-xs text-destructive">
-                      <WarningCircle size={14} />
-                      {error}
-                    </p>
-                  )}
-                  {isCreator && creatorEarningsUsdg === 0 && (
-                    <p className="mt-3 flex items-center gap-1.5 text-xs text-accent-strong">
-                      <Info size={14} />
-                      Your first deposit as creator is fee-waived at 1:1 NAV.
-                    </p>
-                  )}
-
                   {!isUSMarketHours() && (
-                    <p className="mt-3 flex items-center gap-1.5 rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-600 dark:text-amber-400">
-                      <WarningCircle size={14} weight="fill" />
-                      US markets are closed — stock token swaps may see wider
-                      spreads and temporary price gaps vs. the underlying equity.
-                    </p>
-                  )}
-
-                  {!isTokenizationWindowOpen() && (
-                    <p className="mt-3 flex items-center gap-1.5 rounded-xl border border-rose-500/30 bg-rose-500/5 px-3 py-2 text-xs text-rose-600 dark:text-rose-400">
-                      <WarningCircle size={14} weight="fill" />
-                      Stock Token minting is paused (outside Mon–Sat
-                      tokenization window). On-chain prices may diverge from
-                      off-chain equity prices.
+                    <p className="mt-3 flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+                      <WarningCircle size={14} weight="fill" className="mt-0.5 shrink-0" />
+                      US markets are closed; values use the latest available prices.
                     </p>
                   )}
 
@@ -777,89 +670,89 @@ export default function PairDetailContent({ address }: { address: string }) {
                     <Button
                       className="mt-4 w-full"
                       size="lg"
-                      disabled={
-                        depositConfirming ||
-                        usdAmount < LAUNCHPAD_CONFIG.minDepositUsdg ||
-                        !source ||
-                        insufficient
-                      }
+                      disabled={depositBlocker !== null || isBusy(depositTx.stage)}
                       onClick={handleDeposit}
                     >
-                      {depositConfirming
-                        ? "Processing…"
-                        : `Deposit ${formatUsd(usdAmount)}${source && source.kind !== "usdg" ? ` via ${source.symbol}` : ""}`}
-                      {!depositConfirming && <ArrowRight size={16} weight="bold" />}
+                      {isBusy(depositTx.stage) ? "Processing…" : `Deposit ${formatUsd(usdAmount || 0)}`}
+                      {!isBusy(depositTx.stage) && <ArrowRight size={16} weight="bold" />}
                     </Button>
                   ) : (
-                    <Button
-                      className="mt-4 w-full"
-                      size="lg"
-                      onClick={wallet.login}
-                    >
+                    <Button className="mt-4 w-full" size="lg" onClick={wallet.login} disabled={!wallet.ready}>
                       <Wallet size={16} />
                       Connect wallet
                     </Button>
                   )}
-                  <p className="mt-3 text-center text-[11px] text-muted-foreground">
-                    Min {formatUsd(LAUNCHPAD_CONFIG.minDepositUsdg)} · Non-USDG
-                    sources are auto-converted to USDG in a single tx.
-                  </p>
                 </div>
               ) : (
                 <div className="p-5">
                   <p className="text-sm">
-                    Your <span className="font-mono">{pair.receiptSymbol}</span>{" "}
-                    balance
+                    Your <span className="font-mono">{symbol}</span> balance
                   </p>
                   <p className="mt-2 font-mono text-3xl font-semibold tabular-nums">
-                    {Number(formatUnits(userReceiptBal, 18)).toFixed(4)}
+                    {formatToken(userShares)}
                   </p>
-                  {sharePriceUsd != null && userReceiptBal > 0n && (
+                  {sharePriceUsd != null && userShares > 0n && (
                     <p className="mt-1 text-xs text-muted-foreground">
-                      ≈{" "}
-                      {formatUsd(
-                        Number(formatUnits(userReceiptBal, 18)) * sharePriceUsd,
-                      )}{" "}
-                      at share price {sharePriceUsd.toFixed(4)}
+                      ≈ {formatUsd(Number(formatUnits(userShares, 18)) * sharePriceUsd)} at{" "}
+                      {formatUsd(sharePriceUsd)} per share
                     </p>
                   )}
 
-                  {error && (
-                    <p className="mt-3 flex items-center gap-1.5 text-xs text-destructive">
-                      <WarningCircle size={14} />
-                      {error}
-                    </p>
-                  )}
+                  <div className="mt-4 flex gap-2">
+                    {REDEEM_PRESETS.map((p) => (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => setRedeemPct(p)}
+                        className={cn(
+                          "flex-1 rounded-full border px-3 py-1.5 font-mono text-xs transition-all",
+                          redeemPct === p
+                            ? "border-accent bg-accent-subtle text-accent-strong"
+                            : "border-border text-muted-foreground hover:border-accent/40",
+                        )}
+                      >
+                        {p}%
+                      </button>
+                    ))}
+                  </div>
+
+                  <dl className="mt-4 space-y-1.5 rounded-2xl border border-border bg-surface-muted p-4 font-mono text-xs">
+                    <div className="flex justify-between">
+                      <dt className="text-muted-foreground">You receive {tickerA}</dt>
+                      <dd className="tabular-nums">{formatToken(outA, decA)}</dd>
+                    </div>
+                    <div className="flex justify-between">
+                      <dt className="text-muted-foreground">You receive {tickerB}</dt>
+                      <dd className="tabular-nums">{formatToken(outB, decB)}</dd>
+                    </div>
+                    <div className="flex justify-between border-t border-border pt-1.5 text-sm">
+                      <dt className="font-medium">Value</dt>
+                      <dd className="font-medium tabular-nums">{formatUsd(outValueUsd)}</dd>
+                    </div>
+                  </dl>
 
                   {wallet.authenticated ? (
                     <Button
                       className="mt-4 w-full"
                       size="lg"
-                      disabled={redeemConfirming || userReceiptBal <= 0n}
+                      variant="inverse"
+                      disabled={redeemShares <= 0n || !outs || isBusy(redeemTx.stage)}
                       onClick={handleRedeem}
                     >
-                      {redeemConfirming
+                      {isBusy(redeemTx.stage)
                         ? "Redeeming…"
-                        : userReceiptBal > 0n
-                          ? "Redeem to USDG"
+                        : userShares > 0n
+                          ? `Redeem ${redeemPct}%`
                           : "Nothing to redeem"}
-                      {!redeemConfirming && userReceiptBal > 0n && (
-                        <ArrowRight size={16} weight="bold" />
-                      )}
                     </Button>
                   ) : (
-                    <Button
-                      className="mt-4 w-full"
-                      size="lg"
-                      onClick={wallet.login}
-                    >
+                    <Button className="mt-4 w-full" size="lg" onClick={wallet.login} disabled={!wallet.ready}>
                       <Wallet size={16} />
                       Connect wallet
                     </Button>
                   )}
                   <p className="mt-3 text-center text-[11px] text-muted-foreground">
-                    Redeems your entire receipt balance for USDG at current
-                    on-chain NAV.
+                    Redemptions return both tokens and are never paused.
                   </p>
                 </div>
               )}
@@ -868,14 +761,13 @@ export default function PairDetailContent({ address }: { address: string }) {
         </aside>
       </div>
 
-      {/* Deposit progress overlay */}
       <AnimatePresence>
         {overlayVisible && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 backdrop-blur-sm"
           >
             <motion.div
               initial={{ y: 24, opacity: 0 }}
@@ -883,36 +775,34 @@ export default function PairDetailContent({ address }: { address: string }) {
               transition={spring}
               className="relative w-full max-w-md overflow-hidden rounded-[2rem] border border-border bg-surface p-6 shadow-float"
             >
-              <GradientHalo
-                colorA={categoryAccent}
-                colorB="#3D8BFF"
-                intensity={0.7}
-              />
               <div className="flex items-center gap-3">
-                <DualLogoStack
-                  tickerA={pair.tickerA}
-                  tickerB={pair.tickerB}
-                  size="md"
-                />
+                <DualLogoStack tickerA={tickerA} tickerB={tickerB} size="md" />
                 <div>
-                  <p className="text-sm text-muted-foreground">Seeding</p>
-                  <p className="font-mono text-lg font-semibold">
-                    {pair.receiptSymbol}
+                  <p className="text-sm text-muted-foreground">
+                    {activeFlow === "redeem" ? "Redeeming" : "Depositing"}
                   </p>
+                  <p className="font-mono text-lg font-semibold">{symbol}</p>
                 </div>
               </div>
               <StageProgressList
                 className="mt-6"
+                steps={progressSteps}
                 current={stage}
-                errorMessage={launchAndSeed.error?.message}
+                lastActive={lastStage}
+                errorMessage={flow.error}
+                pendingHash={flow.pendingHash}
+                errorTitle={activeFlow === "redeem" ? "Redeem failed" : "Deposit failed"}
               />
               {stage === "error" && (
                 <Button
                   variant="outline"
                   className="mt-4 w-full"
-                  onClick={launchAndSeed.reset}
+                  onClick={() => {
+                    flow.reset();
+                    setActiveFlow(null);
+                  }}
                 >
-                  Try again
+                  Close
                 </Button>
               )}
             </motion.div>
@@ -923,37 +813,69 @@ export default function PairDetailContent({ address }: { address: string }) {
   );
 }
 
-function Stat({
-  label,
-  value,
-  accent,
-  animatedValue,
-  animatedDecimals,
+function NotFound({ message }: { message: string }) {
+  return (
+    <div className="container-page py-12">
+      <Link
+        href="/launchpad"
+        className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+      >
+        <CaretLeft size={14} />
+        Launchpad
+      </Link>
+      <div className="mt-8 rounded-3xl border border-dashed border-border bg-surface p-12 text-center">
+        <p className="font-mono text-sm text-muted-foreground">{message}</p>
+        <Button asChild className="mt-4" variant="outline">
+          <Link href="/launchpad">Back to launchpad</Link>
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function NeedRow({
+  unit,
+  ticker,
+  need,
+  have,
+  decimals,
+  connected,
 }: {
-  label: string;
-  value: string;
-  accent?: boolean;
-  animatedValue?: number;
-  animatedDecimals?: number;
+  unit: string;
+  ticker: string;
+  need: bigint;
+  have: bigint;
+  decimals: number;
+  connected: boolean;
 }) {
+  const short = connected && need > have;
+  return (
+    <div
+      className={cn(
+        "rounded-2xl border p-3",
+        short ? "border-destructive/40 bg-destructive/5" : "border-border bg-surface-muted/60",
+      )}
+    >
+      <div className="flex items-center gap-2">
+        <StockLogo ticker={ticker} size="xs" />
+        <span className="text-xs font-semibold">{unit}</span>
+      </div>
+      <p className="mt-2 font-mono text-sm font-semibold tabular-nums">{formatToken(need, decimals)}</p>
+      {connected && (
+        <p className={cn("font-mono text-[10px]", short ? "text-destructive" : "text-muted-foreground")}>
+          wallet {formatToken(have, decimals)}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function Stat({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
   return (
     <div className="rounded-2xl border border-border bg-surface p-4">
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p
-        className={cn(
-          "mt-2 font-mono text-2xl font-semibold tabular-nums",
-          accent && "text-accent-strong",
-        )}
-      >
-        {animatedValue != null ? (
-          <NumberTicker
-            value={animatedValue}
-            decimals={animatedDecimals ?? 2}
-            startOnView={false}
-          />
-        ) : (
-          value
-        )}
+      <p className={cn("mt-2 font-mono text-2xl font-semibold tabular-nums", accent && "text-accent-strong")}>
+        {value}
       </p>
     </div>
   );
@@ -968,6 +890,7 @@ function LegCard({
   change24h,
   sparkline,
   address,
+  reserve,
   accent,
 }: {
   ticker: string;
@@ -978,35 +901,22 @@ function LegCard({
   change24h?: number;
   sparkline?: number[];
   address: string;
+  reserve: string;
   accent: string;
 }) {
   const up = change24h != null ? change24h >= 0 : true;
   return (
-    <div
-      className="group relative overflow-hidden rounded-[1.5rem] border border-border bg-surface p-5 transition-transform hover:-translate-y-0.5"
-      style={
-        {
-          "--accent-glow": accent,
-        } as React.CSSProperties
-      }
-    >
-      <div
-        aria-hidden
-        className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full opacity-25 blur-3xl transition-opacity group-hover:opacity-40"
-        style={{ background: accent }}
-      />
+    <div className="group relative overflow-hidden rounded-[1.5rem] border border-border bg-surface p-5 transition-transform hover:-translate-y-0.5">
       <div className="relative flex items-start gap-3">
         <StockLogo ticker={ticker} size="md" />
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-2">
             <span className="text-lg font-semibold">{ticker}</span>
             <span className="font-mono text-xs tabular-nums text-muted-foreground">
-              {(weightBps / 100).toFixed(0)}%
+              target {(weightBps / 100).toFixed(0)}%
             </span>
           </div>
-          <p className="truncate text-xs text-muted-foreground">
-            {name ?? "—"}
-          </p>
+          <p className="truncate text-xs text-muted-foreground">{name ?? "—"}</p>
           {category && (
             <p className="mt-0.5 inline-block rounded-full bg-surface-muted px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
               {category.replace("-", " ")}
@@ -1015,29 +925,16 @@ function LegCard({
         </div>
       </div>
 
-      {/* Sparkline chart */}
       {sparkline && sparkline.length > 2 && (
         <div className="relative mt-3">
-          <Sparkline
-            data={sparkline}
-            width={260}
-            height={48}
-            positive={up}
-            strokeWidth={1.8}
-            className="w-full"
-          />
+          <Sparkline data={sparkline} width={260} height={48} positive={up} strokeWidth={1.8} className="w-full" />
         </div>
       )}
 
       <div className="relative mt-3 flex items-baseline justify-between">
         <span className="font-mono text-2xl font-semibold tabular-nums">
           {priceUsd != null ? (
-            <NumberTicker
-              value={priceUsd}
-              prefix="$"
-              decimals={priceUsd < 10 ? 4 : 2}
-              startOnView={false}
-            />
+            <NumberTicker value={priceUsd} prefix="$" decimals={priceUsd < 10 ? 4 : 2} startOnView={false} />
           ) : (
             "—"
           )}
@@ -1046,9 +943,7 @@ function LegCard({
           <span
             className={cn(
               "rounded-full px-2 py-0.5 font-mono text-xs tabular-nums",
-              up
-                ? "bg-emerald-500/10 text-emerald-600"
-                : "bg-rose-500/10 text-rose-600",
+              up ? "bg-emerald-500/10 text-emerald-600" : "bg-rose-500/10 text-rose-600",
             )}
           >
             {change24h >= 0 ? "+" : ""}
@@ -1056,15 +951,7 @@ function LegCard({
           </span>
         )}
       </div>
-      <div className="relative mt-3 h-1.5 overflow-hidden rounded-full bg-surface-muted">
-        <div
-          className="h-full transition-[width] duration-500"
-          style={{
-            width: `${weightBps / 100}%`,
-            background: accent,
-          }}
-        />
-      </div>
+      <p className="relative mt-2 font-mono text-[11px] text-muted-foreground">Reserve: {reserve}</p>
       <div className="relative mt-3 text-[11px]">
         <AddressChip address={address} kind="address" label="Contract" />
       </div>

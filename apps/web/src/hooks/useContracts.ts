@@ -98,12 +98,15 @@ export function useApproveAndDeposit(vaultAddress: `0x${string}` | undefined) {
       basketTokens,
       basketWeightsBps,
       minShares = 0n,
+      onStage,
     }: {
       tokenAddress: `0x${string}`;
       depositAmount: bigint;
       basketTokens: `0x${string}`[];
       basketWeightsBps: bigint[];
       minShares?: bigint;
+      /** Progress callback so the UI can show approve → deposit → mined. */
+      onStage?: (stage: "approve" | "deposit" | "mined") => void;
     }) => {
       if (!contractsReady || !vaultAddress) {
         throw new Error("Vault not configured for this deposit asset");
@@ -113,6 +116,7 @@ export function useApproveAndDeposit(vaultAddress: `0x${string}` | undefined) {
       setTxHash(undefined);
 
       try {
+        onStage?.("approve");
         await writeContractAsync({
           address: tokenAddress,
           abi: erc20Abi,
@@ -120,6 +124,7 @@ export function useApproveAndDeposit(vaultAddress: `0x${string}` | undefined) {
           args: [vaultAddress, depositAmount],
         });
 
+        onStage?.("deposit");
         const depositHash = await writeContractAsync({
           address: vaultAddress,
           abi: strategyVaultAbi as readonly unknown[],
@@ -135,6 +140,7 @@ export function useApproveAndDeposit(vaultAddress: `0x${string}` | undefined) {
         });
 
         setTxHash(depositHash);
+        onStage?.("mined");
         return depositHash;
       } catch (e) {
         const err = e instanceof Error ? e : new Error(String(e));

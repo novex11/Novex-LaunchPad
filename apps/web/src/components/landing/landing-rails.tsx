@@ -11,7 +11,7 @@ import { StockLogo } from "@/components/ui/stock-logo";
 
 const ease = [0.22, 1, 0.36, 1] as const;
 
-/** Live intraday line that draws itself in and pulses at the last print. */
+/** Live intraday line that draws itself in and marks the last print. */
 function LiveLine({ data, up }: { data: number[]; up: boolean }) {
   const reduced = useReducedMotion();
   const ref = useRef<HTMLDivElement>(null);
@@ -63,16 +63,6 @@ function LiveLine({ data, up }: { data: number[]; up: boolean }) {
           />
           {last && (
             <>
-              {!reduced && (
-                <motion.circle
-                  cx={last.x}
-                  cy={last.y}
-                  fill={color}
-                  initial={{ r: 3, opacity: 0.6 }}
-                  animate={{ r: [3, 10], opacity: [0.6, 0] }}
-                  transition={{ repeat: Infinity, duration: 1.8, ease: "easeOut", delay: 1.4 }}
-                />
-              )}
               <circle cx={last.x} cy={last.y} r="2.5" fill={color} />
             </>
           )}
@@ -141,15 +131,6 @@ export function BasketRail({ data }: { data: PreviewResponse | null }) {
             )}
           </motion.div>
         ))}
-        {!reduced && lines.length > 0 && (
-          <motion.span
-            aria-hidden
-            className="pointer-events-none absolute inset-y-0 w-16 bg-gradient-to-r from-transparent via-white/25 to-transparent"
-            initial={{ left: "-20%" }}
-            animate={{ left: "120%" }}
-            transition={{ repeat: Infinity, duration: 2.8, ease: "easeInOut", repeatDelay: 1.5 }}
-          />
-        )}
       </div>
       <div className="mt-3 flex items-center justify-between">
         <div className="flex -space-x-1.5">

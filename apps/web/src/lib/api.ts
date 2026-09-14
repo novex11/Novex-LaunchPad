@@ -222,6 +222,12 @@ export interface LaunchpadPair {
   totalDepositsUsd: number;
   totalDepositors: number;
   creatorEarningsUsd: number;
+  displayName?: string;
+  description?: string;
+  imageUrl?: string;
+  logoUrl?: string;
+  websiteUrl?: string;
+  numeraireTicker?: string;
   status: string;
   createdAt: string;
 }
@@ -241,7 +247,9 @@ export interface LaunchpadStats {
 export interface LaunchpadActivity {
   deposits: Array<{
     wallet: string;
-    usdgAmount: number;
+    valueUsd: number;
+    amountA: string;
+    amountB: string;
     sharesMinted: string;
     creatorFeeUsd: number;
     txHash: string;
@@ -249,8 +257,10 @@ export interface LaunchpadActivity {
   }>;
   redeems: Array<{
     wallet: string;
+    valueUsd: number;
+    amountA: string;
+    amountB: string;
     sharesBurned: string;
-    usdgOut: number;
     txHash: string;
     timestamp: string;
   }>;
@@ -272,6 +282,32 @@ export async function fetchLaunchpadPair(
   return parseJson(res);
 }
 
+export type PairHistoryRange = "1h" | "24h" | "7d" | "30d" | "all";
+
+export interface PairHistoryPoint {
+  timestamp: string;
+  navUsd: number;
+  sharePrice: number;
+  totalShares: string;
+}
+
+export interface PairHistoryResponse {
+  range: PairHistoryRange;
+  points: PairHistoryPoint[];
+  source?: "snapshots" | "reconstructed";
+}
+
+export async function fetchPairHistory(
+  address: string,
+  range: PairHistoryRange = "24h",
+): Promise<PairHistoryResponse> {
+  const res = await fetch(
+    `${INDEXER_URL}/launchpad/pair/${address}/history?range=${range}`,
+    { cache: "no-store" },
+  );
+  return parseJson(res);
+}
+
 export async function fetchLaunchpadByCreator(
   wallet: string,
 ): Promise<{ pairs: LaunchpadPair[] }> {
@@ -284,59 +320,55 @@ export async function fetchLaunchpadStats(): Promise<LaunchpadStats> {
   return parseJson(res);
 }
 
-export async function recordLaunchpadLaunch(body: {
-  pairKey: string;
+export async function uploadLaunchpadImage(
+  file: File,
+): Promise<{ ok: true; id: string; imageUrl: string }> {
+  const form = new FormData();
+  form.append("file", file);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20_000);
+  try {
+    const res = await fetch(`${INDEXER_URL}/launchpad/upload-image`, {
+      method: "POST",
+      body: form,
+      signal: controller.signal,
+    });
+    return parseJson(res);
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error("Upload timed out — Redis is slow. Try a smaller image or paste a URL.");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export interface LaunchpadMetadataBody {
   pairAddress: string;
-  receiptAddress: string;
-  receiptSymbol: string;
-  creatorWallet: string;
-  tokenA: string;
-  tokenB: string;
-  tickerA: string;
-  tickerB: string;
-  categoryA: string;
-  categoryB: string;
-  weightABps: number;
-  creatorFeeBps: number;
-  txHash?: string;
-}) {
+  displayName?: string;
+  description?: string;
+  imageUrl?: string;
+  logoUrl?: string;
+  websiteUrl?: string;
+  numeraireTicker?: string;
+  /** ISO timestamp included in the signed message */
+  issuedAt: string;
+  /** Creator signature over `pairMetadataMessage` */
+  signature: `0x${string}`;
+}
+
+/**
+ * Save a launched pair's profile. The indexer verifies the signature belongs to
+ * the pair's on-chain creator. Deposits and redeems are indexed from chain events.
+ */
+export async function saveLaunchpadMetadata(body: LaunchpadMetadataBody) {
   const res = await fetch(`${INDEXER_URL}/launchpad/launch`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  return parseJson(res);
-}
-
-export async function recordLaunchpadDeposit(body: {
-  pairAddress: string;
-  wallet: string;
-  usdgAmount: number;
-  sharesMinted: string;
-  creatorFeeUsd: number;
-  txHash: string;
-}) {
-  const res = await fetch(`${INDEXER_URL}/launchpad/deposit`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  return parseJson(res);
-}
-
-export async function recordLaunchpadRedeem(body: {
-  pairAddress: string;
-  wallet: string;
-  sharesBurned: string;
-  usdgOut: number;
-  txHash: string;
-}) {
-  const res = await fetch(`${INDEXER_URL}/launchpad/redeem`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  return parseJson(res);
+  return parseJson<{ ok: boolean }>(res);
 }
 
 export interface BackendHealth {

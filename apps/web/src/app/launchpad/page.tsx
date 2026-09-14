@@ -17,6 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Sparkline } from "@/components/ui/sparkline";
 import { StockLogo } from "@/components/ui/stock-logo";
+import { PairIdentity } from "@/components/ui/pair-identity";
 
 const spring = { type: "spring", stiffness: 100, damping: 20 } as const;
 
@@ -104,8 +105,8 @@ export default function LaunchpadPage() {
           </h1>
           <p className="mt-3 max-w-xl text-muted-foreground">
             Discover unique 2-token pair vaults created by the community. Every
-            pair is on-chain, USDG-denominated, and pays creator fees to its
-            launcher.
+            pair holds the real tokens on-chain, is redeemable any time, and
+            pays creator fees to its launcher.
           </p>
         </div>
         <div className="md:col-span-4 md:text-right">
@@ -272,28 +273,45 @@ function PairCard({ pair, delay, byTicker }: { pair: LaunchpadPair; delay: numbe
     >
       <Link
         href={`/pair/${pair.pairAddress}`}
-        className="group block h-full rounded-3xl border border-border bg-surface p-5 transition-all hover:border-accent hover:shadow-card active:scale-[0.99]"
+        className="group block h-full overflow-hidden rounded-3xl border border-border bg-surface transition-all hover:border-accent hover:shadow-card active:scale-[0.99]"
       >
+        {!pair.imageUrl && (
+          <PairIdentity tickerA={pair.tickerA} tickerB={pair.tickerB} height={84} logos={!pair.logoUrl} className="transition-transform duration-500 group-hover:scale-[1.02]">
+            {pair.logoUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={pair.logoUrl} alt="" className="absolute bottom-3 left-4 h-10 w-10 rounded-xl border-2 border-white/60 bg-surface object-cover shadow-md" />
+            )}
+          </PairIdentity>
+        )}
+        {pair.imageUrl && (
+          <div className="relative h-24 w-full overflow-hidden">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={pair.imageUrl}
+              alt=""
+              className="h-full w-full object-cover transition-transform group-hover:scale-[1.02]"
+            />
+            {pair.logoUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={pair.logoUrl}
+                alt=""
+                className="absolute -bottom-3 left-4 h-10 w-10 rounded-xl border-2 border-surface bg-surface object-cover shadow-sm"
+              />
+            )}
+          </div>
+        )}
+        <div className={cn("p-5", pair.imageUrl && pair.logoUrl && "pt-6")}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex -space-x-2">
-              <StockLogo
-                ticker={pair.tickerA}
-                size="sm"
-                className="ring-2 ring-surface"
-              />
-              <StockLogo
-                ticker={pair.tickerB}
-                size="sm"
-                className="ring-2 ring-surface"
-              />
-            </div>
             <div>
               <p className="font-mono text-sm font-semibold">
-                {pair.receiptSymbol}
+                {pair.displayName || pair.receiptSymbol}
               </p>
               <p className="text-[11px] capitalize text-muted-foreground">
-                {pair.tickerA} · {pair.tickerB}
+                {pair.displayName && pair.displayName !== pair.receiptSymbol
+                  ? pair.receiptSymbol
+                  : `${pair.tickerA} · ${pair.tickerB}`}
               </p>
             </div>
           </div>
@@ -302,8 +320,8 @@ function PairCard({ pair, delay, byTicker }: { pair: LaunchpadPair; delay: numbe
               className={cn(
                 "rounded-full px-2 py-0.5 font-mono text-[11px] tabular-nums",
                 up
-                  ? "bg-emerald-500/10 text-emerald-600"
-                  : "bg-rose-500/10 text-rose-600",
+                  ? "bg-success/10 text-success"
+                  : "bg-destructive/10 text-destructive",
               )}
             >
               {up ? "+" : ""}{blendedChange.toFixed(2)}%
@@ -335,14 +353,14 @@ function PairCard({ pair, delay, byTicker }: { pair: LaunchpadPair; delay: numbe
                 {quoteA ? formatUsd(quoteA.price) : "—"}
               </span>
               {quoteA && (
-                <span className={cn("tabular-nums", quoteA.changePercent >= 0 ? "text-emerald-600" : "text-rose-600")}>
+                <span className={cn("tabular-nums", quoteA.changePercent >= 0 ? "text-success" : "text-destructive")}>
                   {quoteA.changePercent >= 0 ? "+" : ""}{quoteA.changePercent.toFixed(1)}%
                 </span>
               )}
             </span>
             <span className="flex items-center gap-1.5">
               {quoteB && (
-                <span className={cn("tabular-nums", quoteB.changePercent >= 0 ? "text-emerald-600" : "text-rose-600")}>
+                <span className={cn("tabular-nums", quoteB.changePercent >= 0 ? "text-success" : "text-destructive")}>
                   {quoteB.changePercent >= 0 ? "+" : ""}{quoteB.changePercent.toFixed(1)}%
                 </span>
               )}
@@ -407,6 +425,7 @@ function PairCard({ pair, delay, byTicker }: { pair: LaunchpadPair; delay: numbe
             Open
             <ArrowRight size={12} weight="bold" />
           </span>
+        </div>
         </div>
       </Link>
     </motion.div>

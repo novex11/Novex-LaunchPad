@@ -1,12 +1,12 @@
 "use client";
 
-import { ArrowUpRight, Clock } from "@phosphor-icons/react";
+import { ArrowUpRight } from "@phosphor-icons/react";
 import type { ActivityRecord } from "@/lib/api";
-import { formatUsd } from "@/lib/utils";
+import { formatUsd, explorerUrl } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import { StockLogo } from "@/components/ui/stock-logo";
 import { Badge } from "@/components/ui/badge";
-import { EmptyState } from "@/components/ui/empty-state";
+import { EmptyState, BasketGlyph } from "@/components/ui/empty-state";
 import { RowSkeleton } from "@/components/ui/skeleton";
 
 const TYPE_STYLE: Record<string, string> = {
@@ -47,9 +47,9 @@ export function ActivityList({
   if (records.length === 0) {
     return (
       <EmptyState
-        icon={Clock}
+        illustration={<BasketGlyph tickers={["NVDA", "AAPL", "TSLA", "SPY"]} className="h-28 w-28" />}
         title="No activity yet"
-        description="Buy a stock or create a basket and it will show up here instantly."
+        description="Every buy, sell, deposit, redemption and Stockback credit lands here with its transaction hash."
         action={emptyAction}
         className="m-4"
       />
@@ -99,7 +99,7 @@ export function ActivityList({
             <div className="hidden items-center justify-end gap-2 md:flex">
               <Badge variant={r.status === "confirmed" ? "success" : "secondary"}>{r.status}</Badge>
               <a
-                href={`https://explorer.robinhood.com/tx/${r.txHash}`}
+                href={explorerUrl("tx", r.txHash)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-0.5 font-mono text-[11px] text-muted-foreground hover:text-foreground"

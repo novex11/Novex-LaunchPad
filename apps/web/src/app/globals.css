@@ -50,7 +50,93 @@
   }
 
   .label-caps {
-    @apply text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground;
+    @apply text-xs font-medium uppercase tracking-[0.1em] text-muted-foreground;
+  }
+
+  /* ─── Surfaces & depth ─────────────────────────────── */
+  .surface-1 {
+    background: var(--surface-1);
+  }
+  .surface-2 {
+    background: var(--surface-2);
+  }
+  .surface-glass {
+    background: var(--surface-3);
+    -webkit-backdrop-filter: blur(18px) saturate(1.2);
+    backdrop-filter: blur(18px) saturate(1.2);
+  }
+  .card-raised {
+    background: var(--surface-1);
+    box-shadow:
+      0 0 0 1px var(--border),
+      0 1px 2px rgba(0, 0, 0, 0.08),
+      0 24px 48px -24px rgba(0, 0, 0, 0.35);
+  }
+  .card-floating {
+    background: var(--surface-1);
+    box-shadow:
+      0 0 0 1px var(--border),
+      0 2px 4px rgba(0, 0, 0, 0.06),
+      0 12px 32px -16px rgba(0, 0, 0, 0.18);
+  }
+  .text-gradient-accent {
+    background: linear-gradient(120deg, var(--accent-strong), var(--accent) 50%, var(--gold));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .hairline-top {
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    height: 1px;
+  }
+
+  /* ─── Motion ────────────────────────────────────────── */
+  .animate-orbit {
+    animation: orbit var(--orbit-duration, 18s) linear infinite;
+  }
+  .animate-orbit-reverse {
+    animation: orbit var(--orbit-duration, 18s) linear infinite reverse;
+  }
+  @keyframes orbit {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  .animate-float {
+    animation: float 6s ease-in-out infinite;
+  }
+  @keyframes float {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-6px);
+    }
+  }
+  .animate-pulse-ring {
+    animation: pulse-ring 2.4s ease-out infinite;
+  }
+  @keyframes pulse-ring {
+    0% {
+      transform: scale(0.9);
+      opacity: 0.6;
+    }
+    100% {
+      transform: scale(1.6);
+      opacity: 0;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .animate-orbit,
+    .animate-orbit-reverse,
+    .animate-float,
+    .animate-pulse-ring {
+      animation: none !important;
+    }
   }
 
   .tactile {
@@ -171,6 +257,44 @@
   .no-scrollbar {
     -ms-overflow-style: none;
     scrollbar-width: none;
+  }
+
+  /* Range slider with a custom gradient track (set via inline style) */
+  .range-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 10px;
+    border-radius: 9999px;
+    outline: none;
+    cursor: pointer;
+  }
+  .range-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 22px;
+    width: 22px;
+    border-radius: 9999px;
+    background: var(--surface);
+    border: 3px solid var(--accent-strong);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+    transition: transform 0.15s ease;
+  }
+  .range-slider::-webkit-slider-thumb:hover {
+    transform: scale(1.08);
+  }
+  .range-slider::-webkit-slider-thumb:active {
+    transform: scale(0.96);
+  }
+  .range-slider::-moz-range-thumb {
+    height: 22px;
+    width: 22px;
+    border-radius: 9999px;
+    background: var(--surface);
+    border: 3px solid var(--accent-strong);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+  }
+  .range-slider::-moz-range-track {
+    background: transparent;
   }
 }
 

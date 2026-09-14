@@ -8,10 +8,26 @@ const Providers = dynamic(
   { ssr: false },
 );
 
-export function ProvidersWrapper({ children }: { children: React.ReactNode }) {
+export function ProvidersWrapper({
+  children,
+  rpcUrl,
+  useTestnet,
+  explorerBaseUrl,
+}: {
+  children: React.ReactNode;
+  rpcUrl: string;
+  useTestnet: boolean;
+  explorerBaseUrl: string;
+}) {
   return (
     <ThemeProvider>
-      <Providers>{children}</Providers>
+      <Providers
+        rpcUrl={rpcUrl}
+        useTestnet={useTestnet}
+        explorerBaseUrl={explorerBaseUrl}
+      >
+        {children}
+      </Providers>
     </ThemeProvider>
   );
 }

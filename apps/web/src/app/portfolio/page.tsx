@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import Link from "next/link";
 import { motion } from "motion/react";
-import { ArrowRight, ChartPieSlice, Stack } from "@phosphor-icons/react";
+import { ArrowRight, Stack } from "@phosphor-icons/react";
 import { formatUnits } from "viem";
 import { formatUsd } from "@/lib/utils";
 import { cn } from "@/lib/utils";
@@ -14,7 +14,7 @@ import { useQuotes } from "@/hooks/use-quotes";
 import { Button } from "@/components/ui/button";
 import { StockLogo } from "@/components/ui/stock-logo";
 import { PriceFlash } from "@/components/ui/price-flash";
-import { EmptyState } from "@/components/ui/empty-state";
+import { EmptyState, BasketGlyph } from "@/components/ui/empty-state";
 import { RowSkeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { ConnectGate } from "@/components/app/connect-gate";
@@ -81,7 +81,6 @@ export default function PortfolioPage() {
           <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">Portfolio</h1>
           <p className="mt-2 font-mono text-xs text-muted-foreground">
             {wallet.address?.slice(0, 6)}…{wallet.address?.slice(-4)}
-            {wallet.demo && " · demo wallet"}
           </p>
         </div>
         <div className="flex gap-2 md:col-span-4 md:justify-end">
@@ -128,10 +127,10 @@ export default function PortfolioPage() {
 
       {!isLoading && !isError && !hasAnything && (
         <EmptyState
-          icon={ChartPieSlice}
-          title="No positions yet"
-          description="Buy a stock from the markets page or create a managed basket to start earning Stockback."
-          className="mt-8"
+          illustration={<BasketGlyph />}
+          title="Your first basket starts here"
+          description="Deposit one stock and the allocator builds a diversified basket with Stockback on every line. Direct stock trades show up here too."
+          className="mt-8 py-16"
           action={
             <div className="flex gap-2">
               <Button asChild>

@@ -31,12 +31,12 @@ export const MARKET_STOCKS: MarketStock[] = [
 ];
 
 export const FOREX_PAIRS: MarketStock[] = [
-  { ticker: "EURUSD", name: "Euro / US Dollar", exchange: "FX", category: "Major", tradable: true },
-  { ticker: "GBPUSD", name: "British Pound / US Dollar", exchange: "FX", category: "Major", tradable: true },
-  { ticker: "AUDUSD", name: "Australian Dollar / US Dollar", exchange: "FX", category: "Major", tradable: true },
-  { ticker: "NZDUSD", name: "New Zealand Dollar / US Dollar", exchange: "FX", category: "Minor", tradable: true },
-  { ticker: "USDCAD", name: "US Dollar / Canadian Dollar", exchange: "FX", category: "Major", tradable: true },
-  { ticker: "USDCHF", name: "US Dollar / Swiss Franc", exchange: "FX", category: "Major", tradable: true },
+  { ticker: "EURUSD", name: "Euro / US Dollar", exchange: "FX", category: "Major", tradable: false },
+  { ticker: "GBPUSD", name: "British Pound / US Dollar", exchange: "FX", category: "Major", tradable: false },
+  { ticker: "AUDUSD", name: "Australian Dollar / US Dollar", exchange: "FX", category: "Major", tradable: false },
+  { ticker: "NZDUSD", name: "New Zealand Dollar / US Dollar", exchange: "FX", category: "Minor", tradable: false },
+  { ticker: "USDCAD", name: "US Dollar / Canadian Dollar", exchange: "FX", category: "Major", tradable: false },
+  { ticker: "USDCHF", name: "US Dollar / Swiss Franc", exchange: "FX", category: "Major", tradable: false },
 ];
 
 /** All tradable assets */

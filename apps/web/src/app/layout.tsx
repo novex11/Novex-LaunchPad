@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ProvidersWrapper } from "@/components/providers-wrapper";
+import { getServerChainConfig } from "@/lib/server-chain-config";
 import { Navbar } from "@/components/navbar";
 import { Footer } from "@/components/footer";
 import { GrainOverlay } from "@/components/motion/grain-overlay";
@@ -30,12 +31,18 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const { rpcUrl, useTestnet, explorerBaseUrl } = getServerChainConfig();
+
   return (
     <html lang="en" suppressHydrationWarning>
       <body
         className={`${geist.variable} ${geistMono.variable} min-h-screen bg-background font-sans text-foreground antialiased`}
       >
-        <ProvidersWrapper>
+        <ProvidersWrapper
+          rpcUrl={rpcUrl}
+          useTestnet={useTestnet}
+          explorerBaseUrl={explorerBaseUrl}
+        >
           <Navbar />
           <main>{children}</main>
           <Footer />

@@ -11,7 +11,11 @@ export type { QuoteData };
 
 async function fetchQuote(ticker: string): Promise<QuoteData | null> {
   try {
-    const symbol = isForexPair(ticker) ? `${ticker}=X` : ticker;
+    const symbol = isForexPair(ticker)
+      ? `${ticker}=X`
+      : ticker === "WETH" || ticker === "ETH"
+        ? "ETH-USD"
+        : ticker;
     const res = await fetch(
       `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=5m&range=1d`,
       { next: { revalidate: 15 } },
@@ -23,6 +27,7 @@ async function fetchQuote(ticker: string): Promise<QuoteData | null> {
     if (!meta?.regularMarketPrice) return null;
 
     const stock = ALL_MARKET_ASSETS.find((s) => s.ticker === ticker);
+    const fallbackName = ticker === "WETH" ? "Wrapped ETH" : ticker;
     const price = meta.regularMarketPrice as number;
     const prev = (meta.chartPreviousClose ??
       meta.previousClose ??
@@ -37,7 +42,7 @@ async function fetchQuote(ticker: string): Promise<QuoteData | null> {
 
     return {
       ticker,
-      name: stock?.name ?? ticker,
+      name: stock?.name ?? fallbackName,
       price,
       change,
       changePercent,

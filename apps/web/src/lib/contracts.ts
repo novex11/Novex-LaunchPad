@@ -1,25 +1,20 @@
-import { getAddress } from "viem";
-import strategyVaultAbi from "./abis/StrategyVault.json";
-import receiptTokenAbi from "./abis/ReceiptToken.json";
-import vaultFactoryAbi from "./abis/VaultFactory.json";
-import oracleAdapterAbi from "./abis/OracleAdapter.json";
-import pairFactoryAbi from "./abis/PairFactory.json";
-import pairVaultAbi from "./abis/PairVault.json";
-import launchpadZapAbi from "./abis/LaunchpadZap.json";
-import wrhtAbi from "./abis/WRHT.json";
+import { getAddress, type Abi } from "viem";
+import { isHexAddress, isTestnetMode, testnetDeployment } from "@novex/config";
+import strategyVaultAbiJson from "./abis/StrategyVault.json";
+import receiptTokenAbiJson from "./abis/ReceiptToken.json";
+import vaultFactoryAbiJson from "./abis/VaultFactory.json";
+import oracleAdapterAbiJson from "./abis/OracleAdapter.json";
+import pairFactoryAbiJson from "./abis/PairFactory.json";
+import pairVaultAbiJson from "./abis/PairVault.json";
 
-export {
-  strategyVaultAbi,
-  receiptTokenAbi,
-  vaultFactoryAbi,
-  oracleAdapterAbi,
-  pairFactoryAbi,
-  pairVaultAbi,
-  launchpadZapAbi,
-  wrhtAbi,
-};
+export const strategyVaultAbi = strategyVaultAbiJson as Abi;
+export const receiptTokenAbi = receiptTokenAbiJson as Abi;
+export const vaultFactoryAbi = vaultFactoryAbiJson as Abi;
+export const oracleAdapterAbi = oracleAdapterAbiJson as Abi;
+export const pairFactoryAbi = pairFactoryAbiJson as Abi;
+export const pairVaultAbi = pairVaultAbiJson as Abi;
 
-// ERC-20 minimal ABI for approve/balanceOf
+/** ERC-20 subset used across the app. */
 export const erc20Abi = [
   {
     type: "function",
@@ -57,50 +52,51 @@ export const erc20Abi = [
   },
 ] as const;
 
-/**
- * Deployed contract addresses.
- *
- * After deploying via `forge script`, update these from deployments.json.
- * For local dev / pre-deploy, these are zero addresses that the UI
- * detects and falls back to mock/indexer flow.
- */
 const ZERO = "0x0000000000000000000000000000000000000000" as `0x${string}`;
 
-function envAddr(key: string): `0x${string}` {
-  const raw =
-    typeof process !== "undefined"
-      ? (process.env as Record<string, string | undefined>)[key]
-      : undefined;
-  if (raw && raw.startsWith("0x") && raw.length === 42) {
-    return getAddress(raw) as `0x${string}`;
-  }
-  return ZERO;
+function addr(value: string | undefined): `0x${string}` {
+  return isHexAddress(value) ? (getAddress(value) as `0x${string}`) : ZERO;
 }
 
-export const VAULT_ADDRESS = envAddr("NEXT_PUBLIC_VAULT_ADDRESS");
-export const RECEIPT_TOKEN_ADDRESS = envAddr(
-  "NEXT_PUBLIC_RECEIPT_TOKEN_ADDRESS",
-);
-export const FACTORY_ADDRESS = envAddr("NEXT_PUBLIC_FACTORY_ADDRESS");
-export const PAIR_FACTORY_ADDRESS = envAddr(
-  "NEXT_PUBLIC_PAIR_FACTORY_ADDRESS",
-);
-export const USDG_ADDRESS = envAddr("NEXT_PUBLIC_USDG_ADDRESS");
-export const LAUNCHPAD_ZAP_ADDRESS = envAddr(
-  "NEXT_PUBLIC_LAUNCHPAD_ZAP_ADDRESS",
-);
-export const WRHT_ADDRESS = envAddr("NEXT_PUBLIC_WETH_ADDRESS");
-export const WETH_ADDRESS = WRHT_ADDRESS;
+const testnet = isTestnetMode() ? testnetDeployment() : null;
 
-/** Factory deployed — resolves vaults per deposit asset (tTSLA-B, etc.) */
-export const factoryReady = FACTORY_ADDRESS !== ZERO;
+/*
+ * On testnet the synced deployment file (`pnpm sync:testnet`) is the only
+ * source of addresses, so stale env vars can never point the app at contracts
+ * that don't exist on this chain. Env vars (referenced statically so Next.js
+ * inlines them) configure mainnet.
+ */
+export const PAIR_FACTORY_ADDRESS = testnet
+  ? addr(testnet.contracts.pairFactory)
+  : addr(process.env.NEXT_PUBLIC_PAIR_FACTORY_ADDRESS);
+export const ORACLE_ADDRESS = testnet
+  ? addr(testnet.contracts.oracle)
+  : addr(process.env.NEXT_PUBLIC_ORACLE_ADAPTER_ADDRESS);
+export const WETH_ADDRESS = testnet
+  ? addr(testnet.tokens.WETH)
+  : addr(process.env.NEXT_PUBLIC_WETH_ADDRESS);
 
-/** Pair launchpad deployed */
+/** Managed-basket contracts are mainnet-only (they need DEX liquidity). */
+export const FACTORY_ADDRESS = testnet ? ZERO : addr(process.env.NEXT_PUBLIC_FACTORY_ADDRESS);
+export const VAULT_ADDRESS = testnet ? ZERO : addr(process.env.NEXT_PUBLIC_VAULT_ADDRESS);
+export const RECEIPT_TOKEN_ADDRESS = testnet
+  ? ZERO
+  : addr(process.env.NEXT_PUBLIC_RECEIPT_TOKEN_ADDRESS);
+
+/** Pair launchpad deployed on the active network */
 export const pairFactoryReady = PAIR_FACTORY_ADDRESS !== ZERO;
+export const oracleReady = ORACLE_ADDRESS !== ZERO;
 
-/** Launchpad Zap deployed — enables non-USDG payment sources */
-export const launchpadZapReady = LAUNCHPAD_ZAP_ADDRESS !== ZERO;
+/** Factory deployed — resolves basket vaults per deposit asset (tTSLA-B, etc.) */
+export const factoryReady = FACTORY_ADDRESS !== ZERO;
 
 /** Legacy single-vault mode (backward compatible) */
 export const contractsReady =
   factoryReady || (VAULT_ADDRESS !== ZERO && RECEIPT_TOKEN_ADDRESS !== ZERO);
+
+/** Managed baskets can be created on this network */
+export const basketsAvailable = !testnet && contractsReady;
+
+export function isWeth(token: string | undefined): boolean {
+  return !!token && WETH_ADDRESS !== ZERO && token.toLowerCase() === WETH_ADDRESS.toLowerCase();
+}

@@ -64,7 +64,7 @@ function FloorGauge() {
   );
 }
 
-/** Credit stamp that posts on a loop. */
+/** Credit stamp that posts once when scrolled into view. */
 function BonusStamp() {
   const reduced = useReducedMotion();
   return (
@@ -74,20 +74,12 @@ function BonusStamp() {
         <motion.span
           className="ml-auto text-accent"
           initial={reduced ? false : { opacity: 0, y: 6 }}
-          animate={reduced ? undefined : { opacity: [0, 1, 1, 0], y: [6, 0, 0, -6] }}
-          transition={{ repeat: Infinity, duration: 3.2, times: [0, 0.15, 0.8, 1], ease: "easeOut" }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.5, ease: "easeOut", delay: 0.2 }}
         >
           +{formatUsd(CASHBACK_CONFIG.depositStockbackUsd)}
         </motion.span>
-        {!reduced && (
-          <motion.span
-            aria-hidden
-            className="absolute inset-0 border border-accent"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: [0, 0.8, 0] }}
-            transition={{ repeat: Infinity, duration: 3.2, times: [0, 0.15, 0.6] }}
-          />
-        )}
       </div>
       <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">flat</span>
     </div>

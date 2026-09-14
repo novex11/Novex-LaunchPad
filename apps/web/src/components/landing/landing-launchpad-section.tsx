@@ -23,8 +23,8 @@ export function LandingLaunchpadSection() {
           body={
             <>
               <p>
-                Pair any two approved tokens — stocks, forex, or a mix. Sorted
-                (tokenA, tokenB) means each combination is unique on-chain.
+                Pair any two listed tokens. Sorted (tokenA, tokenB) means each
+                combination is unique on-chain.
               </p>
               <p className="mt-3 font-mono text-[11px] text-muted-foreground">
                 {LAUNCHPAD_CONFIG.minWeightBps / 100}%–
@@ -41,7 +41,7 @@ export function LandingLaunchpadSection() {
               <p>
                 Set a fee between {LAUNCHPAD_CONFIG.minCreatorFeeBps / 100}% and{" "}
                 {LAUNCHPAD_CONFIG.maxCreatorFeeBps / 100}% per deposit. Fees
-                accrue in USDG and can be claimed at any time.
+                are minted to you as pair shares, redeemable at any time.
               </p>
               <p className="mt-3 font-mono text-[11px] text-muted-foreground">
                 Up to {LAUNCHPAD_CONFIG.maxPairsPerCreator} pairs per creator
@@ -59,7 +59,7 @@ export function LandingLaunchpadSection() {
                 creator fee. Seed your pair before anyone else.
               </p>
               <p className="mt-3 font-mono text-[11px] text-muted-foreground">
-                USDG-denominated deposit + redeem
+                In-kind deposit + redeem
               </p>
             </>
           }

@@ -23,6 +23,13 @@ const columns = [
       { href: "/vault/tNVDA-B", label: "Vault tNVDA-B" },
       { href: "/launchpad", label: "Launchpad" },
       { href: "/activity", label: "Activity" },
+    ],
+  },
+  {
+    title: "Legal",
+    links: [
+      { href: "/legal/terms", label: "Terms of Service" },
+      { href: "/legal/privacy", label: "Privacy Policy" },
       { href: "/legal/risk", label: "Risk disclosures" },
     ],
   },
@@ -60,7 +67,7 @@ export function Footer() {
 
   return (
     <footer className="relative mt-24 overflow-hidden border-t border-border bg-surface">
-      <HatchPattern className="opacity-60 [mask-image:linear-gradient(to_bottom,transparent,black_70%)]" />
+      <HatchPattern className="opacity-40 [mask-image:linear-gradient(to_bottom,transparent,black_70%)]" />
       <div className="container-page relative grid gap-12 py-16 md:grid-cols-12">
         <motion.div className="md:col-span-5" {...fadeUp(0)}>
           <Wordmark />
@@ -70,14 +77,13 @@ export function Footer() {
           </p>
           <div className="mt-6 inline-flex items-center gap-2 rounded-full border border-border bg-background px-3 py-1.5 font-mono text-[11px] text-muted-foreground">
             <span className="relative flex h-1.5 w-1.5">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-60" />
               <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-success" />
             </span>
             All systems nominal
           </div>
         </motion.div>
 
-        <div className="grid grid-cols-2 gap-8 sm:grid-cols-3 md:col-span-7">
+        <div className="grid grid-cols-2 gap-8 sm:grid-cols-4 md:col-span-7">
           {columns.map((col, ci) => (
             <motion.div key={col.title} {...fadeUp(0.1 + ci * 0.1)}>
               <p className="label-caps">{col.title}</p>
@@ -137,6 +143,17 @@ export function Footer() {
       <motion.div className="relative border-t border-border-subtle" {...fadeUp(0.2)}>
         <div className="container-page flex flex-col items-start justify-between gap-2 py-5 font-mono text-[11px] text-muted-foreground md:flex-row md:items-center">
           <p>© {new Date().getFullYear()} Novex · Platform fee $0.00</p>
+          <nav aria-label="Legal" className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <Link href="/legal/terms" className="transition-colors hover:text-foreground">
+              Terms
+            </Link>
+            <Link href="/legal/privacy" className="transition-colors hover:text-foreground">
+              Privacy
+            </Link>
+            <Link href="/legal/risk" className="transition-colors hover:text-foreground">
+              Risk
+            </Link>
+          </nav>
           <p>Not financial advice · Charts by TradingView · Quotes delayed up to 15s</p>
         </div>
       </motion.div>

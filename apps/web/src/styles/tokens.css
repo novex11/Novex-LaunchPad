@@ -23,6 +23,19 @@
   --grain-opacity: 0.035;
   --selection-bg: #6b7f5e;
   --selection-fg: #ffffff;
+  /* Surface levels: 1 = page card, 2 = raised card, 3 = floating/glass */
+  --surface-1: #ffffff;
+  --surface-2: #f7f8f3;
+  --surface-3: rgba(255, 255, 255, 0.82);
+  /* Categorical palette for allocation charts */
+  --chart-1: #6b7f5e;
+  --chart-2: #8a6d3b;
+  --chart-3: #4f6d8f;
+  --chart-4: #9c5b4e;
+  --chart-5: #6f5c8f;
+  --chart-6: #3f8a7a;
+  --chart-7: #a3894a;
+  --chart-8: #7a7f86;
 }
 
 .dark {
@@ -32,7 +45,7 @@
   --surface-elevated: #28282c;
   --surface-inverse: #f4f4f2;
   --foreground: #e4e4e7;
-  --muted-foreground: #8a8a90;
+  --muted-foreground: #9c9da5;
   --border: rgba(255, 255, 255, 0.08);
   --border-subtle: rgba(255, 255, 255, 0.05);
   --accent: #8fa683;
@@ -48,4 +61,15 @@
   --grain-opacity: 0.05;
   --selection-bg: #8fa683;
   --selection-fg: #141416;
+  --surface-1: #1b1b1e;
+  --surface-2: #222226;
+  --surface-3: rgba(34, 34, 38, 0.72);
+  --chart-1: #8fa683;
+  --chart-2: #c9a86a;
+  --chart-3: #7fa3c9;
+  --chart-4: #d08a7c;
+  --chart-5: #a793cf;
+  --chart-6: #6fc2ae;
+  --chart-7: #d6bd7a;
+  --chart-8: #9a9ea6;
 }

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { ArrowRight } from "@phosphor-icons/react";
-import { CASHBACK_CONFIG } from "@novex/config";
+import { BASKET_CONFIG, CASHBACK_CONFIG, basketAmountPresets, isTestnetMode } from "@novex/config";
 import type { Strategy } from "@/lib/api";
 import { useRewardPreview } from "@/hooks/use-reward-preview";
 import { formatUsd } from "@/lib/utils";
@@ -15,11 +15,12 @@ import { cn } from "@/lib/utils";
 
 const ASSETS = ["NVDA", "AAPL", "TSLA", "SPY"];
 const STRATS: Strategy[] = ["defensive", "balanced", "aggressive"];
-const PRESETS = [250, 1000, 2500, 5000, 10000];
+const PRESETS = basketAmountPresets();
+const SLIDER_MIN = isTestnetMode() ? BASKET_CONFIG.minDepositUsd : 100;
 
 export function LiveMathPanel() {
   const [asset, setAsset] = useState("NVDA");
-  const [amount, setAmount] = useState(1000);
+  const [amount, setAmount] = useState(isTestnetMode() ? 50 : 1000);
   const [strategy, setStrategy] = useState<Strategy>("balanced");
   const { data, source } = useRewardPreview({ depositTicker: asset, depositUsd: amount, strategy });
   const total = data?.stockback.totalStockbackUsd ?? 0;
@@ -62,9 +63,9 @@ export function LiveMathPanel() {
       </div>
       <input
         type="range"
-        min={100}
+        min={SLIDER_MIN}
         max={10000}
-        step={50}
+        step={isTestnetMode() ? 10 : 50}
         value={amount}
         onChange={(e) => setAmount(Number(e.target.value))}
         className="mt-4 w-full accent-accent"

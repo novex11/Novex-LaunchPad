@@ -356,7 +356,7 @@ export function TradePanel({
                 ) : (
                   <Button className="w-full" size="lg" onClick={wallet.login}>
                     <Wallet size={16} />
-                    {wallet.demo ? "Use demo wallet" : "Connect wallet to trade"}
+                    Connect wallet to trade
                   </Button>
                 )}
                 {!forex && (

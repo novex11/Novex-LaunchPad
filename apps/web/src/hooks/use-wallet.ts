@@ -1,68 +1,48 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { usePrivy } from "@privy-io/react-auth";
-
-export const PRIVY_CONFIGURED = Boolean(process.env.NEXT_PUBLIC_PRIVY_APP_ID);
+import { useCallback, useMemo } from "react";
+import { usePrivy, useWallets } from "@privy-io/react-auth";
+import { useAccount } from "wagmi";
 
 export interface WalletState {
   ready: boolean;
   authenticated: boolean;
   address: `0x${string}` | undefined;
-  demo: boolean;
   login: () => void;
-  logout: () => Promise<void> | void;
+  logout: () => Promise<void>;
 }
 
-const DEMO_KEY = "novex.demo-wallet";
-
-function randomAddress(): `0x${string}` {
-  const bytes = new Uint8Array(20);
-  crypto.getRandomValues(bytes);
-  return `0x${Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")}`;
+/** Resolve the active wallet address from wagmi + Privy (embedded or external). */
+function resolveWalletAddress(
+  wagmiAddress: `0x${string}` | undefined,
+  privyWallets: { address?: string }[],
+  embeddedAddress: string | undefined,
+): `0x${string}` | undefined {
+  if (wagmiAddress) return wagmiAddress;
+  for (const w of privyWallets) {
+    if (w.address) return w.address as `0x${string}`;
+  }
+  if (embeddedAddress) return embeddedAddress as `0x${string}`;
+  return undefined;
 }
 
-function useDemoWallet(): WalletState {
-  const [address, setAddress] = useState<`0x${string}` | undefined>();
-  const [ready, setReady] = useState(false);
-
-  useEffect(() => {
-    try {
-      const saved = window.localStorage.getItem(DEMO_KEY);
-      if (saved) setAddress(saved as `0x${string}`);
-    } catch {
-      /* ignore */
-    }
-    setReady(true);
-  }, []);
-
-  const login = useCallback(() => {
-    const addr = randomAddress();
-    try {
-      window.localStorage.setItem(DEMO_KEY, addr);
-    } catch {
-      /* ignore */
-    }
-    setAddress(addr);
-  }, []);
-
-  const logout = useCallback(() => {
-    try {
-      window.localStorage.removeItem(DEMO_KEY);
-    } catch {
-      /* ignore */
-    }
-    setAddress(undefined);
-  }, []);
-
-  return { ready, authenticated: Boolean(address), address, demo: true, login, logout };
-}
-
-function usePrivyWallet(): WalletState {
+export function useWallet(): WalletState {
   const { ready, authenticated, login, logout, user } = usePrivy();
+  const { address: wagmiAddress } = useAccount();
+  const { wallets } = useWallets();
+
+  const address = useMemo(
+    () =>
+      resolveWalletAddress(
+        wagmiAddress,
+        wallets,
+        user?.wallet?.address,
+      ),
+    [wagmiAddress, wallets, user?.wallet?.address],
+  );
 
   const handleLogin = useCallback(() => {
-    login({ loginMethods: ["wallet"] });
+    login();
   }, [login]);
 
   const handleLogout = useCallback(async () => {
@@ -72,13 +52,8 @@ function usePrivyWallet(): WalletState {
   return {
     ready,
     authenticated,
-    address: user?.wallet?.address as `0x${string}` | undefined,
-    demo: false,
+    address,
     login: handleLogin,
     logout: handleLogout,
   };
 }
-
-export const useWallet: () => WalletState = PRIVY_CONFIGURED
-  ? usePrivyWallet
-  : useDemoWallet;

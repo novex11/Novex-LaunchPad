@@ -5,44 +5,59 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useQueryClient } from "@tanstack/react-query";
 import { motion } from "motion/react";
+import { ArrowRight, CaretLeft, CheckCircle, WarningCircle, Info } from "@phosphor-icons/react";
 import {
-  ArrowRight,
-  CaretLeft,
-  CheckCircle,
-  Wallet,
-  WarningCircle,
-  Info,
-} from "@phosphor-icons/react";
-import {
+  BASKET_CONFIG,
   CASHBACK_CONFIG,
   DEPOSIT_ASSETS,
   STRATEGIES,
+  basketAmountPresets,
+  isTestnetMode,
   type StrategyId,
   getTokenByTicker,
   receiptTokenName,
 } from "@novex/config";
 import { parseEther } from "viem";
 import { fetchDepositCosts, recordDeposit, type DepositCosts } from "@/lib/api";
-import { contractsReady } from "@/lib/contracts";
+import { basketsAvailable, contractsReady } from "@/lib/contracts";
 import { useApproveAndDeposit, useDepositTokenPrice } from "@/hooks/useContracts";
 import { useResolveVault } from "@/hooks/use-resolve-vault";
 import { useWallet } from "@/hooks/use-wallet";
 import { useRewardPreview } from "@/hooks/use-reward-preview";
 import { useQuotes } from "@/hooks/use-quotes";
 import { useBackendHealth } from "@/hooks/use-backend-health";
-import { formatUsd } from "@/lib/utils";
+import { formatUsd, explorerUrl } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { StockLogo } from "@/components/ui/stock-logo";
-import { NumberTicker } from "@/components/ui/number-ticker";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Badge } from "@/components/ui/badge";
-import { HatchPattern } from "@/components/motion/hatch-pattern";
+import { AssetPicker } from "@/components/ui/asset-picker";
+import { AllocationDonut, chartColor } from "@/components/ui/allocation-donut";
+import { TxStepper, type TxStepperState } from "@/components/ui/tx-stepper";
+import { StrategyCards } from "@/components/create/strategy-cards";
+import { BasketSummary, DEPOSIT_STEPS } from "@/components/create/basket-summary";
+import { MobileConfirmBar } from "@/components/create/mobile-confirm-bar";
 
 const spring = { type: "spring", stiffness: 100, damping: 20 } as const;
-const PRESETS = [250, 500, 1000, 2500];
-const STRATEGY_ORDER: StrategyId[] = ["defensive", "balanced", "aggressive"];
+const AMOUNT_PRESETS = basketAmountPresets();
+const ALL_DEPOSIT_TICKERS = DEPOSIT_ASSETS.map((t) => t.ticker);
+
+/** Convert fractional weights to integer bps that sum to exactly 10,000. */
+function weightsToBps(weights: number[]): bigint[] {
+  const total = weights.reduce((a, b) => a + b, 0) || 1;
+  const raw = weights.map((w) => (w / total) * 10_000);
+  const bps = raw.map(Math.floor);
+  let remainder = 10_000 - bps.reduce((a, b) => a + b, 0);
+  const order = raw
+    .map((r, i) => [r - Math.floor(r), i] as const)
+    .sort((a, b) => b[0] - a[0]);
+  for (const [, i] of order) {
+    if (remainder <= 0) break;
+    bps[i]! += 1;
+    remainder -= 1;
+  }
+  return bps.map((b) => BigInt(b));
+}
 
 function Section({
   n,
@@ -56,11 +71,13 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="grid gap-4 border-t border-border-subtle py-8 first:border-t-0 first:pt-0 md:grid-cols-[6rem_1fr]">
+    <section className="grid gap-4 border-t border-border-subtle py-8 first:border-t-0 first:pt-0 md:grid-cols-[7rem_1fr]">
       <div>
-        <span className="font-mono text-xs text-muted-foreground">{n}</span>
-        <h2 className="mt-1 text-base font-semibold">{title}</h2>
-        {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
+        <span className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border font-mono text-[11px] text-accent-strong">
+          {n}
+        </span>
+        <h2 className="mt-2 text-base font-semibold">{title}</h2>
+        {hint && <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{hint}</p>}
       </div>
       <div>{children}</div>
     </section>
@@ -77,9 +94,11 @@ export default function CreateBasketContent() {
     const p = (searchParams.get("deposit") ?? searchParams.get("asset"))?.toUpperCase();
     return p && DEPOSIT_ASSETS.some((t) => t.ticker === p) ? p : "NVDA";
   });
-  const [amountStr, setAmountStr] = useState(
-    () => String(Number(searchParams.get("amount")) || 500),
-  );
+  const [amountStr, setAmountStr] = useState(() => {
+    const fromUrl = Number(searchParams.get("amount"));
+    if (fromUrl > 0) return String(fromUrl);
+    return String(isTestnetMode() ? 50 : 500);
+  });
   const [strategy, setStrategy] = useState<StrategyId>(() => {
     const s = searchParams.get("strategy") as StrategyId | null;
     return s && s in STRATEGIES ? s : "balanced";
@@ -87,30 +106,29 @@ export default function CreateBasketContent() {
 
   const resolvedVault = useResolveVault(depositTicker, strategy);
   const onchainDeposit = useApproveAndDeposit(resolvedVault.vaultAddress);
-  const { priceUsd: depositTokenPriceUsd } = useDepositTokenPrice(
-    resolvedVault.vaultAddress,
-  );
+  const { priceUsd: depositTokenPriceUsd } = useDepositTokenPrice(resolvedVault.vaultAddress);
   const [preferred, setPreferred] = useState<string[]>(["AAPL", "MSFT"]);
   const [excluded, setExcluded] = useState<string[]>([]);
   const [maxTokens, setMaxTokens] = useState<number>(5);
   const [costs, setCosts] = useState<DepositCosts | null>(null);
   const [confirming, setConfirming] = useState(false);
+  const [stage, setStage] = useState<TxStepperState>("idle");
+  const [failedAt, setFailedAt] = useState<string | null>(null);
+  const [txHash, setTxHash] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<{ txHash?: string } | null>(null);
 
   const depositUsd = Number(amountStr) || 0;
 
   const preview = useRewardPreview(
-    depositUsd > 0
-      ? { depositTicker, depositUsd, strategy, preferred, excluded, maxTokens }
-      : null,
+    depositUsd > 0 ? { depositTicker, depositUsd, strategy, preferred, excluded, maxTokens } : null,
     wallet.address,
   );
   const data = preview.data;
 
   const tickers = useMemo(
-    () => Array.from(new Set([depositTicker, ...(data?.allocation ?? []).map((a) => a.ticker)])),
-    [depositTicker, data],
+    () => Array.from(new Set([...ALL_DEPOSIT_TICKERS, ...(data?.allocation ?? []).map((a) => a.ticker)])),
+    [data],
   );
   const { byTicker } = useQuotes(tickers);
 
@@ -131,13 +149,24 @@ export default function CreateBasketContent() {
   const externalTotal =
     costs?.estimatedTotalExternalUsd ??
     (data ? data.externalCosts.estimatedGasUsd + data.externalCosts.estimatedMarketCostUsd : 0);
-  const openingNet = data
-    ? depositUsd + data.stockback.totalStockbackUsd - externalTotal
-    : 0;
+  const openingNet = data ? depositUsd + data.stockback.totalStockbackUsd - externalTotal : 0;
 
-  const belowMin = depositUsd > 0 && depositUsd < CASHBACK_CONFIG.minEligibleDepositUsd;
-  const canConfirm =
-    wallet.authenticated && data && depositUsd > 0 && !confirming && health.indexer;
+  const belowBasketMin = depositUsd > 0 && depositUsd < BASKET_CONFIG.minDepositUsd;
+  const belowStockbackFloor = depositUsd > 0 && depositUsd < CASHBACK_CONFIG.minEligibleDepositUsd;
+  const hasViolations = (data?.violations?.length ?? 0) > 0;
+  const previewIsLive = preview.source === "allocator";
+  const canConfirm = Boolean(
+    wallet.authenticated &&
+      data &&
+      depositUsd >= BASKET_CONFIG.minDepositUsd &&
+      !confirming &&
+      health.indexer &&
+      basketsAvailable &&
+      resolvedVault.ready &&
+      !hasViolations &&
+      previewIsLive,
+  );
+  const busy = confirming || (stage !== "idle" && stage !== "done" && stage !== "error");
 
   function toggle(list: string[], set: (v: string[]) => void, t: string, other: string[], setOther: (v: string[]) => void) {
     if (list.includes(t)) set(list.filter((x) => x !== t));
@@ -151,8 +180,12 @@ export default function CreateBasketContent() {
     if (!wallet.address || !data) return;
     setConfirming(true);
     setError(null);
+    setFailedAt(null);
+    setTxHash(null);
+    let current = "approve";
+    setStage(current);
     try {
-      let txHash: string | undefined;
+      let hash: string | undefined;
       if (contractsReady && resolvedVault.ready) {
         const tokenAddress = resolvedVault.depositAsset ?? getTokenByTicker(depositTicker)?.address;
         if (!tokenAddress) throw new Error(`Token ${depositTicker} not configured`);
@@ -160,16 +193,21 @@ export default function CreateBasketContent() {
           throw new Error("Cannot determine deposit token price");
         }
         const tokenAmount = depositUsd / depositTokenPriceUsd;
-        txHash = await onchainDeposit.execute({
+        hash = await onchainDeposit.execute({
           tokenAddress,
           depositAmount: parseEther(tokenAmount.toFixed(18)),
-          basketTokens: data.allocation.map(
-            (a) => (getTokenByTicker(a.ticker)?.address ?? "0x0") as `0x${string}`,
-          ),
-          basketWeightsBps: data.allocation.map((a) => BigInt(Math.round(a.weight * 10000))),
+          basketTokens: data.allocation.map((a) => (getTokenByTicker(a.ticker)?.address ?? "0x0") as `0x${string}`),
+          basketWeightsBps: weightsToBps(data.allocation.map((a) => a.weight)),
           minShares: 0n,
+          onStage: (s) => {
+            current = s === "mined" ? "record" : s;
+            setStage(current);
+          },
         });
+        if (hash) setTxHash(hash);
       }
+      current = "record";
+      setStage(current);
       await recordDeposit({
         wallet: wallet.address,
         depositTicker,
@@ -179,12 +217,15 @@ export default function CreateBasketContent() {
         stockbackUsd: data.stockback.totalStockbackUsd,
         allocation: data.allocation,
         vaultId: receiptTokenName(depositTicker, strategy),
-        txHash,
+        txHash: hash,
       });
       qc.invalidateQueries({ queryKey: ["portfolio"] });
       qc.invalidateQueries({ queryKey: ["activity"] });
-      setSuccess({ txHash });
+      setStage("done");
+      setSuccess({ txHash: hash });
     } catch (e) {
+      setFailedAt(current);
+      setStage("error");
       setError(e instanceof Error ? e.message : "Deposit failed");
     } finally {
       setConfirming(false);
@@ -192,48 +233,118 @@ export default function CreateBasketContent() {
   }
 
   if (success) {
+    const receipt = receiptTokenName(depositTicker, strategy);
     return (
-      <div className="container-page flex min-h-[70dvh] items-center py-16">
+      <div className="container-page relative flex min-h-[70dvh] items-center py-16">
         <motion.div
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={spring}
-          className="mx-auto w-full max-w-lg rounded-[2rem] border border-border bg-surface p-8 shadow-float"
+          initial={{ opacity: 0, y: 24, rotateX: -8 }}
+          animate={{ opacity: 1, y: 0, rotateX: 0 }}
+          transition={{ type: "spring", stiffness: 120, damping: 18 }}
+          className="relative mx-auto grid w-full max-w-3xl gap-8 overflow-hidden rounded-[2rem] card-floating p-8 md:grid-cols-[auto_1fr] md:items-center"
         >
-          <span className="inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-accent-subtle text-accent-strong">
-            <CheckCircle size={30} weight="fill" />
-          </span>
-          <h1 className="mt-5 text-3xl font-semibold tracking-tight">Basket created</h1>
-          <p className="mt-2 text-muted-foreground">
-            {formatUsd(depositUsd)} of {depositTicker} is now{" "}
-            <span className="font-mono">{receiptTokenName(depositTicker, strategy)}</span>.
-            Stockback of{" "}
-            <span className="font-mono text-accent-strong">
-              {formatUsd(data?.stockback.totalStockbackUsd ?? 0)}
-            </span>{" "}
-            has been credited.
-          </p>
-          {success.txHash && (
-            <p className="mt-3 break-all font-mono text-xs text-muted-foreground">tx {success.txHash}</p>
-          )}
-          <div className="mt-6 flex flex-wrap gap-2">
-            <Button asChild>
-              <Link href="/portfolio">
-                View portfolio
-                <ArrowRight size={14} weight="bold" />
-              </Link>
-            </Button>
-            <Button asChild variant="outline">
-              <Link href="/activity">Activity</Link>
-            </Button>
+          <div className="mx-auto">
+            <AllocationDonut
+              items={(data?.allocation ?? []).map((a) => ({ ticker: a.ticker, weight: a.weight }))}
+              size={184}
+              thickness={18}
+              centerValue={receipt}
+              centerLabel="minted"
+            />
+          </div>
+          <div>
+            <span className="inline-flex items-center gap-2 rounded-full bg-accent-subtle px-3 py-1 text-xs font-medium text-accent-strong">
+              <CheckCircle size={14} weight="fill" />
+              Basket created
+            </span>
+            <h1 className="mt-4 text-3xl font-semibold tracking-tight">
+              {formatUsd(depositUsd)} of {depositTicker} is now <span className="font-mono">{receipt}</span>
+            </h1>
+            <p className="mt-2 text-muted-foreground">
+              {data?.stockback.eligible && (data.stockback.totalStockbackUsd ?? 0) > 0 ? (
+                <>
+                  Stockback of{" "}
+                  <span className="font-mono font-semibold text-accent-strong">{formatUsd(data.stockback.totalStockbackUsd)}</span>{" "}
+                  has been credited to your ledger.
+                </>
+              ) : (
+                <>No Stockback was credited at this deposit size.</>
+              )}
+            </p>
+            <div className="mt-4 flex flex-wrap gap-1.5">
+              {(data?.allocation ?? []).map((a, i) => (
+                <span key={a.ticker} className="inline-flex items-center gap-1 rounded-md bg-surface-muted px-1.5 py-0.5 font-mono text-[10px] tabular-nums">
+                  <span className="h-1.5 w-1.5 rounded-full" style={{ background: chartColor(i) }} />
+                  {a.ticker} {Math.round(a.weight * 100)}%
+                </span>
+              ))}
+            </div>
+            <TxStepper steps={DEPOSIT_STEPS} current="done" txHash={success.txHash} compact className="mt-5" />
+            {success.txHash && (
+              <a
+                href={explorerUrl("tx", success.txHash)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-3 inline-flex items-center gap-1 font-mono text-xs text-muted-foreground hover:text-accent-strong"
+              >
+                View transaction ↗
+              </a>
+            )}
+            <div className="mt-6 flex flex-wrap gap-2">
+              <Button asChild>
+                <Link href="/portfolio">
+                  View portfolio
+                  <ArrowRight size={14} weight="bold" />
+                </Link>
+              </Button>
+              <Button asChild variant="outline">
+                <Link href="/activity">Activity</Link>
+              </Button>
+            </div>
           </div>
         </motion.div>
       </div>
     );
   }
 
+  const notices = (
+    <>
+      {!health.indexer && wallet.authenticated && (
+        <p className="mb-3 flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Info size={14} />
+          Indexer offline — deposits cannot be recorded right now.
+        </p>
+      )}
+      {!previewIsLive && wallet.authenticated && data && (
+        <p className="mb-3 flex items-start gap-1.5 text-xs text-muted-foreground">
+          <Info size={14} className="mt-0.5 shrink-0" />
+          Showing a local estimate. Confirm unlocks once the allocator responds.
+        </p>
+      )}
+      {!basketsAvailable && (
+        <p className="mb-3 flex items-start gap-1.5 text-xs text-muted-foreground">
+          <Info size={14} className="mt-0.5 shrink-0" />
+          <span>
+            Managed baskets swap through DEX liquidity and are available on mainnet only.{" "}
+            {isTestnetMode() && (
+              <Link href="/launch" className="text-accent-strong underline">
+                Launch a stock pair on testnet instead
+              </Link>
+            )}
+          </span>
+        </p>
+      )}
+      {basketsAvailable && wallet.authenticated && !resolvedVault.ready && !resolvedVault.isLoading && (
+        <p className="mb-3 flex items-center gap-1.5 text-xs text-destructive">
+          <WarningCircle size={14} />
+          No vault for {depositTicker} · {STRATEGIES[strategy].label} on this network.
+          {isTestnetMode() && strategy !== "balanced" && " Testnet only has balanced vaults — switch strategy."}
+        </p>
+      )}
+    </>
+  );
+
   return (
-    <div className="container-page min-h-[100dvh] py-8 md:py-10">
+    <div className="container-page relative min-h-[100dvh] py-8 pb-32 md:py-10 lg:pb-10">
       <Link
         href={`/markets/${depositTicker}`}
         className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
@@ -249,8 +360,8 @@ export default function CreateBasketContent() {
             Build a managed basket
           </h1>
           <p className="mt-3 max-w-xl text-muted-foreground">
-            Every change recalculates the allocation and Stockback in real time
-            against the allocator. Confirm once at the end.
+            Every change recalculates the allocation and Stockback in real time against the allocator. Confirm once at
+            the end.
           </p>
         </div>
       </div>
@@ -259,67 +370,57 @@ export default function CreateBasketContent() {
         {/* Left: stacked sections */}
         <div className="lg:col-span-7">
           <Section n="01" title="Deposit asset" hint="The tokenized stock you send in.">
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {DEPOSIT_ASSETS.map((t) => {
-                const on = depositTicker === t.ticker;
-                const q = byTicker.get(t.ticker);
-                return (
-                  <button
-                    key={t.ticker}
-                    type="button"
-                    onClick={() => {
-                      setDepositTicker(t.ticker);
-                      setPreferred((p) => p.filter((x) => x !== t.ticker));
-                      setExcluded((p) => p.filter((x) => x !== t.ticker));
-                    }}
-                    className={cn(
-                      "flex items-center gap-3 rounded-2xl border p-3 text-left transition-all active:scale-[0.98]",
-                      on
-                        ? "border-accent bg-accent-subtle shadow-card"
-                        : "border-border bg-surface hover:border-accent/40",
-                    )}
-                  >
-                    <StockLogo ticker={t.ticker} size="sm" />
-                    <span className="min-w-0">
-                      <span className="block text-sm font-semibold">{t.ticker}</span>
-                      <span className="block truncate font-mono text-[11px] text-muted-foreground">
-                        {q && on ? formatUsd(q.price) : t.name}
-                      </span>
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
+            <AssetPicker
+              assets={DEPOSIT_ASSETS}
+              value={depositTicker}
+              onChange={(t) => {
+                setDepositTicker(t);
+                setPreferred((p) => p.filter((x) => x !== t));
+                setExcluded((p) => p.filter((x) => x !== t));
+              }}
+              quotes={byTicker}
+            />
           </Section>
 
           <Section
             n="02"
             title="Amount"
-            hint={`Minimum ${formatUsd(CASHBACK_CONFIG.minEligibleDepositUsd)} to earn Stockback.`}
+            hint={
+              isTestnetMode()
+                ? `Testnet: baskets from ${formatUsd(BASKET_CONFIG.minDepositUsd)}. Stockback from ${formatUsd(CASHBACK_CONFIG.minEligibleDepositUsd)}.`
+                : `Minimum ${formatUsd(BASKET_CONFIG.minDepositUsd)} to create. ${formatUsd(CASHBACK_CONFIG.minEligibleDepositUsd)}+ for Stockback.`
+            }
           >
             <label className="block">
               <span className="text-sm font-medium">Deposit value (USD)</span>
               <div className="relative mt-2">
-                <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 font-mono text-muted-foreground">
+                <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 font-mono text-lg text-muted-foreground">
                   $
                 </span>
                 <Input
                   inputMode="decimal"
                   value={amountStr}
                   onChange={(e) => setAmountStr(e.target.value.replace(/[^\d.]/g, ""))}
-                  className="h-14 pl-8 font-mono text-2xl tabular-nums"
+                  className="h-16 rounded-2xl pl-9 pr-28 font-mono text-3xl font-semibold tabular-nums"
                   aria-label="Deposit value in USD"
                 />
+                {byTicker.get(depositTicker) && depositUsd > 0 && (
+                  <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-right font-mono text-[11px] leading-tight text-muted-foreground">
+                    ≈ {(depositUsd / byTicker.get(depositTicker)!.price).toFixed(4)}
+                    <br />
+                    {depositTicker}
+                  </span>
+                )}
               </div>
             </label>
             <div className="mt-3 flex flex-wrap gap-2">
-              {PRESETS.map((p) => (
+              {AMOUNT_PRESETS.map((p) => (
                 <button
                   key={p}
                   type="button"
                   onClick={() => setAmountStr(String(p))}
                   className={cn(
-                    "rounded-full border px-3 py-1 font-mono text-xs transition-all active:scale-[0.98]",
+                    "rounded-full border px-3.5 py-1.5 font-mono text-xs transition-all active:scale-[0.98]",
                     depositUsd === p
                       ? "border-accent bg-accent-subtle text-accent-strong"
                       : "border-border text-muted-foreground hover:border-accent/40",
@@ -329,58 +430,30 @@ export default function CreateBasketContent() {
                 </button>
               ))}
             </div>
-            {belowMin && (
+            {belowBasketMin && (
               <p className="mt-3 flex items-center gap-1.5 text-xs text-destructive">
                 <WarningCircle size={14} />
-                Below the {formatUsd(CASHBACK_CONFIG.minEligibleDepositUsd)} minimum — no Stockback will be earned.
+                Minimum basket size is {formatUsd(BASKET_CONFIG.minDepositUsd)}.
               </p>
             )}
-            {byTicker.get(depositTicker) && depositUsd > 0 && (
-              <p className="mt-3 font-mono text-xs text-muted-foreground">
-                ≈ {(depositUsd / byTicker.get(depositTicker)!.price).toFixed(4)} {depositTicker} at{" "}
-                {formatUsd(byTicker.get(depositTicker)!.price)}
+            {!belowBasketMin && belowStockbackFloor && (
+              <p className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Info size={14} />
+                Below {formatUsd(CASHBACK_CONFIG.minEligibleDepositUsd)} — the basket still creates, but no Stockback
+                posts.
               </p>
             )}
           </Section>
 
-          <Section n="03" title="Strategy" hint="Band limits enforced by the allocator.">
-            <div className="grid gap-2">
-              {STRATEGY_ORDER.map((id) => {
-                const s = STRATEGIES[id];
-                const on = strategy === id;
-                return (
-                  <button
-                    key={id}
-                    type="button"
-                    onClick={() => setStrategy(id)}
-                    className={cn(
-                      "flex items-start justify-between gap-4 rounded-2xl border p-4 text-left transition-all active:scale-[0.99]",
-                      on ? "border-accent bg-accent-subtle shadow-card" : "border-border bg-surface hover:border-accent/40",
-                    )}
-                  >
-                    <span>
-                      <span className="flex items-center gap-2 text-sm font-semibold">
-                        {s.label}
-                        {id === "balanced" && (
-                          <span className="rounded-full bg-surface px-1.5 py-0.5 font-mono text-[10px] uppercase text-muted-foreground">
-                            default
-                          </span>
-                        )}
-                      </span>
-                      <span className="mt-1 block text-xs text-muted-foreground">{s.description}</span>
-                    </span>
-                    <span className="shrink-0 text-right font-mono text-[11px] tabular-nums text-muted-foreground">
-                      max {Math.round(s.maxSingleStock * 100)}%
-                      <br />
-                      keep {Math.round(s.defaultDepositRetention * 100)}%
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
+          <Section n="03" title="Strategy" hint="Each profile sets category bands and a hard cap on any single stock.">
+            <StrategyCards
+              value={strategy}
+              onChange={setStrategy}
+              unavailable={isTestnetMode() ? { defensive: true, aggressive: true } : undefined}
+            />
           </Section>
 
-          <Section n="04" title="Preferences" hint="Optional. Prefer or exclude specific stocks.">
+          <Section n="04" title="Custom basket" hint="Shape the allocation — prefer, exclude, and cap size.">
             <p className="text-xs font-medium text-muted-foreground">Prefer</p>
             <div className="mt-2 flex flex-wrap gap-2">
               {DEPOSIT_ASSETS.filter((t) => t.ticker !== depositTicker).map((t) => {
@@ -392,7 +465,9 @@ export default function CreateBasketContent() {
                     onClick={() => toggle(preferred, setPreferred, t.ticker, excluded, setExcluded)}
                     className={cn(
                       "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-all active:scale-[0.98]",
-                      on ? "border-accent bg-accent text-accent-foreground" : "border-border text-muted-foreground hover:border-accent/40",
+                      on
+                        ? "border-accent bg-accent text-accent-foreground shadow-sm"
+                        : "border-border text-muted-foreground hover:border-accent/40",
                     )}
                   >
                     <StockLogo ticker={t.ticker} size="xs" className={on ? "border-white/30" : ""} />
@@ -422,10 +497,8 @@ export default function CreateBasketContent() {
                 );
               })}
             </div>
-          </Section>
-
-          <Section n="05" title="Basket size" hint="How many tokens in your basket.">
-            <div className="flex flex-wrap gap-2">
+            <p className="mt-6 text-xs font-medium text-muted-foreground">Basket size</p>
+            <div className="mt-2 flex flex-wrap gap-2">
               {[3, 5, 8, 10, 0].map((n) => {
                 const label = n === 0 ? "All" : `${n} tokens`;
                 const on = maxTokens === n;
@@ -457,170 +530,46 @@ export default function CreateBasketContent() {
         {/* Right: sticky live summary */}
         <aside className="lg:col-span-5">
           <div className="lg:sticky lg:top-24">
-            <div className="overflow-hidden rounded-[1.75rem] border border-border bg-surface shadow-float">
-              <div className="flex items-center justify-between border-b border-border-subtle px-5 py-4">
-                <div className="flex items-center gap-3">
-                  <StockLogo ticker={depositTicker} size="sm" />
-                  <div>
-                    <p className="font-mono text-sm font-semibold">{receiptTokenName(depositTicker, strategy)}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {formatUsd(depositUsd)} · {STRATEGIES[strategy].label}
-                    </p>
-                  </div>
-                </div>
-                <Badge variant={preview.source === "allocator" ? "success" : "secondary"}>
-                  {preview.loading ? "Recalculating" : preview.source === "allocator" ? "Allocator" : "Estimate"}
-                </Badge>
-              </div>
-
-              {/* Allocation */}
-              <div className="px-5 py-4">
-                <p className="label-caps">Allocation</p>
-                <ul className="mt-3 space-y-2.5">
-                  {!data
-                      ? Array.from({ length: 5 }).map((_, i) => (
-                          <li key={`s${i}`} className="flex items-center gap-3">
-                            <Skeleton className="h-7 w-7 rounded-lg" />
-                            <Skeleton className="h-3 flex-1" />
-                            <Skeleton className="h-3 w-14" />
-                          </li>
-                        ))
-                      : data.allocation.map((a) => {
-                          const line = data.stockback.allocationLines.find((l) => l.ticker === a.ticker);
-                          return (
-                            <motion.li
-                              key={a.ticker}
-                              initial={{ opacity: 0, x: -6 }}
-                              animate={{ opacity: 1, x: 0 }}
-                              transition={spring}
-                              className="grid grid-cols-[1.75rem_1fr_auto] items-center gap-3"
-                            >
-                              <StockLogo ticker={a.ticker} size="xs" className="h-7 w-7" />
-                              <div className="min-w-0">
-                                <div className="flex items-baseline justify-between text-xs">
-                                  <span className="font-medium">{a.ticker}</span>
-                                  <span className="font-mono tabular-nums text-muted-foreground">
-                                    {Math.round(a.weight * 100)}%
-                                  </span>
-                                </div>
-                                <div className="mt-1 h-1 overflow-hidden rounded-full bg-surface-muted">
-                                  <motion.div
-                                    className="h-full rounded-full bg-accent"
-                                    animate={{ width: `${a.weight * 100}%` }}
-                                    transition={spring}
-                                  />
-                                </div>
-                              </div>
-                              <div className="text-right font-mono text-xs tabular-nums">
-                                <div>{formatUsd(a.usd)}</div>
-                                <div className="text-accent-strong">
-                                  {line ? `+${formatUsd(line.bonusUsd)}` : "—"}
-                                </div>
-                              </div>
-                            </motion.li>
-                          );
-                        })}
-                </ul>
-                {data?.violations?.length ? (
-                  <p className="mt-3 flex items-start gap-1.5 text-xs text-destructive">
-                    <WarningCircle size={14} className="mt-0.5 shrink-0" />
-                    {data.violations.join(" · ")}
-                  </p>
-                ) : null}
-              </div>
-
-              {/* Rewards */}
-              <div className="relative border-t border-border bg-accent-subtle/70 px-5 py-4">
-                <HatchPattern className="opacity-40" />
-                <div className="relative">
-                  <p className="label-caps">Total Stockback</p>
-                  <p className="mt-1 font-mono text-3xl font-medium tabular-nums text-accent-strong">
-                    <NumberTicker
-                      value={data?.stockback.totalStockbackUsd ?? 0}
-                      decimals={2}
-                      prefix="+$"
-                      startOnView={false}
-                      duration={0.6}
-                    />
-                  </p>
-                  <dl className="mt-3 space-y-1 font-mono text-xs">
-                    <div className="flex justify-between">
-                      <dt className="text-muted-foreground">Deposit bonus</dt>
-                      <dd className="tabular-nums">{formatUsd(data?.stockback.depositStockbackUsd ?? 0)}</dd>
-                    </div>
-                    <div className="flex justify-between">
-                      <dt className="text-muted-foreground">Allocation rewards</dt>
-                      <dd className="tabular-nums">
-                        {formatUsd((data?.stockback.allocationLines ?? []).reduce((s, l) => s + l.bonusUsd, 0))}
-                      </dd>
-                    </div>
-                    {data && !data.stockback.eligible && (
-                      <p className="pt-1 text-destructive">Not eligible at this amount or cap reached.</p>
-                    )}
-                  </dl>
-                </div>
-              </div>
-
-              {/* Costs + net */}
-              <dl className="space-y-1.5 px-5 py-4 font-mono text-xs">
-                <div className="flex justify-between">
-                  <dt className="text-muted-foreground">Platform fee</dt>
-                  <dd className="tabular-nums text-success">$0.00</dd>
-                </div>
-                <div className="flex justify-between">
-                  <dt className="text-muted-foreground">Est. network</dt>
-                  <dd className="tabular-nums">
-                    {formatUsd(costs?.estimatedGasUsd ?? data?.externalCosts.estimatedGasUsd ?? 0)}
-                  </dd>
-                </div>
-                <div className="flex justify-between">
-                  <dt className="text-muted-foreground">
-                    Est. market{costs ? ` · ${costs.swapLegs} legs` : ""}
-                    {costs?.source ? ` · ${costs.source}` : ""}
-                  </dt>
-                  <dd className="tabular-nums">
-                    {formatUsd(costs?.estimatedMarketCostUsd ?? data?.externalCosts.estimatedMarketCostUsd ?? 0)}
-                  </dd>
-                </div>
-                <div className="flex justify-between border-t border-border pt-2 text-sm">
-                  <dt className="font-medium">Opening net</dt>
-                  <dd className="font-medium tabular-nums">{data ? formatUsd(openingNet) : "—"}</dd>
-                </div>
-              </dl>
-
-              <div className="border-t border-border-subtle p-5">
-                {error && (
-                  <p className="mb-3 flex items-center gap-1.5 text-xs text-destructive">
-                    <WarningCircle size={14} />
-                    {error}
-                  </p>
-                )}
-                {!health.indexer && wallet.authenticated && (
-                  <p className="mb-3 flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <Info size={14} />
-                    Indexer offline — deposits cannot be recorded right now.
-                  </p>
-                )}
-                {wallet.authenticated ? (
-                  <Button className="w-full" size="lg" disabled={!canConfirm} onClick={confirm}>
-                    {confirming ? "Processing…" : `Confirm ${formatUsd(depositUsd)} deposit`}
-                    {!confirming && <ArrowRight size={16} weight="bold" />}
-                  </Button>
-                ) : (
-                  <Button className="w-full" size="lg" onClick={wallet.login}>
-                    <Wallet size={16} />
-                    {wallet.demo ? "Use demo wallet to continue" : "Connect wallet to continue"}
-                  </Button>
-                )}
-                <p className="mt-3 text-center text-[11px] leading-relaxed text-muted-foreground">
+            <BasketSummary
+              depositTicker={depositTicker}
+              strategy={strategy}
+              depositUsd={depositUsd}
+              data={data}
+              previewSource={preview.source}
+              previewLoading={preview.loading}
+              costs={costs}
+              openingNet={openingNet}
+              wallet={{ authenticated: wallet.authenticated, login: wallet.login }}
+              canConfirm={canConfirm}
+              confirming={busy}
+              onConfirm={confirm}
+              stage={stage}
+              failedAt={failedAt}
+              txHash={txHash}
+              error={error}
+              notices={notices}
+              footnote={
+                <>
                   Redemption returns current basket value, not the original {depositTicker} quantity.
                   {!contractsReady && " Contracts not yet deployed — deposit is recorded off-chain."}
-                </p>
-              </div>
-            </div>
+                </>
+              }
+            />
           </div>
         </aside>
       </div>
+
+      <MobileConfirmBar
+        visible={depositUsd > 0}
+        depositUsd={depositUsd}
+        stockbackUsd={data?.stockback.totalStockbackUsd ?? 0}
+        openingNet={openingNet}
+        authenticated={wallet.authenticated}
+        canConfirm={canConfirm}
+        busy={busy}
+        onConfirm={confirm}
+        onLogin={wallet.login}
+      />
     </div>
   );
 }

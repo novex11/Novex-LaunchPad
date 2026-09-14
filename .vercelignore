@@ -1,0 +1,8 @@
+packages/contracts/lib/
+packages/contracts/out/
+packages/contracts/cache/
+.github/
+*.t.sol
+*.s.sol
+docker-compose*.yml
+Dockerfile*

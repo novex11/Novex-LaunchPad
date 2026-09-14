@@ -69,7 +69,7 @@ export function LandingHeroSection() {
             </Button>
             {!wallet.authenticated && (
               <Button variant="squareOutline" onClick={wallet.login}>
-                {wallet.demo ? "Demo wallet" : "Connect wallet"}
+                Connect wallet
               </Button>
             )}
           </div>

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { useWallet } from "@/hooks/use-wallet";
 
 export function WalletControls() {
-  const { ready, authenticated, address, demo, login, logout } = useWallet();
+  const { ready, authenticated, address, login, logout } = useWallet();
 
   if (!ready) {
     return (
@@ -18,14 +18,9 @@ export function WalletControls() {
 
   if (!authenticated) {
     return (
-      <Button
-        variant="default"
-        size="sm"
-        onClick={login}
-        title={demo ? "Creates a local demo wallet (no Privy app configured)" : undefined}
-      >
+      <Button variant="default" size="sm" onClick={login}>
         <Wallet size={16} />
-        {demo ? "Demo wallet" : "Connect Wallet"}
+        Connect Wallet
       </Button>
     );
   }
@@ -35,7 +30,6 @@ export function WalletControls() {
       <span className="hidden items-center gap-2 rounded-full border border-border bg-surface px-3 py-1.5 font-mono text-xs text-foreground sm:inline-flex">
         <span className="h-1.5 w-1.5 rounded-full bg-success" />
         {address?.slice(0, 6)}…{address?.slice(-4)}
-        {demo && <span className="text-muted-foreground">demo</span>}
       </span>
       <Button
         variant="outline"

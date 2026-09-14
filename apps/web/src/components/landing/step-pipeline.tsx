@@ -124,7 +124,7 @@ export function StepPipeline({ steps, dwellMs = 2600 }: StepPipelineProps) {
                     transition={{ duration: 0.25 }}
                     className="inline-flex max-w-full items-center gap-2 truncate border border-border bg-background px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-accent"
                   >
-                    <span className="h-1 w-1 shrink-0 animate-pulse bg-accent" />
+                    <span className="h-1 w-1 shrink-0 bg-accent" />
                     <span className="truncate">{s.status}</span>
                   </motion.p>
                 )}

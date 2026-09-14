@@ -2,55 +2,58 @@
 
 import { CheckCircle, CircleNotch, Warning } from "@phosphor-icons/react";
 import { motion } from "motion/react";
-import { cn } from "@/lib/utils";
-import type { LaunchStage } from "@/hooks/use-launch-and-seed";
+import { cn, explorerUrl } from "@/lib/utils";
+import type { TxStage } from "@/hooks/use-pair-launchpad";
+import { AddressChip } from "@/components/launchpad/address-chip";
 
-interface Step {
-  id: LaunchStage;
+export interface ProgressStep {
+  id: Exclude<TxStage, "idle" | "done" | "error">;
   label: string;
   hint: string;
 }
 
-const STEPS: Step[] = [
-  { id: "deploying", label: "Deploying pair vault", hint: "PairFactory.launchPair()" },
-  { id: "waiting-launch", label: "Confirming deployment", hint: "Waiting for chain receipt" },
-  { id: "approving", label: "Approving source token", hint: "ERC-20 approve" },
-  { id: "swapping", label: "Routing source → USDG", hint: "On-chain conversion" },
-  { id: "seeding", label: "Seeding first deposit", hint: "Waiting for seed receipt" },
-];
+const ORDER: TxStage[] = ["idle", "approve-a", "approve-b", "submit", "done"];
 
-const ORDER: LaunchStage[] = [
-  "idle",
-  "deploying",
-  "waiting-launch",
-  "approving",
-  "swapping",
-  "seeding",
-  "done",
-];
-
-function status(current: LaunchStage, step: LaunchStage): "pending" | "active" | "done" {
-  const ci = ORDER.indexOf(current);
+function status(
+  current: TxStage,
+  step: TxStage,
+  lastActive: TxStage | null,
+): "pending" | "active" | "done" | "failed" {
   const si = ORDER.indexOf(step);
-  if (current === "error") return si < ci ? "done" : "pending";
+  if (current === "error") {
+    const li = lastActive ? ORDER.indexOf(lastActive) : -1;
+    if (si < li) return "done";
+    if (si === li) return "failed";
+    return "pending";
+  }
+  const ci = ORDER.indexOf(current);
   if (ci > si) return "done";
   if (ci === si) return "active";
   return "pending";
 }
 
 export function StageProgressList({
+  steps,
   current,
+  lastActive,
   errorMessage,
+  pendingHash,
+  errorTitle = "Transaction failed",
   className,
 }: {
-  current: LaunchStage;
-  errorMessage?: string;
+  steps: ProgressStep[];
+  current: TxStage;
+  /** Stage that was running when an error happened */
+  lastActive?: TxStage | null;
+  errorMessage?: string | null;
+  pendingHash?: `0x${string}`;
+  errorTitle?: string;
   className?: string;
 }) {
   return (
     <ol className={cn("space-y-3", className)}>
-      {STEPS.map((step) => {
-        const state = status(current, step.id);
+      {steps.map((step) => {
+        const state = status(current, step.id, lastActive ?? null);
         return (
           <li
             key={step.id}
@@ -58,6 +61,7 @@ export function StageProgressList({
               "flex items-start gap-3 rounded-2xl border p-3 text-sm transition-colors",
               state === "done" && "border-accent bg-accent-subtle/60",
               state === "active" && "border-accent bg-accent-subtle",
+              state === "failed" && "border-destructive/40 bg-destructive/5",
               state === "pending" && "border-border-subtle bg-surface-muted",
             )}
           >
@@ -67,11 +71,15 @@ export function StageProgressList({
               )}
               {state === "active" && (
                 <motion.span
+                  className="inline-block"
                   animate={{ rotate: 360 }}
                   transition={{ duration: 1.2, ease: "linear", repeat: Infinity }}
                 >
                   <CircleNotch size={20} weight="bold" className="text-accent-strong" />
                 </motion.span>
+              )}
+              {state === "failed" && (
+                <Warning size={20} weight="fill" className="text-destructive" />
               )}
               {state === "pending" && (
                 <span className="block h-5 w-5 rounded-full border-2 border-border" />
@@ -84,14 +92,29 @@ export function StageProgressList({
           </li>
         );
       })}
+      {pendingHash && current !== "error" && current !== "done" && (
+        <li className="rounded-2xl border border-border bg-surface-muted p-3 text-xs">
+          <p className="font-medium text-muted-foreground">Waiting for confirmation…</p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <span className="label-caps">Tx</span>
+            <AddressChip address={pendingHash} kind="tx" />
+            <a
+              href={explorerUrl("tx", pendingHash)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-accent-strong underline-offset-2 hover:underline"
+            >
+              View on explorer ↗
+            </a>
+          </div>
+        </li>
+      )}
       {current === "error" && errorMessage && (
         <li className="flex items-start gap-3 rounded-2xl border border-destructive bg-destructive/5 p-3 text-sm">
           <Warning size={20} weight="fill" className="mt-0.5 shrink-0 text-destructive" />
           <span className="min-w-0">
-            <span className="block font-medium text-destructive">Launch failed</span>
-            <span className="block break-words text-xs text-muted-foreground">
-              {errorMessage}
-            </span>
+            <span className="block font-medium text-destructive">{errorTitle}</span>
+            <span className="block break-words text-xs text-muted-foreground">{errorMessage}</span>
           </span>
         </li>
       )}

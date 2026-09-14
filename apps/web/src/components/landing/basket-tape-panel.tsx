@@ -12,42 +12,10 @@ import { NumberTicker } from "@/components/ui/number-ticker";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MonoLabel } from "./mono-label";
 import { GridPattern } from "@/components/motion/grid-pattern";
+import { BasketOrbit } from "./basket-orbit";
 
 const DEMO = { depositTicker: "NVDA", depositUsd: 1000, strategy: "balanced" as const };
 const FALLBACK = ["AAPL", "MSFT", "SPY", "QQQ"];
-const spring = { type: "spring" as const, stiffness: 260, damping: 22 };
-
-/** Animated dashed connector with a travelling pulse. */
-function Beam({ reduced }: { reduced: boolean | null }) {
-  return (
-    <svg width="64" height="16" viewBox="0 0 64 16" className="shrink-0 overflow-visible text-accent" aria-hidden>
-      <motion.line
-        x1="0"
-        y1="8"
-        x2="56"
-        y2="8"
-        stroke="currentColor"
-        strokeOpacity="0.4"
-        strokeWidth="1"
-        strokeDasharray="3 3"
-        animate={reduced ? undefined : { strokeDashoffset: [0, -12] }}
-        transition={{ repeat: Infinity, duration: 0.9, ease: "linear" }}
-      />
-      <path d="M56 4 L62 8 L56 12" fill="none" stroke="currentColor" strokeWidth="1.25" />
-      {!reduced && (
-        <motion.circle
-          r="2.5"
-          cx="0"
-          cy="8"
-          initial={{ cx: 0, opacity: 0 }}
-          fill="currentColor"
-          animate={{ cx: [0, 56], opacity: [0, 1, 1, 0] }}
-          transition={{ repeat: Infinity, duration: 1.6, ease: "easeInOut", repeatDelay: 0.4 }}
-        />
-      )}
-    </svg>
-  );
-}
 
 export function BasketTapePanel() {
   const reduced = useReducedMotion();
@@ -73,33 +41,16 @@ export function BasketTapePanel() {
       </div>
 
       {/* Flow: deposit → basket */}
-      <div className="relative flex flex-col items-center px-6 pb-6 pt-7">
-        <div className="flex items-center gap-3">
-          <motion.div
-            initial={reduced ? false : { scale: 0.6, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            transition={spring}
-          >
-            <StockLogo ticker="NVDA" size="md" />
-          </motion.div>
-          <Beam reduced={reduced} />
-          <div className="flex -space-x-1.5">
-            {logos.map((t, i) => (
-              <motion.div
-                key={t}
-                initial={reduced ? false : { y: 10, opacity: 0, scale: 0.7 }}
-                animate={{ y: 0, opacity: 1, scale: 1 }}
-                transition={{ ...spring, delay: 0.25 + i * 0.09 }}
-                whileHover={{ y: -3, zIndex: 10 }}
-                className="relative"
-              >
-                <StockLogo ticker={t} size="sm" className="ring-2 ring-surface" />
-              </motion.div>
-            ))}
-          </div>
-        </div>
-        <p className="mt-3 font-mono text-xs text-muted-foreground">NVDA → nNVDA-B</p>
-        <p className="mt-2 font-mono text-2xl font-medium tabular-nums text-accent md:text-3xl">
+      <div className="relative flex flex-col items-center px-6 pb-5 pt-4">
+        <BasketOrbit
+          depositTicker={DEMO.depositTicker}
+          lines={lines.length ? lines : FALLBACK.map((t, i) => ({ ticker: t, weight: 0.2 - i * 0.02 }))}
+          size={272}
+        />
+        <p className="-mt-2 font-mono text-xs text-muted-foreground">
+          {DEMO.depositTicker} → n{DEMO.depositTicker}-B
+        </p>
+        <p className="mt-1.5 font-mono text-3xl font-semibold tabular-nums text-accent md:text-4xl">
           {loading ? (
             "—"
           ) : (

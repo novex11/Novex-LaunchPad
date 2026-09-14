@@ -30,6 +30,24 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   indexer:
     build:
       context: .
@@ -42,10 +60,11 @@ services:
         required: false
     environment:
       INDEXER_PORT: "3003"
-      # Prefer Neon/external DATABASE_URL from .env; fall back to local postgres profile
-      DATABASE_URL: ${DATABASE_URL:-postgres://${POSTGRES_USER:-novex}:${POSTGRES_PASSWORD:-novex}@postgres:5432/${POSTGRES_DB:-novex}}
-      ROBINHOOD_RPC_URL: ${ROBINHOOD_RPC_URL:-}
-      ROBINHOOD_TESTNET_RPC_URL: ${ROBINHOOD_TESTNET_RPC_URL:-}
+      # Docker stack uses local Postgres (Neon from .env is not reachable from containers).
+      # For production/cloud indexer, set INDEXER_DATABASE_URL to your Neon URL.
+      DATABASE_URL: ${INDEXER_DATABASE_URL:-postgres://${POSTGRES_USER:-novex}:${POSTGRES_PASSWORD:-novex}@postgres:5432/${POSTGRES_DB:-novex}}
+      ROBINHOOD_RPC_URL: ${NEXT_PUBLIC_ROBINHOOD_RPC_URL:-${ROBINHOOD_RPC_URL:-}}
+      ROBINHOOD_TESTNET_RPC_URL: ${NEXT_PUBLIC_ROBINHOOD_TESTNET_RPC_URL:-${ROBINHOOD_TESTNET_RPC_URL:-}}
       NEXT_PUBLIC_USE_TESTNET: ${NEXT_PUBLIC_USE_TESTNET:-false}
       ALCHEMY_API_KEY: ${ALCHEMY_API_KEY:-}
       VAULT_CONTRACT_ADDRESS: ${VAULT_CONTRACT_ADDRESS:-}
@@ -55,12 +74,19 @@ services:
       NEXT_PUBLIC_RECEIPT_TOKEN_ADDRESS: ${NEXT_PUBLIC_RECEIPT_TOKEN_ADDRESS:-}
       NEXT_PUBLIC_PAIR_FACTORY_ADDRESS: ${NEXT_PUBLIC_PAIR_FACTORY_ADDRESS:-}
       MARK_TO_MARKET_INTERVAL_MS: ${MARK_TO_MARKET_INTERVAL_MS:-60000}
+      REDIS_USERNAME: ""
+      REDIS_PASSWORD: ""
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      PUBLIC_INDEXER_URL: ${PUBLIC_INDEXER_URL:-http://localhost:3003}
     ports:
       - "3003:3003"
     depends_on:
       postgres:
         condition: service_healthy
         required: false
+      redis:
+        condition: service_healthy
     healthcheck:
       test:
         [
@@ -128,8 +154,8 @@ services:
     environment:
       QUOTE_PORT: "3002"
       RIALTO_API_KEY: ${RIALTO_API_KEY:-}
-      ROBINHOOD_RPC_URL: ${ROBINHOOD_RPC_URL:-}
-      ROBINHOOD_TESTNET_RPC_URL: ${ROBINHOOD_TESTNET_RPC_URL:-}
+      ROBINHOOD_RPC_URL: ${NEXT_PUBLIC_ROBINHOOD_RPC_URL:-${ROBINHOOD_RPC_URL:-}}
+      ROBINHOOD_TESTNET_RPC_URL: ${NEXT_PUBLIC_ROBINHOOD_TESTNET_RPC_URL:-${ROBINHOOD_TESTNET_RPC_URL:-}}
       NEXT_PUBLIC_USE_TESTNET: ${NEXT_PUBLIC_USE_TESTNET:-false}
       ALCHEMY_API_KEY: ${ALCHEMY_API_KEY:-}
     ports:
@@ -152,5 +178,64 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+      args:
+        NEXT_PUBLIC_USE_TESTNET: ${NEXT_PUBLIC_USE_TESTNET:-true}
+        NEXT_PUBLIC_PRIVY_APP_ID: ${NEXT_PUBLIC_PRIVY_APP_ID:-}
+        NEXT_PUBLIC_VAULT_ADDRESS: ${NEXT_PUBLIC_VAULT_ADDRESS:-}
+        NEXT_PUBLIC_RECEIPT_TOKEN_ADDRESS: ${NEXT_PUBLIC_RECEIPT_TOKEN_ADDRESS:-}
+        NEXT_PUBLIC_FACTORY_ADDRESS: ${NEXT_PUBLIC_FACTORY_ADDRESS:-}
+        NEXT_PUBLIC_PAIR_FACTORY_ADDRESS: ${NEXT_PUBLIC_PAIR_FACTORY_ADDRESS:-}
+        NEXT_PUBLIC_EXPLORER_URL: ${NEXT_PUBLIC_EXPLORER_URL:-https://explorer.testnet.chain.robinhood.com}
+        NEXT_PUBLIC_ALLOCATOR_URL: ${NEXT_PUBLIC_ALLOCATOR_URL:-http://localhost:3001}
+        NEXT_PUBLIC_QUOTE_URL: ${NEXT_PUBLIC_QUOTE_URL:-http://localhost:3002}
+        NEXT_PUBLIC_INDEXER_URL: ${NEXT_PUBLIC_INDEXER_URL:-http://localhost:3003}
+        NEXT_PUBLIC_ROBINHOOD_TESTNET_RPC_URL: ${NEXT_PUBLIC_ROBINHOOD_TESTNET_RPC_URL:-}
+        NEXT_PUBLIC_ROBINHOOD_RPC_URL: ${NEXT_PUBLIC_ROBINHOOD_RPC_URL:-}
+        ROBINHOOD_TESTNET_RPC_URL: ${NEXT_PUBLIC_ROBINHOOD_TESTNET_RPC_URL:-${ROBINHOOD_TESTNET_RPC_URL:-}}
+        ROBINHOOD_RPC_URL: ${NEXT_PUBLIC_ROBINHOOD_RPC_URL:-${ROBINHOOD_RPC_URL:-}}
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      NEXT_PUBLIC_USE_TESTNET: ${NEXT_PUBLIC_USE_TESTNET:-true}
+      ROBINHOOD_TESTNET_RPC_URL: ${NEXT_PUBLIC_ROBINHOOD_TESTNET_RPC_URL:-${ROBINHOOD_TESTNET_RPC_URL:-}}
+      ROBINHOOD_RPC_URL: ${NEXT_PUBLIC_ROBINHOOD_RPC_URL:-${ROBINHOOD_RPC_URL:-}}
+      NEXT_PUBLIC_ROBINHOOD_TESTNET_RPC_URL: ${NEXT_PUBLIC_ROBINHOOD_TESTNET_RPC_URL:-}
+      NEXT_PUBLIC_EXPLORER_URL: ${NEXT_PUBLIC_EXPLORER_URL:-https://explorer.testnet.chain.robinhood.com}
+    ports:
+      - "3000:3000"
+    depends_on:
+      allocator:
+        condition: service_healthy
+      quote:
+        condition: service_healthy
+      indexer:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 volumes:
   postgres_data:
+  redis_data:

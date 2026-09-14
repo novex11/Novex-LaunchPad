@@ -133,6 +133,35 @@
   },
   {
     "type": "function",
+    "name": "getVault",
+    "inputs": [
+      {
+        "name": "depositAsset",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "strategy",
+        "type": "uint8",
+        "internalType": "enum AllocationController.Strategy"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "vault",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "receiptToken",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "oracle",
     "inputs": [],
     "outputs": [
@@ -166,6 +195,19 @@
   },
   {
     "type": "function",
+    "name": "setUsdStableAsset",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "transferOwnership",
     "inputs": [
       {
@@ -176,6 +218,19 @@
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "usdStableAsset",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
