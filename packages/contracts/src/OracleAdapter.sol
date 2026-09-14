@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {AggregatorV3Interface} from "./interfaces/IChainlink.sol";
 import {IERC8056} from "./interfaces/IERC8056.sol";
 
@@ -33,12 +34,27 @@ contract OracleAdapter is Ownable {
         return uint256(answer);
     }
 
+    /// @notice Latest price without the staleness check. For views only (NAV,
+    ///         previews) so a late keeper never breaks reads or exits.
+    function getPriceUnchecked(address token) public view returns (uint256 priceUsd8) {
+        address feed = priceFeeds[token];
+        require(feed != address(0), "OracleAdapter: no feed");
+        (, int256 answer, , , ) = AggregatorV3Interface(feed).latestRoundData();
+        require(answer > 0, "OracleAdapter: invalid price");
+        return uint256(answer);
+    }
+
+    function hasFeed(address token) external view returns (bool) {
+        return priceFeeds[token] != address(0);
+    }
+
     function getTokenValueUsd(
         address token,
         uint256 rawAmount
     ) external view returns (uint256 valueUsd8) {
         uint256 price = getPrice(token);
-        return (rawAmount * price) / 1e18;
+        uint8 dec = IERC20Metadata(token).decimals();
+        return (rawAmount * price) / (10 ** dec);
     }
 
     function isMultiplierPending(address token) external view returns (bool) {

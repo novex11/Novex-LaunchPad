@@ -1,0 +1,47 @@
+import testnetDeployments from "./testnet-deployments.json" with { type: "json" };
+
+/** True when the app / service is configured for Robinhood Chain testnet. */
+export function isTestnetMode(): boolean {
+  return process.env.NEXT_PUBLIC_USE_TESTNET === "true";
+}
+
+/** Active chain id (46630 testnet, 4663 mainnet). */
+export function activeChainId(): number {
+  return isTestnetMode() ? 46630 : 4663;
+}
+
+/** Shape of `testnet-deployments.json`, written by `pnpm sync:testnet`. */
+export interface TestnetDeployment {
+  chainId: number;
+  rpcUrl: string;
+  /** Block the launchpad was deployed at — indexer backfills from here. */
+  startBlock: number;
+  /** Real faucet Stock Tokens + WETH, keyed by ticker. */
+  tokens: Record<string, string>;
+  /** PushPriceFeed per ticker. */
+  feeds: Record<string, string>;
+  contracts: {
+    pairFactory: string;
+    oracle: string;
+    emergency: string;
+    priceFeedUpdater: string;
+  };
+  syncedAt?: string;
+}
+
+const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
+
+export function isHexAddress(value: string | undefined | null): value is `0x${string}` {
+  return typeof value === "string" && ADDRESS_RE.test(value);
+}
+
+export function testnetDeployment(): TestnetDeployment {
+  return testnetDeployments as TestnetDeployment;
+}
+
+/** Whether the testnet launchpad has been deployed and synced. */
+export function testnetContractsReady(): boolean {
+  return isTestnetMode() && isHexAddress(testnetDeployment().contracts.pairFactory);
+}
+
+export { testnetDeployments };

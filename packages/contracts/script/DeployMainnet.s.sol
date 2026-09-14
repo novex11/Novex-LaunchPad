@@ -11,7 +11,6 @@ import {EmergencyRegistry} from "../src/EmergencyRegistry.sol";
 import {ExecutionRouter} from "../src/ExecutionRouter.sol";
 import {StrategyVault} from "../src/StrategyVault.sol";
 import {PairFactory} from "../src/PairFactory.sol";
-import {LaunchpadZap} from "../src/LaunchpadZap.sol";
 
 /// @title DeployMainnet — deploys Novex protocol against real Robinhood Chain tokens
 /// @notice No mocks. All token addresses are the real ERC-8056 contracts on
@@ -43,7 +42,6 @@ contract DeployMainnet is Script {
     ExecutionRouter public router;
     VaultFactory public factory;
     PairFactory public pairFactory;
-    LaunchpadZap public zap;
     address public firstVault;
     address public firstReceipt;
 
@@ -71,16 +69,9 @@ contract DeployMainnet is Script {
         );
 
         // ─── 2. Deploy launchpad ───────────────────────────
-        pairFactory = new PairFactory(
-            msg.sender,
-            address(controller),
-            address(oracle),
-            address(router),
-            address(emergency),
-            USDG
-        );
-
-        zap = new LaunchpadZap(UNI_V3, WETH, USDG);
+        // Tokens are listed with pairFactory.setTokenListed() once their
+        // Chainlink feeds are registered (listing requires a feed).
+        pairFactory = new PairFactory(msg.sender, address(oracle), address(emergency), WETH);
 
         // ─── 3. Register Chainlink price feeds ─────────────
         // NOTE: Replace these with real Chainlink feed addresses on Robinhood Chain.
@@ -130,9 +121,6 @@ contract DeployMainnet is Script {
             firstReceipt = address(StrategyVault(firstVault).receiptToken());
         }
 
-        // ─── 7. Transfer ExecutionRouter ownership to PairFactory
-        router.transferOwnership(address(pairFactory));
-
         vm.stopBroadcast();
 
         _exportDeployments();
@@ -165,7 +153,6 @@ contract DeployMainnet is Script {
         vm.serializeAddress(json, "executionRouter", address(router));
         vm.serializeAddress(json, "factory", address(factory));
         vm.serializeAddress(json, "pairFactory", address(pairFactory));
-        vm.serializeAddress(json, "launchpadZap", address(zap));
         vm.serializeAddress(json, "vault", firstVault);
         string memory output = vm.serializeAddress(json, "receiptToken", firstReceipt);
         vm.writeJson(output, "./deployments-mainnet.json");
@@ -178,7 +165,6 @@ contract DeployMainnet is Script {
         console2.log("OracleAdapter:", address(oracle));
         console2.log("VaultFactory:", address(factory));
         console2.log("PairFactory:", address(pairFactory));
-        console2.log("LaunchpadZap:", address(zap));
         console2.log("First vault (tNVDA-B):", firstVault);
         console2.log("First receipt:", firstReceipt);
         console2.log("Addresses exported to deployments-mainnet.json");

@@ -25,16 +25,20 @@ export function shortAddress(address: string, head = 6, tail = 4): string {
 }
 
 /**
- * Robinhood Chain explorer URL. Falls back to the mainnet explorer if the
- * `NEXT_PUBLIC_EXPLORER_URL` env var is unset.
+ * Robinhood Chain explorer URL. Uses NEXT_PUBLIC_EXPLORER_URL, else testnet
+ * when NEXT_PUBLIC_USE_TESTNET is set, else mainnet.
  */
 export function explorerUrl(kind: "address" | "tx", value: string): string {
   const g = globalThis as unknown as {
     process?: { env?: Record<string, string | undefined> };
   };
-  const base =
-    g.process?.env?.NEXT_PUBLIC_EXPLORER_URL ??
-    "https://explorer.robinhood.com";
+  const env = g.process?.env;
+  const base = (
+    env?.NEXT_PUBLIC_EXPLORER_URL ??
+    (env?.NEXT_PUBLIC_USE_TESTNET === "true"
+      ? "https://explorer.testnet.chain.robinhood.com"
+      : "https://explorer.robinhood.com")
+  ).replace(/\/$/, "");
   return `${base}/${kind}/${value}`;
 }
 

@@ -4,6 +4,13 @@
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
+    "dev:testnet": "bash scripts/dev-testnet.sh",
+    "keeper:testnet": "tsx scripts/price-keeper.ts",
+    "keeper:testnet:once": "tsx scripts/price-keeper.ts --once",
+    "feeds:refresh:testnet": "tsx scripts/refresh-mock-feeds.ts",
+    "smoke:testnet": "tsx scripts/testnet-smoke.ts",
+    "verify:testnet-pairs": "tsx scripts/verify-testnet-pairs.ts",
+    "verification:export": "bash scripts/export-verification-inputs.sh",
     "lint": "turbo run lint",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
@@ -12,7 +19,9 @@
     "docker:up:local-db": "docker compose --profile local-db up -d --build",
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f --tail=200",
-    "docker:ps": "docker compose ps"
+    "docker:ps": "docker compose ps",
+    "deploy:testnet": "bash scripts/deploy-testnet.sh",
+    "sync:testnet": "node scripts/sync-testnet-deployments.mjs"
   },
   "devDependencies": {
     "prettier": "^3.4.2",

@@ -1,3 +1,5 @@
+import { isTestnetMode, testnetDeployments } from "./testnet.js";
+
 /** Tradable token metadata — verify addresses against Robinhood Chain token registry */
 export interface StockToken {
   ticker: string;
@@ -10,7 +12,8 @@ export interface StockToken {
     | "broad-market"
     | "stable"
     | "thematic"
-    | "forex";
+    | "forex"
+    | "crypto";
   decimals: number;
   /**
    * Whether this token can be used as a leg in a launchpad pair. Defaults
@@ -48,7 +51,7 @@ export interface StockToken {
 
 /** All tokens that can be used as a leg in a launched pair */
 export function launchpadEligibleTokens(): StockToken[] {
-  return APPROVED_STOCK_TOKENS.filter((t) => t.launchpadEligible !== false);
+  return getActiveStockTokens().filter((t) => t.launchpadEligible !== false);
 }
 
 /**
@@ -58,7 +61,7 @@ export function launchpadEligibleTokens(): StockToken[] {
  * the larger, deeper-liquidity leg that anchors the pair's value narrative.
  */
 export function numeraireTokens(): StockToken[] {
-  return APPROVED_STOCK_TOKENS.filter((t) => t.numeraire === true);
+  return getActiveStockTokens().filter((t) => t.numeraire === true);
 }
 
 /**
@@ -203,6 +206,8 @@ export const APPROVED_STOCK_TOKENS: StockToken[] = [
     priceFeed: "0x0000000000000000000000000000000000000110",
     category: "stable",
     decimals: 6,
+    // No USDG price feed is registered for the launchpad yet.
+    launchpadEligible: false,
   },
 
   // ──── Additional Rialto-listed equities ───────────────
@@ -288,7 +293,29 @@ export const APPROVED_STOCK_TOKENS: StockToken[] = [
     logoUrl: "https://cdn.robinhood.com/ncw_assets/logos/0xb0992820e760d836549ba69bc7598b4af75dee03.png",
   },
 
-  // ──── Forex ───────────────────────────────────────────
+  {
+    ticker: "NFLX",
+    name: "Netflix",
+    address: "0xE0444EF8BF4eD74f74FD73686e2ddF4C1c5591E8",
+    priceFeed: "0x0000000000000000000000000000000000000128",
+    category: "large-cap",
+    decimals: 18,
+    tradingHours: { market: true, extended: true, overnight: true },
+    logoUrl: "https://cdn.robinhood.com/ncw_assets/logos/0xe0444ef8bf4ed74f74fd73686e2ddf4c1c5591e8.png",
+  },
+  {
+    ticker: "WETH",
+    name: "Wrapped ETH",
+    address: "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
+    priceFeed: "0x0000000000000000000000000000000000000129",
+    category: "crypto",
+    decimals: 18,
+  },
+
+  // ──── Forex — placeholder addresses, not yet deployed on Robinhood Chain ──
+  // These tokens are included in the config for future use once ERC-8056 forex
+  // tokenization goes live. Set launchpadEligible=false to prevent them from
+  // appearing in the pair launch wizard until real contracts exist.
   {
     ticker: "EURUSD",
     name: "Euro / US Dollar",
@@ -296,6 +323,7 @@ export const APPROVED_STOCK_TOKENS: StockToken[] = [
     priceFeed: "0x0000000000000000000000000000000000000111",
     category: "forex",
     decimals: 18,
+    launchpadEligible: false,
   },
   {
     ticker: "GBPUSD",
@@ -304,6 +332,7 @@ export const APPROVED_STOCK_TOKENS: StockToken[] = [
     priceFeed: "0x0000000000000000000000000000000000000112",
     category: "forex",
     decimals: 18,
+    launchpadEligible: false,
   },
   {
     ticker: "AUDUSD",
@@ -312,6 +341,7 @@ export const APPROVED_STOCK_TOKENS: StockToken[] = [
     priceFeed: "0x0000000000000000000000000000000000000113",
     category: "forex",
     decimals: 18,
+    launchpadEligible: false,
   },
   {
     ticker: "NZDUSD",
@@ -320,6 +350,7 @@ export const APPROVED_STOCK_TOKENS: StockToken[] = [
     priceFeed: "0x0000000000000000000000000000000000000114",
     category: "forex",
     decimals: 18,
+    launchpadEligible: false,
   },
   {
     ticker: "USDCAD",
@@ -328,6 +359,7 @@ export const APPROVED_STOCK_TOKENS: StockToken[] = [
     priceFeed: "0x0000000000000000000000000000000000000115",
     category: "forex",
     decimals: 18,
+    launchpadEligible: false,
   },
   {
     ticker: "USDCHF",
@@ -336,6 +368,7 @@ export const APPROVED_STOCK_TOKENS: StockToken[] = [
     priceFeed: "0x0000000000000000000000000000000000000116",
     category: "forex",
     decimals: 18,
+    launchpadEligible: false,
   },
 ];
 
@@ -354,14 +387,45 @@ export const EQUITY_TOKENS = APPROVED_STOCK_TOKENS.filter(
   (t) => t.category !== "stable" && t.category !== "forex",
 );
 
+const NO_FEED = "0x0000000000000000000000000000000000000000" as const;
+const ALL_SESSIONS = { market: true, extended: true, overnight: true };
+
+/**
+ * Robinhood Chain Testnet (46630): the real faucet Stock Tokens and canonical
+ * testnet WETH. These are the only assets that exist on testnet — everything
+ * else in APPROVED_STOCK_TOKENS is mainnet-only.
+ */
+export const TESTNET_TOKENS: StockToken[] = [
+  { ticker: "TSLA", name: "Tesla", address: "0xC9f9c86933092BbbfFF3CCb4b105A4A94bf3Bd4E", priceFeed: NO_FEED, category: "growth", decimals: 18, numeraire: true, tradingHours: ALL_SESSIONS },
+  { ticker: "AMZN", name: "Amazon", address: "0x5884aD2f920c162CFBbACc88C9C51AA75eC09E02", priceFeed: NO_FEED, category: "large-cap", decimals: 18, numeraire: true, tradingHours: ALL_SESSIONS },
+  { ticker: "AMD", name: "AMD", address: "0x71178BAc73cBeb415514eB542a8995b82669778d", priceFeed: NO_FEED, category: "growth", decimals: 18, tradingHours: ALL_SESSIONS },
+  { ticker: "PLTR", name: "Palantir Technologies", address: "0x1FBE1a0e43594b3455993B5dE5Fd0A7A266298d0", priceFeed: NO_FEED, category: "growth", decimals: 18, tradingHours: ALL_SESSIONS },
+  { ticker: "NFLX", name: "Netflix", address: "0x3b8262A63d25f0477c4DDE23F83cfe22Cb768C93", priceFeed: NO_FEED, category: "large-cap", decimals: 18, tradingHours: ALL_SESSIONS },
+  { ticker: "WETH", name: "Wrapped ETH", address: "0x7943e237c7F95DA44E0301572D358911207852Fa", priceFeed: NO_FEED, category: "crypto", decimals: 18 },
+];
+
+function withTestnetFeed(token: StockToken): StockToken {
+  const feed = (testnetDeployments as { feeds?: Record<string, string> }).feeds?.[token.ticker];
+  return feed && /^0x[0-9a-fA-F]{40}$/.test(feed)
+    ? { ...token, priceFeed: feed as `0x${string}` }
+    : token;
+}
+
+/** Network-aware token list: testnet faucet tokens or the mainnet registry. */
+export function getActiveStockTokens(): StockToken[] {
+  return isTestnetMode() ? TESTNET_TOKENS.map(withTestnetFeed) : APPROVED_STOCK_TOKENS;
+}
+
 export function getTokenByTicker(ticker: string): StockToken | undefined {
-  return APPROVED_STOCK_TOKENS.find(
-    (t) => t.ticker.toUpperCase() === ticker.toUpperCase(),
-  );
+  const wanted = ticker.toUpperCase();
+  return getActiveStockTokens().find((t) => t.ticker.toUpperCase() === wanted);
 }
 
 export function getTokenByAddress(address: string): StockToken | undefined {
-  return APPROVED_STOCK_TOKENS.find(
-    (t) => t.address.toLowerCase() === address.toLowerCase(),
+  const wanted = address.toLowerCase();
+  return (
+    getActiveStockTokens().find((t) => t.address.toLowerCase() === wanted) ??
+    APPROVED_STOCK_TOKENS.find((t) => t.address.toLowerCase() === wanted) ??
+    TESTNET_TOKENS.find((t) => t.address.toLowerCase() === wanted)
   );
 }

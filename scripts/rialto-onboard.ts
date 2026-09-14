@@ -5,16 +5,17 @@
  * Run with: pnpm tsx scripts/rialto-onboard.ts
  *
  * Required env vars:
- *   OWNER_PRIVATE_KEY  — the wallet private key that will own the integrator profile
+ *   OWNER_PRIVATE_KEY  — wallet private key that will own the integrator profile
  *
  * Optional env vars:
- *   RIALTO_DISPLAY_NAME           — display name (default: "Novex")
- *   RIALTO_SLUG                   — unique slug (default: "novex-<timestamp>")
- *   RIALTO_MAX_FEE_BPS            — max integrator fee cap in bps (default: 50)
- *   RIALTO_CONTACT_EMAIL          — contact email for the application
- *   RIALTO_TELEGRAM               — Telegram handle
- *   RIALTO_APP_URL                — public URL of the dApp
- *   RIALTO_APPLICATION_DESCRIPTION — short description of how you'll use Rialto
+ *   RIALTO_DISPLAY_NAME            — display name (default: "Novex")
+ *   RIALTO_SLUG                    — unique slug (default: "novex-<timestamp>")
+ *   RIALTO_MAX_FEE_BPS             — max integrator fee cap in bps (default: 50)
+ *   RIALTO_CONTACT_EMAIL           — contact email (default: "dev@novex.xyz")
+ *   RIALTO_TELEGRAM                — Telegram handle (default: "@novex_dev")
+ *   RIALTO_APP_URL                 — public URL (default: "https://novex.xyz")
+ *   RIALTO_APPLICATION_DESCRIPTION — description (default: auto)
+ *   RIALTO_INTEGRATOR_ID           — if already approved, skip application & create key directly
  */
 
 import { privateKeyToAccount } from "viem/accounts";
@@ -27,10 +28,6 @@ function requireEnv(name: string): string {
   const v = process.env[name];
   if (!v) throw new Error(`Missing env var: ${name}. Set it before running.`);
   return v;
-}
-
-function optional(value: string | null | undefined): string {
-  return value != null && value !== "" ? `some:${value}` : "none";
 }
 
 function payloadHash(fields: [string, string | number][]): `0x${string}` {
@@ -79,8 +76,8 @@ async function main() {
   const contactEmail = process.env.RIALTO_CONTACT_EMAIL ?? "dev@novex.xyz";
   const telegramHandle = process.env.RIALTO_TELEGRAM ?? "@novex_dev";
   const appUrl = process.env.RIALTO_APP_URL ?? "https://novex.xyz";
-  const applicationDescription =
-    process.env.RIALTO_APPLICATION_DESCRIPTION ?? "Novex stock-pair launchpad — swap routing for tokenized stock pairs on Robinhood Chain";
+  const appDesc = process.env.RIALTO_APPLICATION_DESCRIPTION ?? "Novex stock-pair launchpad on Robinhood Chain";
+  const existingIntegratorId = process.env.RIALTO_INTEGRATOR_ID;
 
   console.log("╔════════════════════════════════════════════════╗");
   console.log("║   Rialto Integrator Onboarding                ║");
@@ -91,59 +88,70 @@ async function main() {
   console.log(`  Max fee (bps): ${maxFeeBps}`);
   console.log();
 
-  // ── Step 1: Submit application ────────────────────────
-  console.log("Step 1/3: Submitting integrator application...");
+  let integratorId: number | string;
 
-  const appHash = payloadHash([
-    ["action", "create_integrator_application"],
-    ["chain_id", CHAIN_ID],
-    ["owner_wallet", owner],
-    ["display_name", displayName],
-    ["slug", slug],
-    ["contact_email", optional(contactEmail)],
-    ["telegram_handle", optional(telegramHandle)],
-    ["app_url", optional(appUrl)],
-    ["fee_recipient", owner],
-    ["requested_max_fee_bps", maxFeeBps],
-  ]);
+  if (existingIntegratorId) {
+    integratorId = existingIntegratorId;
+    console.log(`  Using existing integrator_id: ${integratorId}`);
+    console.log("  Skipping application, going straight to API key creation...");
+    console.log();
+  } else {
+    // ── Step 1: Submit application ────────────────────────
+    console.log("Step 1/3: Submitting integrator application...");
 
-  const appNonce = await getNonce(owner, "create_integrator_application", appHash);
-  const appSig = await account.signMessage({ message: appNonce.message });
+    const appHash = payloadHash([
+      ["action", "create_integrator_application"],
+      ["chain_id", CHAIN_ID],
+      ["owner_wallet", owner],
+      ["display_name", displayName],
+      ["slug", slug],
+      ["contact_email", contactEmail],
+      ["telegram_handle", telegramHandle],
+      ["app_url", appUrl],
+      ["application_description", appDesc],
+      ["fee_recipient", owner],
+      ["requested_max_fee_bps", maxFeeBps],
+    ]);
 
-  const application = await rialtoPost("/integrators/applications", {
-    chain_id: CHAIN_ID,
-    owner_wallet: owner,
-    display_name: displayName,
-    slug,
-    contact_email: contactEmail,
-    telegram_handle: telegramHandle,
-    app_url: appUrl,
-    application_description: applicationDescription,
-    fee_recipient: owner,
-    requested_max_fee_bps: maxFeeBps,
-    payload_hash: appHash,
-    nonce: appNonce.nonce,
-    issued_at: appNonce.issued_at,
-    expiration_time: appNonce.expiration_time,
-    signature: appSig,
-  });
+    const appNonce = await getNonce(owner, "create_integrator_application", appHash);
+    const appSig = await account.signMessage({ message: appNonce.message });
 
-  console.log(`  ✓ Application submitted`);
-  console.log(`  Status:        ${application.status}`);
-  console.log(`  Integrator ID: ${application.integrator_id}`);
-  console.log();
+    const application = await rialtoPost("/integrators/applications", {
+      chain_id: CHAIN_ID,
+      owner_wallet: owner,
+      display_name: displayName,
+      slug,
+      contact_email: contactEmail,
+      telegram_handle: telegramHandle,
+      app_url: appUrl,
+      application_description: appDesc,
+      fee_recipient: owner,
+      requested_max_fee_bps: maxFeeBps,
+      payload_hash: appHash,
+      nonce: appNonce.nonce,
+      issued_at: appNonce.issued_at,
+      expiration_time: appNonce.expiration_time,
+      signature: appSig,
+    });
 
-  if (application.status !== "active") {
-    console.log("⏳ Application is PENDING Rialto review.");
-    console.log("   Once approved, re-run this script to create your API key.");
-    console.log(`   Save your integrator_id: ${application.integrator_id}`);
-    return;
+    console.log(`  ✓ Application submitted`);
+    console.log(`  Status:        ${application.status}`);
+    console.log(`  Integrator ID: ${application.integrator_id}`);
+    console.log();
+
+    if (application.status !== "active") {
+      console.log("⏳ Application is PENDING Rialto review.");
+      console.log("   Once approved, re-run with:");
+      console.log(`   RIALTO_INTEGRATOR_ID=${application.integrator_id} pnpm tsx scripts/rialto-onboard.ts`);
+      return;
+    }
+
+    integratorId = application.integrator_id;
   }
 
   // ── Step 2: Create API key ────────────────────────────
   console.log("Step 2/3: Creating API key...");
 
-  const integratorId = application.integrator_id;
   const label = "production-key";
 
   const keyHash = payloadHash([

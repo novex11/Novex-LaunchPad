@@ -56,6 +56,7 @@ contract StrategyVaultTest is Test {
         cashback = new CashbackReserve(address(this));
         emergency = new EmergencyRegistry(address(this));
         mockRouter = new MockSwapRouter();
+        mockRouter.setOracle(address(oracle));
         router = new ExecutionRouter(address(this), address(mockRouter));
         router.setEmergency(address(emergency));
 
@@ -192,12 +193,17 @@ contract StrategyVaultTest is Test {
         vault.deposit(_depositParams4Token());
 
         uint256 nav = vault.navUsd8();
-        // 0.25 NVDA * $500 + 0.25 AAPL * $200 + 0.25 MSFT * $400 + 0.25 GOOGL * $180
-        // = $125 + $50 + $100 + $45 = $320 in 8-decimal = 320_00000000
-        // MockSwapRouter is 1:1, so 0.25 NVDA tokens → 0.25 AAPL tokens etc.
-        // With oracle: 0.25e18 * 500e8 / 1e18 = 125e8, etc.
-        uint256 expected = 125e8 + 50e8 + 100e8 + 45e8; // 320e8
-        assertEq(nav, expected, "multi-asset NAV");
+        // Oracle-priced swaps: deposit 1 NVDA ($500) with 25% each:
+        // 0.25 NVDA retained = $125
+        // 0.25 NVDA → AAPL: 0.25 * $500 / $200 = 0.625 AAPL = $125
+        // 0.25 NVDA → MSFT: 0.25 * $500 / $400 = 0.3125 MSFT = $125
+        // 0.25 NVDA → GOOGL: 0.25 * $500 / $180 ≈ 0.6944 GOOGL ≈ $125
+        // Total ≈ $500 (slight rounding from integer division)
+        // Each leg has value: 0.25e18 * 500e8 / priceOut * priceOut / 1e18 ≈ 125e8
+        // Allow ±1e8 rounding from integer division across 4 legs
+        uint256 expected = 500e8;
+        assertGe(nav, expected - 4e8, "NAV within rounding of deposit value");
+        assertLe(nav, expected, "NAV at most deposit value");
     }
 
     function test_SharePriceAfterDeposit() public {

@@ -63,6 +63,7 @@ export function computeAllocation(input: AllocationInput): AllocationResult {
     (t) =>
       t.ticker !== depositToken.ticker &&
       t.category !== "stable" &&
+      t.category !== "crypto" &&
       !excluded.has(t.ticker),
   );
 

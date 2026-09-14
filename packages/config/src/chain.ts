@@ -36,14 +36,19 @@ export const robinhoodTestnet = {
     default: {
       http: [
         process.env.ROBINHOOD_TESTNET_RPC_URL ??
-          `https://robinhood-chain-testnet.g.alchemy.com/v2/${alchemyKey}`,
+          "https://rpc.testnet.chain.robinhood.com",
+      ],
+    },
+    alchemy: {
+      http: [
+        `https://robinhood-chain-testnet.g.alchemy.com/v2/${alchemyKey}`,
       ],
     },
   },
   blockExplorers: {
     default: {
       name: "Robinhood Testnet Explorer",
-      url: "https://testnet-explorer.robinhood.com",
+      url: "https://explorer.testnet.chain.robinhood.com",
     },
   },
   testnet: true,
@@ -81,6 +86,13 @@ export const RHJ_CORPORATE_ACTIONS_API =
   "https://api.robinhood.com/rhj/corporate-actions";
 
 export const ORACLE_STALENESS_SECONDS = 3600;
+
+/** Official faucet for testnet ETH and Stock Tokens */
+export const TESTNET_FAUCET_URL = "https://faucet.testnet.chain.robinhood.com";
+
+/** Canonical WETH on Robinhood Chain Testnet */
+export const TESTNET_WETH_ADDRESS =
+  "0x7943e237c7F95DA44E0301572D358911207852Fa" as const;
 export const MULTIPLIER_SAFETY_WINDOW_SECONDS = 300;
 
 // ─── Rialto Swap API (production execution venue) ─────

@@ -2,29 +2,33 @@
 pragma solidity ^0.8.24;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {ReceiptToken} from "./ReceiptToken.sol";
 import {PairVault} from "./PairVault.sol";
-import {AllocationController} from "./AllocationController.sol";
 import {OracleAdapter} from "./OracleAdapter.sol";
-import {ExecutionRouter} from "./ExecutionRouter.sol";
 import {EmergencyRegistry} from "./EmergencyRegistry.sol";
+import {IWETH} from "./interfaces/IWETH.sol";
 
-/// @title PairFactory — permissionless pair vault launcher
-/// @notice Any wallet can launch a unique 2-token pair vault. Uniqueness is
-///         enforced by the sorted (tokenA, tokenB) hash so TSLA/AAPL cannot
-///         be launched twice under different orderings.
-contract PairFactory is Ownable {
+/// @title PairFactory — permissionless launcher for two-token pair vaults
+/// @notice Any wallet can pair any two tokens the owner has listed. A launch
+///         deploys the vault and seeds it with the creator's tokens in the same
+///         transaction. Uniqueness is enforced on the sorted (tokenA, tokenB).
+contract PairFactory is Ownable, ReentrancyGuard {
+    using SafeERC20 for IERC20;
+
     uint16 public constant MIN_WEIGHT_BPS = 1_000; // 10%
     uint16 public constant MAX_WEIGHT_BPS = 9_000; // 90%
     uint16 public constant MIN_CREATOR_FEE_BPS = 100; // 1%
     uint16 public constant MAX_CREATOR_FEE_BPS = 500; // 5%
     uint16 public constant MAX_PAIRS_PER_CREATOR = 10;
+    uint256 public constant MAX_NAME_LENGTH = 64;
+    uint256 public constant MAX_SYMBOL_LENGTH = 16;
 
-    AllocationController public immutable controller;
     OracleAdapter public immutable oracle;
-    ExecutionRouter public executionRouter;
     EmergencyRegistry public immutable emergency;
-    address public immutable usdgAsset;
+    address public immutable weth;
 
     struct PairInfo {
         address pair;
@@ -36,9 +40,30 @@ contract PairFactory is Ownable {
         address creator;
     }
 
+    /// @param tokenA        Either token; order does not matter
+    /// @param weightABps    Target value share of `tokenA`
+    /// @param amountA       Seed amount of `tokenA` (for a WETH leg, send the same wei as msg.value to pay in ETH)
+    /// @param minShares     Slippage guard on the creator's seed shares
+    struct LaunchParams {
+        address tokenA;
+        address tokenB;
+        uint16 weightABps;
+        uint16 creatorFeeBps;
+        string receiptName;
+        string receiptSymbol;
+        uint256 amountA;
+        uint256 amountB;
+        uint256 minShares;
+    }
+
+    mapping(address => bool) public isListed;
+    address[] private _knownTokens;
+    mapping(address => bool) private _known;
+
     PairInfo[] public pairs;
     mapping(bytes32 => address) public pairByKey;
     mapping(address => uint256) public pairsCreatedBy;
+    mapping(address => bool) public isPair;
 
     event PairLaunched(
         address indexed pair,
@@ -49,25 +74,39 @@ contract PairFactory is Ownable {
         uint16 weightABps,
         uint16 creatorFeeBps
     );
+    event TokenListed(address indexed token, bool listed);
 
-    constructor(
-        address owner_,
-        address controller_,
-        address oracle_,
-        address executionRouter_,
-        address emergency_,
-        address usdgAsset_
-    ) Ownable(owner_) {
-        controller = AllocationController(controller_);
+    constructor(address owner_, address oracle_, address emergency_, address weth_) Ownable(owner_) {
         oracle = OracleAdapter(oracle_);
-        executionRouter = ExecutionRouter(executionRouter_);
         emergency = EmergencyRegistry(emergency_);
-        usdgAsset = usdgAsset_;
+        weth = weth_;
     }
 
-    /// @notice Owner can rotate the execution router if governance updates it
-    function setExecutionRouter(address router_) external onlyOwner {
-        executionRouter = ExecutionRouter(router_);
+    // ─── Token listing ──────────────────────────────────────
+
+    function setTokenListed(address token, bool listed) external onlyOwner {
+        require(token != address(0), "PairFactory: zero token");
+        if (listed) {
+            require(oracle.hasFeed(token), "PairFactory: no price feed");
+        }
+        isListed[token] = listed;
+        if (!_known[token]) {
+            _known[token] = true;
+            _knownTokens.push(token);
+        }
+        emit TokenListed(token, listed);
+    }
+
+    function listedTokens() external view returns (address[] memory out) {
+        uint256 n;
+        for (uint256 i; i < _knownTokens.length; ++i) {
+            if (isListed[_knownTokens[i]]) ++n;
+        }
+        out = new address[](n);
+        uint256 j;
+        for (uint256 i; i < _knownTokens.length; ++i) {
+            if (isListed[_knownTokens[i]]) out[j++] = _knownTokens[i];
+        }
     }
 
     // ─── Views ──────────────────────────────────────────────
@@ -76,19 +115,11 @@ contract PairFactory is Ownable {
         return pairs.length;
     }
 
-    /// @notice Compute the uniqueness key for a pair (sorted addresses)
-    function computePairKey(address tokenA, address tokenB)
-        public
-        pure
-        returns (bytes32)
-    {
-        (address lo, address hi) = tokenA < tokenB
-            ? (tokenA, tokenB)
-            : (tokenB, tokenA);
+    function computePairKey(address tokenA, address tokenB) public pure returns (bytes32) {
+        (address lo, address hi) = tokenA < tokenB ? (tokenA, tokenB) : (tokenB, tokenA);
         return keccak256(abi.encode(lo, hi));
     }
 
-    /// @notice Look up a launched pair by its two tokens (order-independent)
     function getPair(address tokenA, address tokenB)
         external
         view
@@ -101,60 +132,72 @@ contract PairFactory is Ownable {
 
     // ─── Launch ─────────────────────────────────────────────
 
-    struct LaunchParams {
-        address tokenA;
-        address tokenB;
-        uint16 weightABps;
-        uint16 creatorFeeBps;
-        string receiptName;
-        string receiptSymbol;
-    }
-
-    /// @notice Permissionless launch of a new pair. Anyone can call.
-    function launchPair(
-        address tokenA,
-        address tokenB,
-        uint16 weightABps,
-        uint16 creatorFeeBps,
-        string calldata receiptName,
-        string calldata receiptSymbol
-    ) external returns (address pair, address receipt) {
-        return
-            _launchPair(
-                LaunchParams({
-                    tokenA: tokenA,
-                    tokenB: tokenB,
-                    weightABps: weightABps,
-                    creatorFeeBps: creatorFeeBps,
-                    receiptName: receiptName,
-                    receiptSymbol: receiptSymbol
-                })
-            );
-    }
-
-    function _launchPair(LaunchParams memory p)
-        internal
-        returns (address pair, address receipt)
+    function launchPair(LaunchParams calldata p)
+        external
+        payable
+        nonReentrant
+        returns (address pair, address receipt, uint256 shares)
     {
         _validate(p);
         bytes32 key = computePairKey(p.tokenA, p.tokenB);
         require(pairByKey[key] == address(0), "PairFactory: exists");
 
-        // Sort tokens for consistent ordering (weight applies to caller's tokenA)
-        (address lo, address hi) = p.tokenA < p.tokenB
-            ? (p.tokenA, p.tokenB)
-            : (p.tokenB, p.tokenA);
-        uint16 weightLoBps = p.tokenA < p.tokenB
-            ? p.weightABps
-            : uint16(10_000 - p.weightABps);
-
-        // Deploy receipt token + pair vault
-        receipt = address(new ReceiptToken(p.receiptName, p.receiptSymbol, address(this)));
-        pair = _deployPair(lo, hi, weightLoBps, p.creatorFeeBps, receipt);
-
-        ReceiptToken(receipt).setVault(pair);
+        (pair, receipt) = _deploy(p);
         pairByKey[key] = pair;
+        isPair[pair] = true;
         pairsCreatedBy[msg.sender] += 1;
+
+        shares = _seed(p, pair);
+    }
+
+    function _validate(LaunchParams calldata p) internal view {
+        require(p.tokenA != address(0) && p.tokenB != address(0), "PairFactory: zero token");
+        require(p.tokenA != p.tokenB, "PairFactory: identical tokens");
+        require(isListed[p.tokenA] && isListed[p.tokenB], "PairFactory: unlisted token");
+        require(
+            p.weightABps >= MIN_WEIGHT_BPS && p.weightABps <= MAX_WEIGHT_BPS,
+            "PairFactory: invalid weight"
+        );
+        require(
+            p.creatorFeeBps >= MIN_CREATOR_FEE_BPS && p.creatorFeeBps <= MAX_CREATOR_FEE_BPS,
+            "PairFactory: invalid fee"
+        );
+        uint256 nameLen = bytes(p.receiptName).length;
+        uint256 symbolLen = bytes(p.receiptSymbol).length;
+        require(nameLen > 0 && nameLen <= MAX_NAME_LENGTH, "PairFactory: invalid name");
+        require(symbolLen > 0 && symbolLen <= MAX_SYMBOL_LENGTH, "PairFactory: invalid symbol");
+        require(pairsCreatedBy[msg.sender] < MAX_PAIRS_PER_CREATOR, "PairFactory: creator cap");
+        if (msg.value > 0) {
+            require(
+                weth != address(0) && (p.tokenA == weth || p.tokenB == weth),
+                "PairFactory: ETH not accepted"
+            );
+        }
+    }
+
+    function _deploy(LaunchParams calldata p) internal returns (address pair, address receipt) {
+        bool ordered = p.tokenA < p.tokenB;
+        address lo = ordered ? p.tokenA : p.tokenB;
+        address hi = ordered ? p.tokenB : p.tokenA;
+        uint16 weightLo = ordered ? p.weightABps : uint16(10_000 - p.weightABps);
+
+        receipt = address(new ReceiptToken(p.receiptName, p.receiptSymbol, address(this)));
+        pair = address(
+            new PairVault(
+                PairVault.Config({
+                    creator: msg.sender,
+                    tokenA: lo,
+                    tokenB: hi,
+                    weightABps: weightLo,
+                    creatorFeeBps: p.creatorFeeBps,
+                    receiptToken: receipt,
+                    oracle: address(oracle),
+                    emergency: address(emergency),
+                    weth: weth
+                })
+            )
+        );
+        ReceiptToken(receipt).setVault(pair);
 
         pairs.push(
             PairInfo({
@@ -162,81 +205,36 @@ contract PairFactory is Ownable {
                 receiptToken: receipt,
                 tokenA: lo,
                 tokenB: hi,
-                weightABps: weightLoBps,
+                weightABps: weightLo,
                 creatorFeeBps: p.creatorFeeBps,
                 creator: msg.sender
             })
         );
 
-        _tryAuthorizeSwap(pair);
-
-        emit PairLaunched(
-            pair,
-            receipt,
-            msg.sender,
-            lo,
-            hi,
-            weightLoBps,
-            p.creatorFeeBps
-        );
+        emit PairLaunched(pair, receipt, msg.sender, lo, hi, weightLo, p.creatorFeeBps);
     }
 
-    function _validate(LaunchParams memory p) internal view {
-        require(p.tokenA != address(0) && p.tokenB != address(0), "PairFactory: zero token");
-        require(p.tokenA != p.tokenB, "PairFactory: identical tokens");
-        require(
-            controller.approvedAssets(p.tokenA) && controller.approvedAssets(p.tokenB),
-            "PairFactory: unapproved token"
-        );
-        require(
-            p.weightABps >= MIN_WEIGHT_BPS && p.weightABps <= MAX_WEIGHT_BPS,
-            "PairFactory: invalid weight"
-        );
-        require(
-            p.creatorFeeBps >= MIN_CREATOR_FEE_BPS &&
-                p.creatorFeeBps <= MAX_CREATOR_FEE_BPS,
-            "PairFactory: invalid fee"
-        );
-        require(
-            pairsCreatedBy[msg.sender] < MAX_PAIRS_PER_CREATOR,
-            "PairFactory: creator cap"
-        );
+    function _seed(LaunchParams calldata p, address pair) internal returns (uint256 shares) {
+        PairVault vault = PairVault(pair);
+        address lo = vault.tokenA();
+        address hi = vault.tokenB();
+        uint256 amountLo = lo == p.tokenA ? p.amountA : p.amountB;
+        uint256 amountHi = lo == p.tokenA ? p.amountB : p.amountA;
+
+        uint256 nativeUsed = _collect(lo, amountLo, pair) + _collect(hi, amountHi, pair);
+        require(msg.value == nativeUsed, "PairFactory: ETH amount mismatch");
+
+        shares = vault.depositFor(msg.sender, amountLo, amountHi, p.minShares);
     }
 
-    function _deployPair(
-        address lo,
-        address hi,
-        uint16 weightLoBps,
-        uint16 creatorFeeBps,
-        address receipt
-    ) internal returns (address pair) {
-        pair = address(
-            new PairVault(
-                msg.sender,
-                lo,
-                hi,
-                weightLoBps,
-                creatorFeeBps,
-                receipt,
-                usdgAsset,
-                address(oracle),
-                address(executionRouter),
-                address(emergency)
-            )
-        );
-    }
-
-    /// @dev Attempt to authorize the pair with the ExecutionRouter. Silent on
-    ///      failure to keep the launch flow permissionless — the factory owner
-    ///      can back-fill authorization if needed.
-    function _tryAuthorizeSwap(address pair) internal {
-        try executionRouter.setAuthorizedCaller(pair, true) {} catch {}
-    }
-
-    /// @notice Owner-only fallback to authorize a pair with the router if the
-    ///         factory itself is not the router owner. Useful for governance
-    ///         migrations.
-    function authorizePair(address pair) external onlyOwner {
-        executionRouter.setAuthorizedCaller(pair, true);
+    /// @dev Moves the creator's seed into the factory and approves the vault.
+    function _collect(address token, uint256 amount, address pair) internal returns (uint256 nativeUsed) {
+        if (token == weth && msg.value > 0) {
+            IWETH(weth).deposit{value: amount}();
+            nativeUsed = amount;
+        } else {
+            IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
+        }
+        IERC20(token).forceApprove(pair, amount);
     }
 }

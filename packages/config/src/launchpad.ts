@@ -1,9 +1,10 @@
 /**
  * Novex Pair Launchpad configuration
  *
- * Users can permissionlessly launch unique 2-token pair vaults from the
- * approved asset set. Uniqueness is enforced on-chain via a sorted
- * (tokenA, tokenB) key. Every pair is USDG-denominated on deposit/redeem.
+ * Any wallet can launch a unique 2-token pair vault from the tokens listed on
+ * the PairFactory. Pairs are funded in kind: depositors add both tokens in the
+ * pair's current ratio and redeem a proportional slice of both. The creator's
+ * seed is valued at on-chain oracle prices (1 share = $1 at launch).
  */
 
 export const LAUNCHPAD_CONFIG = {
@@ -17,11 +18,54 @@ export const LAUNCHPAD_CONFIG = {
   maxCreatorFeeBps: 500,
   /** Max pairs a single wallet can launch (on-chain enforced) */
   maxPairsPerCreator: 10,
-  /** Minimum USDG deposit into a pair (UI-enforced) */
-  minDepositUsdg: 50,
-  /** Creator's first deposit is at 1:1 NAV with zero fee */
-  creatorFirstDepositBonus: true,
+  /** Minimum seed/deposit value in USD (UI-enforced; contract floor is $1) */
+  minDepositUsd: 5,
+  /** Upper sanity cap for a single seed/deposit (UI-enforced) */
+  maxDepositUsd: 10_000_000,
+  /** Default amount shown in the launch wizard */
+  defaultSeedUsd: 25,
+  /** $ increment for the custom amount field */
+  depositStepUsd: 1,
+  /** Quick-pick buttons — any value between min and max is allowed */
+  depositPresets: [10, 25, 50, 100, 250] as const,
+  /** Max deviation of the seed's value split from the target weight (on-chain) */
+  weightToleranceBps: 300,
 } as const;
+
+/**
+ * Safety margin applied to `minShares` and to the extra token headroom the UI
+ * approves, so small price moves between quote and inclusion don't revert.
+ */
+export const LAUNCHPAD_SLIPPAGE_BPS = 100; // 1%
+
+/** Validate a USD seed/deposit amount; returns an error string or null if OK. */
+export function depositAmountError(amount: number): string | null {
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return "Enter a deposit amount";
+  }
+  if (amount < LAUNCHPAD_CONFIG.minDepositUsd) {
+    return `Minimum is $${LAUNCHPAD_CONFIG.minDepositUsd}`;
+  }
+  if (amount > LAUNCHPAD_CONFIG.maxDepositUsd) {
+    return `Maximum is $${LAUNCHPAD_CONFIG.maxDepositUsd.toLocaleString()}`;
+  }
+  return null;
+}
+
+/** Parse free-form USD input (allows $15, 20.5, etc.). */
+export function parseDepositUsdInput(raw: string): number {
+  const cleaned = raw.replace(/[^0-9.]/g, "");
+  const n = parseFloat(cleaned);
+  if (!Number.isFinite(n)) return 0;
+  return Math.round(n * 100) / 100;
+}
+
+/** Clamp a parsed deposit to configured min/max. */
+export function clampDepositUsd(amount: number): number {
+  const min = LAUNCHPAD_CONFIG.minDepositUsd;
+  const max = LAUNCHPAD_CONFIG.maxDepositUsd;
+  return Math.min(max, Math.max(min, Math.round(amount * 100) / 100));
+}
 
 export type LaunchpadConfig = typeof LAUNCHPAD_CONFIG;
 
@@ -40,11 +84,80 @@ export function pairReceiptFullName(tickerA: string, tickerB: string): string {
   return `Novex ${a}-${b} Pair`;
 }
 
+/** Max lengths for launch metadata (on-chain + indexer). */
+export const LAUNCH_METADATA_LIMITS = {
+  displayNameMax: 64,
+  symbolMax: 16,
+  descriptionMax: 500,
+  imageUrlMax: 512,
+  websiteUrlMax: 512,
+} as const;
+
+/**
+ * Upload limits for pair cover images. SVG is not accepted: uploads are served
+ * from the indexer origin and SVG can carry scripts.
+ */
+export const LAUNCH_IMAGE_UPLOAD = {
+  maxBytes: 2 * 1024 * 1024,
+  maxBytesLabel: "2 MB",
+  accept: "image/jpeg,image/png,image/webp,image/gif",
+  acceptLabel: "JPG, PNG, WebP, GIF",
+} as const;
+
+/** Sanitize user-supplied receipt symbol (uppercase alphanumeric + hyphen). */
+export function sanitizeReceiptSymbol(raw: string): string {
+  return raw
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9-]/g, "")
+    .slice(0, LAUNCH_METADATA_LIMITS.symbolMax);
+}
+
+/** Sanitize display name for on-chain ERC-20 name field. */
+export function sanitizeDisplayName(raw: string): string {
+  return raw.trim().slice(0, LAUNCH_METADATA_LIMITS.displayNameMax);
+}
+
+export function isValidHttpUrl(raw: string, required = false): boolean {
+  if (!raw.trim()) return !required;
+  try {
+    const u = new URL(raw.trim());
+    return u.protocol === "https:" || u.protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
+/** Message a creator signs to prove ownership when saving pair metadata. */
+export function pairMetadataMessage(input: {
+  pairAddress: string;
+  displayName?: string;
+  description?: string;
+  imageUrl?: string;
+  logoUrl?: string;
+  websiteUrl?: string;
+  numeraireTicker?: string;
+  issuedAt: string;
+}): string {
+  return [
+    "Novex pair metadata",
+    `Pair: ${input.pairAddress.toLowerCase()}`,
+    `Name: ${input.displayName ?? ""}`,
+    `Description: ${input.description ?? ""}`,
+    `Banner: ${input.imageUrl ?? ""}`,
+    `Logo: ${input.logoUrl ?? ""}`,
+    `Website: ${input.websiteUrl ?? ""}`,
+    `Quote leg: ${input.numeraireTicker ?? ""}`,
+    `Issued: ${input.issuedAt}`,
+  ].join("\n");
+}
+
 /** Category of a pair based on the two token categories */
 export type PairCategory =
   | "stock-stock"
   | "stock-forex"
   | "stock-stable"
+  | "stock-crypto"
   | "forex-forex"
   | "forex-stable"
   | "mixed";
@@ -57,14 +170,16 @@ export function classifyPair(
     c === "large-cap" || c === "growth" || c === "broad-market" || c === "thematic";
   const isForex = (c: string) => c === "forex";
   const isStable = (c: string) => c === "stable";
+  const isCrypto = (c: string) => c === "crypto";
 
-  const a = { stock: isStock(categoryA), forex: isForex(categoryA), stable: isStable(categoryA) };
-  const b = { stock: isStock(categoryB), forex: isForex(categoryB), stable: isStable(categoryB) };
+  const a = { stock: isStock(categoryA), forex: isForex(categoryA), stable: isStable(categoryA), crypto: isCrypto(categoryA) };
+  const b = { stock: isStock(categoryB), forex: isForex(categoryB), stable: isStable(categoryB), crypto: isCrypto(categoryB) };
 
   if (a.stock && b.stock) return "stock-stock";
   if (a.forex && b.forex) return "forex-forex";
   if ((a.stock && b.forex) || (a.forex && b.stock)) return "stock-forex";
   if ((a.stock && b.stable) || (a.stable && b.stock)) return "stock-stable";
+  if ((a.stock && b.crypto) || (a.crypto && b.stock)) return "stock-crypto";
   if ((a.forex && b.stable) || (a.stable && b.forex)) return "forex-stable";
   return "mixed";
 }
@@ -74,6 +189,7 @@ export const PAIR_CATEGORY_LABEL: Record<PairCategory, string> = {
   "stock-stock": "Stock × Stock",
   "stock-forex": "Stock × Forex",
   "stock-stable": "Stock × Stable",
+  "stock-crypto": "Stock × Crypto",
   "forex-forex": "Forex × Forex",
   "forex-stable": "Forex × Stable",
   mixed: "Multi-asset",
@@ -84,53 +200,8 @@ export const PAIR_CATEGORY_ACCENT: Record<PairCategory, string> = {
   "stock-stock": "#F5A623",
   "stock-forex": "#3D8BFF",
   "stock-stable": "#22C55E",
+  "stock-crypto": "#627EEA",
   "forex-forex": "#8B5CF6",
   "forex-stable": "#14B8A6",
   mixed: "#9CA3AF",
 };
-
-/**
- * Priority order the launch wizard uses when auto-selecting a payment source.
- * USDG first (zero-slippage pass-through), then whichever pair leg the user
- * already holds (skips one leg swap), then native ETH on Robinhood (largest
- * common liquidity), then the *other* leg only if the primary picks fail.
- */
-export type PaymentSourceKind = "usdg" | "tokenA" | "tokenB" | "native";
-
-export const PAYMENT_SOURCE_PRIORITY: readonly PaymentSourceKind[] = [
-  "usdg",
-  "tokenA",
-  "tokenB",
-  "native",
-];
-
-/** Static UI metadata for each payment source. */
-export const PAYMENT_SOURCE_META: Record<
-  PaymentSourceKind,
-  { label: string; hint: string; badge: string }
-> = {
-  usdg: {
-    label: "USDG",
-    hint: "Direct — no swap, no slippage",
-    badge: "Recommended",
-  },
-  tokenA: {
-    label: "Pair leg A",
-    hint: "Auto-converts to USDG on Robinhood Chain",
-    badge: "You hold this",
-  },
-  tokenB: {
-    label: "Pair leg B",
-    hint: "Auto-converts to USDG on Robinhood Chain",
-    badge: "You hold this",
-  },
-  native: {
-    label: "ETH on Robinhood",
-    hint: "Auto-converts to USDG on Robinhood Chain",
-    badge: "Native",
-  },
-};
-
-/** Slippage bps applied to the final `depositFor` when Zap-routed. */
-export const LAUNCHPAD_ROUTE_SLIPPAGE_BPS = 300; // 3 %
-
