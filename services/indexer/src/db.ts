@@ -1,13 +1,7 @@
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "./schema.js";
-
-function getConnectionString(): string | undefined {
-  const raw = process.env.DATABASE_URL;
-  if (!raw) return undefined;
-  // Strip surrounding quotes that some .env loaders leave
-  return raw.replace(/^['"]|['"]$/g, "");
-}
+import { getConnectionString, postgresSslOption } from "./db-config.js";
 
 const connectionString = getConnectionString();
 
@@ -15,7 +9,7 @@ export function createDb() {
   if (!connectionString) return null;
   const sql = postgres(connectionString, {
     max: 10,
-    ssl: "require",
+    ssl: postgresSslOption(connectionString),
     idle_timeout: 20,
     connect_timeout: 10,
   });

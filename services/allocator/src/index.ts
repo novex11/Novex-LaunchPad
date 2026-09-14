@@ -11,7 +11,8 @@ import {
   computeAllocation,
 } from "@novex/sdk";
 import {
-  APPROVED_STOCK_TOKENS,
+  getActiveStockTokens,
+  isTestnetMode,
   fetchRhjAssets,
   mergeRhjAssetsWithConfig,
   type StockToken,
@@ -21,12 +22,19 @@ const INDEXER_URL =
   process.env.INDEXER_URL ?? "http://localhost:3003";
 const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY ?? "";
 
-let resolvedTokens: StockToken[] = APPROVED_STOCK_TOKENS;
+let resolvedTokens: StockToken[] = getActiveStockTokens();
 
 async function bootstrapTokens(): Promise<void> {
+  if (isTestnetMode()) {
+    resolvedTokens = getActiveStockTokens();
+    console.log(
+      `[allocator] Testnet mode — using ${resolvedTokens.length} mock token addresses`,
+    );
+    return;
+  }
   try {
     const rhjAssets = await fetchRhjAssets();
-    resolvedTokens = mergeRhjAssetsWithConfig(rhjAssets, APPROVED_STOCK_TOKENS);
+    resolvedTokens = mergeRhjAssetsWithConfig(rhjAssets, getActiveStockTokens());
     const realCount = resolvedTokens.filter(
       (t) => !t.address.startsWith("0x00000000000000000000000000000000000000"),
     ).length;

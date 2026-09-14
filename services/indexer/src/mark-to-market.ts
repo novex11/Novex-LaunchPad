@@ -4,6 +4,8 @@ import { createDb } from "./db.js";
 import { positions, tvlSnapshots } from "./schema.js";
 import { eq } from "drizzle-orm";
 import * as jsonStore from "./store.js";
+import * as launchpadStore from "./launchpad-store.js";
+import { pairFactoryAddress } from "./chain-client.js";
 
 const DEFAULT_VAULT_ID = receiptTokenName(
   process.env.DEFAULT_DEPOSIT_TICKER ?? "NVDA",
@@ -22,6 +24,10 @@ const vaultAbi = parseAbi([
   "function sharePrice() view returns (uint256)",
   "function totalShares() view returns (uint256)",
 ]);
+
+// PairVault exposes the same three read functions as StrategyVault so we
+// reuse the same ABI to snapshot each launched pair's on-chain NAV.
+const pairAbi = vaultAbi;
 
 const receiptAbi = parseAbi([
   "function balanceOf(address) view returns (uint256)",
@@ -126,14 +132,78 @@ async function updatePortfolioValues(): Promise<void> {
   }
 }
 
-export function startMarkToMarket(): NodeJS.Timeout | null {
-  if (!VAULT_ADDRESS || !RECEIPT_TOKEN_ADDRESS) {
-    console.log(
-      "[mark-to-market] No contract addresses configured, skipping periodic updates",
-    );
-    return null;
-  }
+/**
+ * Snapshot the on-chain NAV of every launched pair vault so the pair-detail
+ * chart can render a real time-series curve. Skips silently when the DB or
+ * an RPC is unavailable so failures never block the primary vault update.
+ */
+async function snapshotAllPairs(): Promise<void> {
+  const client = getClient();
+  if (!client) return;
 
+  const db = createDb();
+  if (!db) return;
+
+  try {
+    const addresses = await launchpadStore.listActivePairAddresses(db, pairFactoryAddress());
+    if (addresses.length === 0) return;
+
+    // Fan-out with a small concurrency limit so we don't hammer the RPC when
+    // hundreds of pairs are live.
+    const CONCURRENCY = 6;
+    for (let i = 0; i < addresses.length; i += CONCURRENCY) {
+      const slice = addresses.slice(i, i + CONCURRENCY);
+      await Promise.all(
+        slice.map(async (addr) => {
+          const pairAddress = addr as `0x${string}`;
+          try {
+            const [navUsd8Raw, sharePriceRaw, totalSharesRaw] = await Promise.all([
+              client.readContract({
+                address: pairAddress,
+                abi: pairAbi,
+                functionName: "navUsd8",
+              }),
+              client.readContract({
+                address: pairAddress,
+                abi: pairAbi,
+                functionName: "sharePrice",
+              }),
+              client.readContract({
+                address: pairAddress,
+                abi: pairAbi,
+                functionName: "totalShares",
+              }),
+            ]);
+            const navUsd = Number(navUsd8Raw) / 1e8;
+            await launchpadStore.recordPairSnapshot(db, {
+              pairAddress,
+              navUsd,
+              // PairVault.sharePrice() is USD (8 decimals) per 1e18 shares
+              sharePrice: Number(sharePriceRaw) / 1e8,
+              totalShares: totalSharesRaw.toString(),
+            });
+            await launchpadStore.updatePairTvl(db, pairAddress, navUsd);
+          } catch {
+            // Skip individual pair failures — one bad RPC read
+            // should not poison the whole batch.
+          }
+        }),
+      );
+    }
+  } catch (err) {
+    console.error(
+      "[mark-to-market] Pair snapshot batch failed:",
+      err instanceof Error ? err.message : err,
+    );
+  }
+}
+
+async function tick(): Promise<void> {
+  await updatePortfolioValues();
+  await snapshotAllPairs();
+}
+
+export function startMarkToMarket(): NodeJS.Timeout | null {
   const rpcUrl = USE_TESTNET
     ? process.env.ROBINHOOD_TESTNET_RPC_URL
     : process.env.ROBINHOOD_RPC_URL;
@@ -142,10 +212,17 @@ export function startMarkToMarket(): NodeJS.Timeout | null {
     return null;
   }
 
+  const hasMainVault = Boolean(VAULT_ADDRESS && RECEIPT_TOKEN_ADDRESS);
+  if (!hasMainVault) {
+    console.log(
+      "[mark-to-market] Main vault not configured — pair snapshots only",
+    );
+  }
+
   console.log(
     `[mark-to-market] Starting periodic updates every ${INTERVAL_MS / 1000}s`,
   );
 
-  updatePortfolioValues();
-  return setInterval(updatePortfolioValues, INTERVAL_MS);
+  tick();
+  return setInterval(tick, INTERVAL_MS);
 }

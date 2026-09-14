@@ -1,4 +1,5 @@
 import postgres from "postgres";
+import { getConnectionString, postgresSslOption } from "./db-config.js";
 
 const RETRIES = 15;
 const RETRY_MS = 2000;
@@ -7,19 +8,16 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function getConnectionString(): string | undefined {
-  const raw = process.env.DATABASE_URL;
-  if (!raw) return undefined;
-  return raw.replace(/^['"]|['"]$/g, "");
-}
-
 export async function ensureSchema(): Promise<void> {
   const connectionString = getConnectionString();
   if (!connectionString) return;
 
   let lastError: unknown;
   for (let attempt = 1; attempt <= RETRIES; attempt++) {
-    const sql = postgres(connectionString, { max: 1, ssl: "require" });
+    const sql = postgres(connectionString, {
+      max: 1,
+      ssl: postgresSslOption(connectionString),
+    });
     try {
       await sql`
         CREATE TABLE IF NOT EXISTS positions (
@@ -192,6 +190,24 @@ export async function ensureSchema(): Promise<void> {
       await sql`CREATE UNIQUE INDEX IF NOT EXISTS launched_pairs_key_idx ON launched_pairs (pair_key)`;
       await sql`CREATE UNIQUE INDEX IF NOT EXISTS launched_pairs_address_idx ON launched_pairs (pair_address)`;
 
+      // Metadata columns (safe to re-run on existing Neon DBs)
+      await sql`ALTER TABLE launched_pairs ADD COLUMN IF NOT EXISTS display_name text NOT NULL DEFAULT ''`;
+      await sql`ALTER TABLE launched_pairs ADD COLUMN IF NOT EXISTS description text NOT NULL DEFAULT ''`;
+      await sql`ALTER TABLE launched_pairs ADD COLUMN IF NOT EXISTS image_url text NOT NULL DEFAULT ''`;
+      await sql`ALTER TABLE launched_pairs ADD COLUMN IF NOT EXISTS logo_url text NOT NULL DEFAULT ''`;
+      await sql`ALTER TABLE launched_pairs ADD COLUMN IF NOT EXISTS website_url text NOT NULL DEFAULT ''`;
+      await sql`ALTER TABLE launched_pairs ADD COLUMN IF NOT EXISTS numeraire_ticker text NOT NULL DEFAULT ''`;
+      await sql`ALTER TABLE launched_pairs ADD COLUMN IF NOT EXISTS volume_24h_usd numeric(18, 4) NOT NULL DEFAULT '0'`;
+
+      await sql`
+        CREATE TABLE IF NOT EXISTS launchpad_images (
+          id uuid PRIMARY KEY,
+          content_type text NOT NULL,
+          data text NOT NULL,
+          created_at timestamp NOT NULL DEFAULT now()
+        )
+      `;
+
       await sql`
         CREATE TABLE IF NOT EXISTS pair_deposits (
           id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -214,6 +230,39 @@ export async function ensureSchema(): Promise<void> {
           usdg_out numeric(18, 4) NOT NULL,
           tx_hash text NOT NULL,
           created_at timestamp NOT NULL DEFAULT now()
+        )
+      `;
+
+      await sql`
+        CREATE TABLE IF NOT EXISTS pair_snapshots (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          pair_address text NOT NULL,
+          nav_usd numeric(18, 4) NOT NULL,
+          share_price numeric(18, 8) NOT NULL DEFAULT '1',
+          total_shares text NOT NULL DEFAULT '0',
+          created_at timestamp NOT NULL DEFAULT now()
+        )
+      `;
+      await sql`CREATE INDEX IF NOT EXISTS pair_snapshots_addr_ts_idx ON pair_snapshots (pair_address, created_at)`;
+
+      // ─── In-kind launchpad (v2) ───────────────────────
+      await sql`ALTER TABLE launched_pairs ADD COLUMN IF NOT EXISTS factory_address text NOT NULL DEFAULT ''`;
+      await sql`ALTER TABLE pair_deposits ADD COLUMN IF NOT EXISTS log_index numeric NOT NULL DEFAULT '0'`;
+      await sql`ALTER TABLE pair_deposits ADD COLUMN IF NOT EXISTS amount_a text NOT NULL DEFAULT '0'`;
+      await sql`ALTER TABLE pair_deposits ADD COLUMN IF NOT EXISTS amount_b text NOT NULL DEFAULT '0'`;
+      await sql`ALTER TABLE pair_redeems ADD COLUMN IF NOT EXISTS log_index numeric NOT NULL DEFAULT '0'`;
+      await sql`ALTER TABLE pair_redeems ADD COLUMN IF NOT EXISTS amount_a text NOT NULL DEFAULT '0'`;
+      await sql`ALTER TABLE pair_redeems ADD COLUMN IF NOT EXISTS amount_b text NOT NULL DEFAULT '0'`;
+      // Older rows were written by both the browser and the listener; keep one per event.
+      await sql`DELETE FROM pair_deposits a USING pair_deposits b WHERE a.id < b.id AND a.tx_hash = b.tx_hash AND a.log_index = b.log_index`;
+      await sql`DELETE FROM pair_redeems a USING pair_redeems b WHERE a.id < b.id AND a.tx_hash = b.tx_hash AND a.log_index = b.log_index`;
+      await sql`CREATE UNIQUE INDEX IF NOT EXISTS pair_deposits_tx_log_idx ON pair_deposits (tx_hash, log_index)`;
+      await sql`CREATE UNIQUE INDEX IF NOT EXISTS pair_redeems_tx_log_idx ON pair_redeems (tx_hash, log_index)`;
+      await sql`
+        CREATE TABLE IF NOT EXISTS indexer_cursor (
+          id text PRIMARY KEY,
+          block numeric NOT NULL,
+          updated_at timestamp NOT NULL DEFAULT now()
         )
       `;
 

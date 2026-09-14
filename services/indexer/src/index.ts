@@ -11,8 +11,19 @@ import * as dbStore from "./db-store.js";
 import * as launchpadStore from "./launchpad-store.js";
 import { createDb, type Db } from "./db.js";
 import { ensureSchema } from "./migrate.js";
+import { parseAbi } from "viem";
+import { pairMetadataMessage } from "@novex/config";
 import { startChainListener } from "./chain-listener.js";
+import { ensurePairIndexed, startLaunchpadIndexer } from "./launchpad-indexer.js";
+import { getPublicClient, pairFactoryAddress } from "./chain-client.js";
 import { startMarkToMarket } from "./mark-to-market.js";
+import { redisConfigured, getRedis, closeRedis } from "./redis.js";
+import {
+  storeImage,
+  fetchImage,
+  publicImageUrl,
+  isValidImageId,
+} from "./image-store.js";
 import {
   swapEvents,
   depositEvents,
@@ -71,39 +82,56 @@ const TradeSchema = z.object({
 
 // ─── Launchpad schemas ──────────────────────────────────
 
-const LaunchpadLaunchSchema = z.object({
-  pairKey: z.string().min(1),
-  pairAddress: z.string().min(1),
-  receiptAddress: z.string().min(1),
-  receiptSymbol: z.string().min(1),
-  creatorWallet: z.string().min(1),
-  tokenA: z.string().min(1),
-  tokenB: z.string().min(1),
-  tickerA: z.string().min(1),
-  tickerB: z.string().min(1),
-  categoryA: z.string(),
-  categoryB: z.string(),
-  weightABps: z.number().int().min(1000).max(9000),
-  creatorFeeBps: z.number().int().min(100).max(500),
-  txHash: z.string().optional(),
+const LaunchpadMetadataSchema = z.object({
+  pairAddress: z.string().regex(/^0x[0-9a-fA-F]{40}$/),
+  displayName: z.string().max(64).optional(),
+  description: z.string().max(500).optional(),
+  imageUrl: z.string().max(512).optional(),
+  logoUrl: z.string().max(512).optional(),
+  websiteUrl: z.string().max(512).optional(),
+  numeraireTicker: z.string().max(12).optional(),
+  issuedAt: z.string().min(1),
+  signature: z.string().regex(/^0x[0-9a-fA-F]+$/),
 });
 
-const LaunchpadDepositSchema = z.object({
-  pairAddress: z.string().min(1),
-  wallet: z.string().min(1),
-  usdgAmount: z.number().positive(),
-  sharesMinted: z.string().min(1),
-  creatorFeeUsd: z.number().min(0),
-  txHash: z.string().min(1),
-});
+type LaunchpadMetadataBody = z.infer<typeof LaunchpadMetadataSchema>;
 
-const LaunchpadRedeemSchema = z.object({
-  pairAddress: z.string().min(1),
-  wallet: z.string().min(1),
-  sharesBurned: z.string().min(1),
-  usdgOut: z.number().min(0),
-  txHash: z.string().min(1),
-});
+const SIGNATURE_MAX_AGE_MS = 15 * 60 * 1000;
+const pairVerifyAbi = parseAbi([
+  "function isPair(address) view returns (bool)",
+  "function creator() view returns (address)",
+]);
+
+/** Accept profile edits only when signed by the pair's on-chain creator (EOA or smart wallet). */
+async function verifyPairMetadata(
+  body: LaunchpadMetadataBody,
+): Promise<{ ok: true } | { ok: false; status: 400 | 403 | 404 | 503; error: string }> {
+  const client = getPublicClient();
+  const factory = pairFactoryAddress();
+  if (!client || !factory) {
+    return { ok: false, status: 503, error: "Chain access is not configured on the indexer" };
+  }
+  const issued = Date.parse(body.issuedAt);
+  if (!Number.isFinite(issued) || Math.abs(Date.now() - issued) > SIGNATURE_MAX_AGE_MS) {
+    return { ok: false, status: 400, error: "Signature expired, please sign again" };
+  }
+  const pair = body.pairAddress as `0x${string}`;
+  const isPair = await client.readContract({
+    address: factory,
+    abi: pairVerifyAbi,
+    functionName: "isPair",
+    args: [pair],
+  });
+  if (!isPair) return { ok: false, status: 404, error: "Not a pair launched by this factory" };
+  const creator = await client.readContract({ address: pair, abi: pairVerifyAbi, functionName: "creator" });
+  const valid = await client.verifyMessage({
+    address: creator,
+    message: pairMetadataMessage(body),
+    signature: body.signature as `0x${string}`,
+  });
+  if (!valid) return { ok: false, status: 403, error: "Signature does not match the pair creator" };
+  return { ok: true };
+}
 
 const app = new Hono();
 
@@ -111,7 +139,14 @@ const app = new Hono();
 app.use("/*", cors());
 app.use("/*", logger());
 app.use("/*", requestId());
-app.use("/*", secureHeaders());
+app.use(
+  "/*",
+  secureHeaders({
+    // Images are loaded by the frontend on :3000 from the indexer on :3003.
+    // Default CORP=same-origin blocks <img> with ERR_BLOCKED_BY_RESPONSE.NotSameOrigin.
+    crossOriginResourcePolicy: "cross-origin",
+  }),
+);
 
 // API key auth for write endpoints (skip health + read-only GETs)
 app.use("/deposits", async (c, next) => {
@@ -139,27 +174,6 @@ app.use("/events/*", async (c, next) => {
   await next();
 });
 
-// Launchpad write endpoints (launch, deposit, redeem) require API key when set.
-// GET endpoints (list, detail, stats, creator) are public.
-app.use("/launchpad/launch", async (c, next) => {
-  if (INTERNAL_API_KEY && c.req.header("x-api-key") !== INTERNAL_API_KEY) {
-    return c.json({ error: "Unauthorized" }, 401);
-  }
-  await next();
-});
-app.use("/launchpad/deposit", async (c, next) => {
-  if (INTERNAL_API_KEY && c.req.header("x-api-key") !== INTERNAL_API_KEY) {
-    return c.json({ error: "Unauthorized" }, 401);
-  }
-  await next();
-});
-app.use("/launchpad/redeem", async (c, next) => {
-  if (INTERNAL_API_KEY && c.req.header("x-api-key") !== INTERNAL_API_KEY) {
-    return c.json({ error: "Unauthorized" }, 401);
-  }
-  await next();
-});
-
 // ─── Global error handler ───────────────────────────────
 app.onError((err, c) => {
   console.error(`[indexer] Unhandled error on ${c.req.method} ${c.req.path}:`, err);
@@ -173,6 +187,7 @@ app.get("/health", (c) =>
     service: "indexer",
     version: "3.0.0",
     storage: useDb ? "postgresql" : "json",
+    imageStorage: redisConfigured() ? "redis" : "disabled",
   }),
 );
 
@@ -444,27 +459,109 @@ app.get("/analytics/summary", async (c) => {
 
 // ─── Launchpad API ──────────────────────────────────────
 
-app.post("/launchpad/launch", async (c) => {
-  if (!useDb) return c.json({ error: "DB not configured" }, 503);
-  try {
-    const body = await c.req.json();
-    const parsed = LaunchpadLaunchSchema.safeParse(body);
-    if (!parsed.success) {
-      return c.json({ error: parsed.error.flatten() }, 400);
-    }
-    const row = await launchpadStore.recordLaunch(db!, parsed.data);
-    return c.json({ ok: true, pair: row });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Launch failed";
-    return c.json({ error: message }, 500);
+/** Upload a pair cover image from the user's device (stored in Redis). */
+app.post("/launchpad/upload-image", async (c) => {
+  if (!redisConfigured()) {
+    return c.json({ error: "Image storage not configured (set REDIS_* in .env)" }, 503);
   }
+  try {
+    const body = await c.req.parseBody({ all: true });
+    const raw = body.file ?? body.image;
+    if (!raw || typeof raw === "string") {
+      return c.json({ error: "No file uploaded — use field name 'file'" }, 400);
+    }
+
+    const file = raw as File;
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    const contentType =
+      file.type ||
+      (file.name.endsWith(".png")
+          ? "image/png"
+          : file.name.endsWith(".webp")
+            ? "image/webp"
+            : file.name.endsWith(".gif")
+              ? "image/gif"
+              : "image/jpeg");
+
+    const id = await storeImage(buffer, contentType);
+    const imageUrl = publicImageUrl(id);
+    return c.json({ ok: true, id, imageUrl });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Upload failed";
+    const status =
+      message.includes("not configured") ||
+      message.includes("Redis unavailable")
+        ? 503
+        : 400;
+    return c.json({ error: message }, status);
+  }
+});
+
+/** Serve a stored pair cover image by id. */
+app.get("/launchpad/images/:id", async (c) => {
+  const id = c.req.param("id");
+  if (!isValidImageId(id)) {
+    return c.text("Not found", 404);
+  }
+  const img = await fetchImage(id);
+  if (!img) {
+    return c.text("Not found", 404);
+  }
+  return c.body(new Uint8Array(img.buffer), 200, {
+    "Content-Type": img.contentType,
+    "Cache-Control": "public, max-age=31536000, immutable",
+    "Cross-Origin-Resource-Policy": "cross-origin",
+    "Access-Control-Allow-Origin": "*",
+    "X-Content-Type-Options": "nosniff",
+    "Content-Security-Policy": "default-src 'none'",
+  });
+});
+
+async function saveMetadata(raw: unknown) {
+  if (!useDb) return { status: 503 as const, body: { error: "DB not configured" } };
+  const parsed = LaunchpadMetadataSchema.safeParse(raw);
+  if (!parsed.success) return { status: 400 as const, body: { error: parsed.error.flatten() } };
+  const verified = await verifyPairMetadata(parsed.data);
+  if (!verified.ok) return { status: verified.status, body: { error: verified.error } };
+
+  const pairAddress = parsed.data.pairAddress;
+  if (!(await ensurePairIndexed(pairAddress as `0x${string}`))) {
+    return { status: 404 as const, body: { error: "Pair not found" } };
+  }
+  const trim = (v?: string) => (v === undefined ? undefined : v.trim());
+  const row = await launchpadStore.updatePairMetadata(db!, pairAddress, {
+    displayName: trim(parsed.data.displayName),
+    description: trim(parsed.data.description),
+    imageUrl: trim(parsed.data.imageUrl),
+    logoUrl: trim(parsed.data.logoUrl),
+    websiteUrl: trim(parsed.data.websiteUrl),
+    numeraireTicker: trim(parsed.data.numeraireTicker),
+  });
+  return { status: 200 as const, body: { ok: true, pair: row } };
+}
+
+/** Save a launched pair's profile (creator signature required). */
+app.post("/launchpad/launch", async (c) => {
+  const result = await saveMetadata(await c.req.json().catch(() => null));
+  return c.json(result.body, result.status);
+});
+
+app.patch("/launchpad/pair/:address/metadata", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  const result = await saveMetadata({ ...body, pairAddress: c.req.param("address") });
+  return c.json(result.body, result.status);
 });
 
 app.get("/launchpad/pairs", async (c) => {
   if (!useDb) return c.json({ pairs: [] });
   const sort = c.req.query("sort") as "tvl" | "new" | "depositors" | undefined;
   const limit = Number(c.req.query("limit") ?? 100);
-  const rows = await launchpadStore.listPairs(db!, { sort, limit });
+  const rows = await launchpadStore.listPairs(db!, {
+    sort,
+    limit,
+    factoryAddress: pairFactoryAddress(),
+  });
   return c.json({
     pairs: rows.map((r) => ({
       pairAddress: r.pairAddress,
@@ -481,6 +578,12 @@ app.get("/launchpad/pairs", async (c) => {
       totalDepositsUsd: Number(r.totalDepositsUsd),
       totalDepositors: Number(r.totalDepositors),
       creatorEarningsUsd: Number(r.creatorEarningsUsd),
+      displayName: r.displayName ?? "",
+      description: r.description ?? "",
+      imageUrl: r.imageUrl ?? "",
+      logoUrl: r.logoUrl ?? "",
+      websiteUrl: r.websiteUrl ?? "",
+      numeraireTicker: r.numeraireTicker ?? "",
       status: r.status,
       createdAt: r.createdAt.toISOString(),
     })),
@@ -511,13 +614,21 @@ app.get("/launchpad/pair/:address", async (c) => {
       totalDepositsUsd: Number(pair.totalDepositsUsd),
       totalDepositors: Number(pair.totalDepositors),
       creatorEarningsUsd: Number(pair.creatorEarningsUsd),
+      displayName: pair.displayName ?? "",
+      description: pair.description ?? "",
+      imageUrl: pair.imageUrl ?? "",
+      logoUrl: pair.logoUrl ?? "",
+      websiteUrl: pair.websiteUrl ?? "",
+      numeraireTicker: pair.numeraireTicker ?? "",
       status: pair.status,
       createdAt: pair.createdAt.toISOString(),
     },
     activity: {
       deposits: activity.deposits.map((d) => ({
         wallet: d.wallet,
-        usdgAmount: Number(d.usdgAmount),
+        valueUsd: Number(d.usdgAmount),
+        amountA: d.amountA,
+        amountB: d.amountB,
         sharesMinted: d.sharesMinted,
         creatorFeeUsd: Number(d.creatorFeeUsd),
         txHash: d.txHash,
@@ -525,8 +636,10 @@ app.get("/launchpad/pair/:address", async (c) => {
       })),
       redeems: activity.redeems.map((r) => ({
         wallet: r.wallet,
+        valueUsd: Number(r.usdgOut),
+        amountA: r.amountA,
+        amountB: r.amountB,
         sharesBurned: r.sharesBurned,
-        usdgOut: Number(r.usdgOut),
         txHash: r.txHash,
         timestamp: r.createdAt.toISOString(),
       })),
@@ -534,10 +647,96 @@ app.get("/launchpad/pair/:address", async (c) => {
   });
 });
 
+/**
+ * Time-series history for a launched pair.
+ *
+ * `?range=` accepts 1h / 24h / 7d / 30d / all (default: 24h).
+ *
+ * If no on-chain snapshots have been collected yet (fresh pair, indexer
+ * still warming up, or the DB is unavailable) we synthesise a curve from
+ * recorded deposit / redeem events so the chart never renders blank.
+ */
+app.get("/launchpad/pair/:address/history", async (c) => {
+  const address = c.req.param("address");
+  const range = (c.req.query("range") ?? "24h").toLowerCase();
+  const rangeMs =
+    range === "1h"
+      ? 60 * 60 * 1000
+      : range === "7d"
+        ? 7 * 24 * 60 * 60 * 1000
+        : range === "30d"
+          ? 30 * 24 * 60 * 60 * 1000
+          : range === "all"
+            ? 365 * 24 * 60 * 60 * 1000
+            : 24 * 60 * 60 * 1000;
+
+  if (!useDb) {
+    return c.json({ range, points: [] });
+  }
+
+  const points = await launchpadStore.getPairHistory(db!, address, rangeMs);
+  if (points.length > 0) {
+    return c.json({ range, points, source: "snapshots" });
+  }
+
+  // Fallback — no snapshots yet. Reconstruct a rough curve from
+  // deposit + redeem events so the chart still renders on new pairs.
+  const pair = await launchpadStore.getPair(db!, address);
+  if (!pair) return c.json({ range, points: [] });
+  const activity = await launchpadStore.getPairActivity(db!, address, 500);
+  const events: { createdAt: Date; delta: number; sharesDelta: number }[] = [];
+  for (const d of activity.deposits) {
+    events.push({
+      createdAt: d.createdAt,
+      delta: Number(d.usdgAmount) - Number(d.creatorFeeUsd),
+      sharesDelta: Number(d.sharesMinted) / 1e18,
+    });
+  }
+  for (const r of activity.redeems) {
+    events.push({
+      createdAt: r.createdAt,
+      delta: -Number(r.usdgOut),
+      sharesDelta: -Number(r.sharesBurned) / 1e18,
+    });
+  }
+  events.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+
+  const cutoff = Date.now() - rangeMs;
+  let nav = 0;
+  let shares = 0;
+  const reconstructed: {
+    timestamp: string;
+    navUsd: number;
+    sharePrice: number;
+    totalShares: string;
+  }[] = [];
+  for (const ev of events) {
+    nav = Math.max(0, nav + ev.delta);
+    shares = Math.max(0, shares + ev.sharesDelta);
+    if (ev.createdAt.getTime() >= cutoff) {
+      reconstructed.push({
+        timestamp: ev.createdAt.toISOString(),
+        navUsd: nav,
+        sharePrice: shares > 0 ? nav / shares : 1,
+        totalShares: String(shares),
+      });
+    }
+  }
+
+  // Append a synthetic "now" point holding the last value so the curve
+  // extends to the right edge of the chart even between events.
+  if (reconstructed.length > 0) {
+    const last = reconstructed[reconstructed.length - 1]!;
+    reconstructed.push({ ...last, timestamp: new Date().toISOString() });
+  }
+
+  return c.json({ range, points: reconstructed, source: "reconstructed" });
+});
+
 app.get("/launchpad/creator/:wallet", async (c) => {
   if (!useDb) return c.json({ pairs: [] });
   const wallet = c.req.param("wallet");
-  const rows = await launchpadStore.listByCreator(db!, wallet);
+  const rows = await launchpadStore.listByCreator(db!, wallet, pairFactoryAddress());
   return c.json({
     pairs: rows.map((r) => ({
       pairAddress: r.pairAddress,
@@ -553,38 +752,6 @@ app.get("/launchpad/creator/:wallet", async (c) => {
   });
 });
 
-app.post("/launchpad/deposit", async (c) => {
-  if (!useDb) return c.json({ error: "DB not configured" }, 503);
-  try {
-    const body = await c.req.json();
-    const parsed = LaunchpadDepositSchema.safeParse(body);
-    if (!parsed.success) {
-      return c.json({ error: parsed.error.flatten() }, 400);
-    }
-    const row = await launchpadStore.recordPairDeposit(db!, parsed.data);
-    return c.json({ ok: true, deposit: row });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Deposit failed";
-    return c.json({ error: message }, 500);
-  }
-});
-
-app.post("/launchpad/redeem", async (c) => {
-  if (!useDb) return c.json({ error: "DB not configured" }, 503);
-  try {
-    const body = await c.req.json();
-    const parsed = LaunchpadRedeemSchema.safeParse(body);
-    if (!parsed.success) {
-      return c.json({ error: parsed.error.flatten() }, 400);
-    }
-    const row = await launchpadStore.recordPairRedeem(db!, parsed.data);
-    return c.json({ ok: true, redeem: row });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Redeem failed";
-    return c.json({ error: message }, 500);
-  }
-});
-
 app.get("/launchpad/stats", async (c) => {
   if (!useDb) {
     return c.json({
@@ -594,7 +761,7 @@ app.get("/launchpad/stats", async (c) => {
       totalCreators: 0,
     });
   }
-  const stats = await launchpadStore.getLaunchpadStats(db!);
+  const stats = await launchpadStore.getLaunchpadStats(db!, pairFactoryAddress());
   return c.json(stats);
 });
 
@@ -621,11 +788,18 @@ const port = Number(process.env.INDEXER_PORT ?? 3003);
 
 let server: ServerType;
 let chainListenerCleanup: (() => void) | null = null;
+let launchpadIndexerCleanup: (() => void) | null = null;
 let markToMarketTimer: NodeJS.Timeout | null = null;
 
-server = serve({ fetch: app.fetch, port, hostname: "0.0.0.0" }, () => {
+server = serve({ fetch: app.fetch, port, hostname: "0.0.0.0" }, async () => {
   console.log(`[indexer] API listening on :${port}`);
+  if (redisConfigured()) {
+    await getRedis();
+  } else {
+    console.log("[indexer] Redis not configured — image upload disabled");
+  }
   chainListenerCleanup = startChainListener();
+  launchpadIndexerCleanup = startLaunchpadIndexer();
   markToMarketTimer = startMarkToMarket();
 });
 
@@ -635,11 +809,15 @@ function gracefulShutdown(signal: string) {
   if (chainListenerCleanup) {
     chainListenerCleanup();
   }
+  if (launchpadIndexerCleanup) {
+    launchpadIndexerCleanup();
+  }
   if (markToMarketTimer) {
     clearInterval(markToMarketTimer);
   }
 
-  server.close(() => {
+  server.close(async () => {
+    await closeRedis();
     console.log("[indexer] HTTP server closed");
     process.exit(0);
   });

@@ -241,10 +241,20 @@ export const launchedPairs = pgTable(
     volume24hUsd: numeric("volume_24h_usd", { precision: 18, scale: 4 })
       .notNull()
       .default("0"),
+    /** Human-readable pair name (mirrors on-chain receipt ERC-20 name) */
+    displayName: text("display_name").notNull().default(""),
     /** Creator-supplied pair description (like Long.xyz tokenURI metadata) */
     description: text("description").notNull().default(""),
+    /** Wide banner image for pair detail hero + cards */
+    imageUrl: text("image_url").notNull().default(""),
+    /** Square token logo (avatar) shown over the banner */
+    logoUrl: text("logo_url").notNull().default(""),
+    /** Optional project / social link */
+    websiteUrl: text("website_url").notNull().default(""),
     /** Which token is the quote/numeraire leg (Long.xyz concept) */
     numeraireTicker: text("numeraire_ticker").notNull().default(""),
+    /** PairFactory that launched the pair (hides pairs from older deployments) */
+    factoryAddress: text("factory_address").notNull().default(""),
     status: text("status").notNull().default("active"),
     txHash: text("tx_hash").notNull().default(""),
     createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -258,27 +268,72 @@ export const launchedPairs = pgTable(
 
 // ─── Launchpad: pair deposits ───────────────────────────
 
-export const pairDeposits = pgTable("pair_deposits", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  pairAddress: text("pair_address").notNull(),
-  wallet: text("wallet").notNull(),
-  usdgAmount: numeric("usdg_amount", { precision: 18, scale: 4 }).notNull(),
-  sharesMinted: text("shares_minted").notNull(),
-  creatorFeeUsd: numeric("creator_fee_usd", { precision: 18, scale: 4 })
-    .notNull()
-    .default("0"),
-  txHash: text("tx_hash").notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+// `usdg_amount` / `usdg_out` hold the USD value of the in-kind legs (column
+// names kept for existing databases).
+export const pairDeposits = pgTable(
+  "pair_deposits",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    pairAddress: text("pair_address").notNull(),
+    wallet: text("wallet").notNull(),
+    usdgAmount: numeric("usdg_amount", { precision: 18, scale: 4 }).notNull(),
+    amountA: text("amount_a").notNull().default("0"),
+    amountB: text("amount_b").notNull().default("0"),
+    sharesMinted: text("shares_minted").notNull(),
+    creatorFeeUsd: numeric("creator_fee_usd", { precision: 18, scale: 4 })
+      .notNull()
+      .default("0"),
+    txHash: text("tx_hash").notNull(),
+    logIndex: numeric("log_index").notNull().default("0"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [uniqueIndex("pair_deposits_tx_log_idx").on(table.txHash, table.logIndex)],
+);
 
 // ─── Launchpad: pair redeems ────────────────────────────
 
-export const pairRedeems = pgTable("pair_redeems", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  pairAddress: text("pair_address").notNull(),
-  wallet: text("wallet").notNull(),
-  sharesBurned: text("shares_burned").notNull(),
-  usdgOut: numeric("usdg_out", { precision: 18, scale: 4 }).notNull(),
-  txHash: text("tx_hash").notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
+export const pairRedeems = pgTable(
+  "pair_redeems",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    pairAddress: text("pair_address").notNull(),
+    wallet: text("wallet").notNull(),
+    sharesBurned: text("shares_burned").notNull(),
+    usdgOut: numeric("usdg_out", { precision: 18, scale: 4 }).notNull(),
+    amountA: text("amount_a").notNull().default("0"),
+    amountB: text("amount_b").notNull().default("0"),
+    txHash: text("tx_hash").notNull(),
+    logIndex: numeric("log_index").notNull().default("0"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [uniqueIndex("pair_redeems_tx_log_idx").on(table.txHash, table.logIndex)],
+);
+
+// ─── Launchpad: pair time-series snapshots ──────────────
+// Every mark-to-market tick writes one row per active pair so the
+// pair-detail chart can render a real NAV / share-price curve rather
+// than a synthetic sparkline.
+
+export const pairSnapshots = pgTable(
+  "pair_snapshots",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    pairAddress: text("pair_address").notNull(),
+    navUsd: numeric("nav_usd", { precision: 18, scale: 4 }).notNull(),
+    sharePrice: numeric("share_price", { precision: 18, scale: 8 })
+      .notNull()
+      .default("1"),
+    totalShares: text("total_shares").notNull().default("0"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [index("pair_snapshots_addr_ts_idx").on(table.pairAddress, table.createdAt)],
+);
+
+// ─── Indexer cursors ────────────────────────────────────
+// Last processed block per log stream, so restarts resume without gaps.
+
+export const indexerCursor = pgTable("indexer_cursor", {
+  id: text("id").primaryKey(),
+  block: numeric("block").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

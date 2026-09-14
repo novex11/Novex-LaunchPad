@@ -8,9 +8,11 @@ import { z } from "zod";
 import {
   LAUNCH_CAPS,
   getTokenByTicker,
+  getActiveStockTokens,
+  isTestnetMode,
+  activeChainId,
   fetchRhjAssets,
   mergeRhjAssetsWithConfig,
-  APPROVED_STOCK_TOKENS,
   type StockToken,
 } from "@novex/config";
 import { QuoteRequestSchema } from "@novex/sdk";
@@ -22,12 +24,19 @@ const RIALTO_API_KEY = process.env.RIALTO_API_KEY ?? "";
 const RIALTO_INTEGRATOR_FEE_BPS = Number(process.env.RIALTO_INTEGRATOR_FEE_BPS ?? "0");
 const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY ?? "";
 
-let resolvedTokens: StockToken[] = APPROVED_STOCK_TOKENS;
+let resolvedTokens: StockToken[] = getActiveStockTokens();
 
 async function bootstrapTokens(): Promise<void> {
+  if (isTestnetMode()) {
+    resolvedTokens = getActiveStockTokens();
+    console.log(
+      `[quote] Testnet mode — using ${resolvedTokens.length} mock token addresses`,
+    );
+    return;
+  }
   try {
     const rhjAssets = await fetchRhjAssets();
-    resolvedTokens = mergeRhjAssetsWithConfig(rhjAssets, APPROVED_STOCK_TOKENS);
+    resolvedTokens = mergeRhjAssetsWithConfig(rhjAssets, getActiveStockTokens());
     console.log(
       `[quote] RHJ token registry: ${rhjAssets.length} assets merged`,
     );
@@ -86,7 +95,7 @@ async function fetchRialtoQuote(
     sell_amount: sellAmount,
     taker,
     slippage_bps: String(slippageBps),
-    chain_id: "4663",
+    chain_id: String(activeChainId()),
   });
 
   // Add integrator fee if configured
