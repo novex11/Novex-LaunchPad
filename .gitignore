@@ -16,3 +16,16 @@ services/indexer/.ponder
 services/indexer/data/state.json
 coverage
 .vercel
+*.tsbuildinfo
+.cursor/plans
+
+# Local implementation log (never commit)
+implement.md
+
+# Internal planning / ops docs — keep local, never publish
+docs/PRODUCT_PLAN.md
+docs/PAIR_ZAP_PLAN.md
+docs/LONG_XYZ_MAPPING.md
+docs/RUNBOOK.md
+docs/AUDIT_CHECKLIST.md
+.cursor/
