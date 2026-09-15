@@ -63,8 +63,18 @@ bash scripts/deploy-pons.sh mainnet
 ```
 Deploys `PonsLauncher(pairFactory, ponsFactory, usdg)` and
 `PonsRouter(launcher, pairRouter)`, sets the router fee-exempt when the deployer
-owns `PairFactory`, and writes `packages/contracts/deployments-pons-4663.json`.
-Pons v2 has no known testnet deployment; pass `PONS_FACTORY` explicitly.
+owns `PairFactory`, writes `packages/contracts/deployments-pons-4663.json` and
+merges the addresses into `deployments-mainnet-launchpad.json` and
+`packages/config/src/mainnet-deployments.json` (`contracts.ponsFactory /
+ponsLauncher / ponsRouter`). Pons v2 has no known testnet deployment; pass
+`PONS_FACTORY` explicitly.
+
+**Superseded deployment (2026-09-16):** PonsLauncher
+`0x1E6783DDf818945849003B7b2BB11c1e7874ac19` and PonsRouter
+`0x6Fd711D16c82Fe3635bd8E6e928f6Ab344083B65` were deployed against the
+pre-cutover PairFactory `0x5Aa9…E764`. The launcher's factory is immutable, so
+they cannot see pairs on the live factory `0x14F7…dc69` (PR #5) and must be
+redeployed; the config keeps `ponsLauncher` / `ponsRouter` empty until then.
 
 ## Follow-ups (not in this change)
 
