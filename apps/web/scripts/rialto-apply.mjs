@@ -129,6 +129,10 @@ async function apply() {
     payload_hash: hash,
     ...auth,
   };
+  // Rialto rejects null for optional strings; omit them (the hash already encodes them as "none").
+  for (const k of ["contact_email", "telegram_handle", "app_url"]) {
+    if (body[k] == null) delete body[k];
+  }
   console.log("Submitting application:", JSON.stringify({ ...body, signature: "<signed>", nonce: "<nonce>" }, null, 2));
   const application = await post("/integrators/applications", body);
   console.log("Application response:", JSON.stringify(application, null, 2));
