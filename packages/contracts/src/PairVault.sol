@@ -208,6 +208,15 @@ contract PairVault is ReentrancyGuard {
         returns (uint256 shares)
     {
         require(!emergency.depositsPaused(), "PairVault: deposits paused");
+        // Deposits: creator or fee-exempt recipients only. The pair is private to
+        // its creator; the public holds the curve token, whose buys reach the vault
+        // through a factory-approved fee-exempt recipient (CurveRouter). The launch
+        // seed the factory places is the third allowed path. Checked before any
+        // token is pulled so a stranger fails fast with a clear reason.
+        require(
+            recipient == creator || msg.sender == factory || _feeExempt(recipient),
+            "PairVault: creator only"
+        );
         require(
             !oracle.isMultiplierPending(tokenA) && !oracle.isMultiplierPending(tokenB),
             "PairVault: multiplier pending"
@@ -233,23 +242,13 @@ contract PairVault is ReentrancyGuard {
             require(ok, "PairVault: refund failed");
         }
 
-        // Deposits: creator or fee-exempt recipients only. The pair is private to
-        // its creator; the public holds the curve token, whose buys reach the vault
-        // through a factory-approved fee-exempt recipient (CurveRouter). The launch
-        // seed the factory places is the third allowed path. None of them pay a fee.
-        bool allowed = recipient == creator || msg.sender == factory || _feeExempt(recipient);
-        require(allowed, "PairVault: creator only");
-        uint256 fee = allowed ? 0 : (gross * creatorFeeBps) / 10_000;
-        shares = gross - fee;
+        // Allowed depositors never pay a fee (checked at the top of _deposit).
+        shares = gross;
         require(shares >= minShares, "PairVault: slippage");
 
         receiptToken.mint(recipient, shares);
-        if (fee > 0) {
-            receiptToken.mint(creator, fee);
-            creatorFeeShares += fee;
-        }
 
-        emit Deposited(recipient, usedA, usedB, shares, fee, navUsd8());
+        emit Deposited(recipient, usedA, usedB, shares, 0, navUsd8());
     }
 
     /// @dev Asks the factory whether `recipient` is fee-exempt; false when the factory

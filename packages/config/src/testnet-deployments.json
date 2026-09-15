@@ -1,7 +1,7 @@
 {
   "chainId": 46630,
   "rpcUrl": "https://rpc.testnet.chain.robinhood.com",
-  "startBlock": 120048896,
+  "startBlock": 120058891,
   "tokens": {
     "AMD": "0x71178BAc73cBeb415514eB542a8995b82669778d",
     "AMZN": "0x5884aD2f920c162CFBbACc88C9C51AA75eC09E02",
@@ -19,16 +19,16 @@
     "WETH": "0x2cdF07C41192482666b0033CE190323A35906A98"
   },
   "contracts": {
-    "pairFactory": "0x2c4AAeEC49a54c20CE3c6058f5975b6bEddf4aaF",
+    "pairFactory": "0x136DE074BB1D54f6dd92AF052c2E0e110e7e1097",
     "oracle": "0xd41aADa55e57878696d4d74a310A0cBBC847279C",
     "emergency": "0xE37892736cb2d865B687953540BfE272e0912C1f",
     "priceFeedUpdater": "0x2C7e4386eB96f02665CFe446Ed54f25e95c7300a",
-    "pairRouter": "0xBeaF2e27562764E422B0aa6aB42972cbf707259F",
+    "pairRouter": "0xaaB5Af6EB440D1AaF160709EE05Ec741e87CA17F",
     "swapRouter": "0x65d32D5beC4B5004C8b817254E3fa44fd48b3a64",
     "usdg": "0x5817D7934ecf0da56C96E3CC9DD8a685376D382B",
     "usdgFeed": "0x7380a0B8f106F2196D82767FDae104A362188bC3",
-    "composeCurve": "0x371a5b554aa864EB30B6e779Ca6e7b6B960fe716",
-    "curveRouter": "0x659bB97355708d1A58680C0B59bfa538e383CE11"
+    "composeCurve": "0xDD00D8DD4F1c3c60e04F33afD9154E36f2A63400",
+    "curveRouter": "0xbEaa1F39a70D8495A224eA00bCCbc11A773B7584"
   },
-  "syncedAt": "2026-09-15T18:58:29.714Z"
+  "syncedAt": "2026-09-15T19:17:16.187Z"
 }

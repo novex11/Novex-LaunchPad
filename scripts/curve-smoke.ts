@@ -254,6 +254,12 @@ async function main() {
   );
   console.log("  · non-creator createToken is checked by simulation in step 8 (only one key available)");
 
+  // Launch protection: for 30s after createToken buys are capped at 5.5% per tx
+  // and 5% per wallet. Wait it out so the larger test buys below are allowed.
+  const LAUNCH_WINDOW_MS = 32_000;
+  console.log(`  · waiting ${LAUNCH_WINDOW_MS / 1000}s for the launch-protection window to close`);
+  await new Promise((r) => setTimeout(r, LAUNCH_WINDOW_MS));
+
   // ── 4. Buy with ETH ───────────────────────────────────────
   console.log("4. Buy with ETH via CurveRouter.buy");
   const feeSharesBefore = await client.readContract({ address: pair, abi: vaultAbi, functionName: "creatorFeeShares" });
