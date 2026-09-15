@@ -5,6 +5,7 @@
 #   scripts/render-create.sh backend     # indexer, allocator, quote
 #   scripts/render-create.sh keeper      # mainnet price keeper (background worker)
 #   scripts/render-create.sh all         # backend + web + keeper
+#   RENDER_NETWORK=mainnet RENDER_NAME_PREFIX=novex scripts/render-create.sh web   # mainnet build
 #
 # Requires: `render login` done, and a .env at the repo root (secrets are read
 # from it and sent only to Render; nothing is printed). Non-secret settings
@@ -62,14 +63,28 @@ print("created", s.get("id"), s.get("name"), s.get("serviceDetails", {}).get("ur
 '
 }
 
-COMMON=(NEXT_PUBLIC_USE_TESTNET=true @ROBINHOOD_TESTNET_RPC_URL @ROBINHOOD_RPC_URL @ALCHEMY_API_KEY)
+# RENDER_NETWORK=testnet|mainnet selects the chain every service is built for.
+NETWORK="${RENDER_NETWORK:-testnet}"
+if [[ "$NETWORK" == "mainnet" ]]; then
+  USE_TESTNET=false
+  EXPLORER_URL="https://robinhoodchain.blockscout.com"
+  # Addresses come from the committed mainnet-deployments.json; the .env copies
+  # (kept in sync by scripts/sync-mainnet-deployments.mjs) are passed as overrides.
+  ADDRESS_ENVS=(@NEXT_PUBLIC_PAIR_FACTORY_ADDRESS @NEXT_PUBLIC_ORACLE_ADAPTER_ADDRESS \
+    @NEXT_PUBLIC_COMPOSE_CURVE_ADDRESS @NEXT_PUBLIC_CURVE_ROUTER_ADDRESS @NEXT_PUBLIC_PAIR_ROUTER_ADDRESS)
+else
+  USE_TESTNET=true
+  EXPLORER_URL="https://explorer.testnet.chain.robinhood.com"
+  ADDRESS_ENVS=(@NEXT_PUBLIC_PAIR_FACTORY_ADDRESS @NEXT_PUBLIC_ORACLE_ADAPTER_ADDRESS)
+fi
+COMMON=("NEXT_PUBLIC_USE_TESTNET=${USE_TESTNET}" @ROBINHOOD_TESTNET_RPC_URL @ROBINHOOD_RPC_URL @ALCHEMY_API_KEY)
 
 create_indexer() {
   create "${PREFIX}-indexer" /health SERVICE=indexer INDEXER_PORT=10000 PORT=10000 \
     MARK_TO_MARKET_INTERVAL_MS=60000 AUTO_VERIFY_CONTRACTS=true \
     "PUBLIC_INDEXER_URL=${INDEXER_URL}" "${COMMON[@]}" \
     @DATABASE_URL @REDIS_HOST @REDIS_PORT @REDIS_USERNAME @REDIS_PASSWORD \
-    @PAIR_FACTORY_ADDRESS @NEXT_PUBLIC_PAIR_FACTORY_ADDRESS @NEXT_PUBLIC_ORACLE_ADAPTER_ADDRESS \
+    @PAIR_FACTORY_ADDRESS "${ADDRESS_ENVS[@]}" \
     @INDEXER_START_BLOCK @INTERNAL_API_KEY
 }
 
@@ -85,17 +100,22 @@ create_quote() {
 
 create_web() {
   create "${PREFIX}-web" / SERVICE=web PORT=3000 "${COMMON[@]}" \
-    NEXT_PUBLIC_EXPLORER_URL=https://explorer.testnet.chain.robinhood.com \
+    "NEXT_PUBLIC_EXPLORER_URL=${EXPLORER_URL}" \
     "NEXT_PUBLIC_ALLOCATOR_URL=${ALLOCATOR_URL}" "NEXT_PUBLIC_QUOTE_URL=${QUOTE_URL}" \
     "NEXT_PUBLIC_INDEXER_URL=${INDEXER_URL}" \
     @NEXT_PUBLIC_PRIVY_APP_ID @NEXT_PUBLIC_ROBINHOOD_TESTNET_RPC_URL \
-    @NEXT_PUBLIC_PAIR_FACTORY_ADDRESS @NEXT_PUBLIC_ORACLE_ADAPTER_ADDRESS
+    "${ADDRESS_ENVS[@]}"
 }
 
 create_keeper() {
+  # The keeper signs with KEEPER_PRIVATE_KEY, falling back to the deployer key.
+  local keeper_key
+  keeper_key="$(from_env KEEPER_PRIVATE_KEY)"
+  [[ -z "$keeper_key" ]] && keeper_key="$(from_env DEPLOYER_PRIVATE_KEY)"
+  [[ -z "$keeper_key" ]] && { echo "error: KEEPER_PRIVATE_KEY / DEPLOYER_PRIVATE_KEY missing in .env" >&2; exit 1; }
   create "${PREFIX}-keeper" - SERVICE=keeper NEXT_PUBLIC_USE_TESTNET=false \
     KEEPER_NETWORK=mainnet KEEPER_INTERVAL_MS=300000 \
-    @ROBINHOOD_RPC_URL @KEEPER_PRIVATE_KEY
+    @ROBINHOOD_RPC_URL "KEEPER_PRIVATE_KEY=${keeper_key}"
 }
 
 case "${1:-}" in
