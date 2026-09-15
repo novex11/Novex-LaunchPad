@@ -30,16 +30,15 @@ export const contracts: DocPage = {
     {
       id: "launchpad-contracts",
       title: "Launchpad stack",
-      keywords: ["PairFactory", "PairDeployer", "PairVault", "PairShareToken", "PairRouter", "ComposeCurve", "CurveRouter"],
+      keywords: ["PairFactory", "PairDeployer", "PairVault", "PairRouter", "ComposeCurve", "CurveRouter"],
       body: (
         <Table
           head={["Contract", "Role", "Access"]}
           mono={[0]}
           rows={[
             ["PairFactory", "launchPair / launchPairWithPool; token listing; pool config; poolIdOf / poolKeyOf / poolPositionOf", "launch is permissionless; listing and pool config are owner"],
-            ["PairDeployer", "Deploys each PairVault + PairShareToken so the factory stays under the 24 KB limit", "factory"],
-            ["PairVault", "Two-token in-kind vault: deposit, depositFor, redeem, redeemFrom (operators), quotes and NAV", "public"],
-            ["PairShareToken", "Transferable ERC-20 share of a pair vault; mint/burn only by its vault", "vault"],
+            ["PairDeployer", "Deploys each PairVault so the factory stays under the 24 KB limit", "factory"],
+            ["PairVault", "Two-token in-kind vault that is its own transferable ERC-20 share: deposit, depositFor, redeem, redeemFrom (ERC-20 allowance), quotes and NAV. Shares are minted only against deposits and burned only by their holder", "public"],
             ["PairRouter", "Buy pairs with USDG or ETH and sell back, with oracle-floored slippage", "public"],
             ["ComposeCurve / CurveRouter", "Testnet creator tokens on a constant-product curve quoted in the pair share", "public"],
           ]}

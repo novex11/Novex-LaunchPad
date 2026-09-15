@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { encodePacked, type Abi, type Address, type Hash } from "viem";
+import { encodePacked, erc20Abi, maxUint256, type Abi, type Address, type Hash } from "viem";
 import { useReadContract, useReadContracts } from "wagmi";
 import { isTestnetMode } from "@compose/config";
 import {
@@ -407,16 +407,18 @@ export function usePairTrade(pair: Address | undefined) {
       try {
         if (!pair || !pairRouterReady) throw new Error("Selling for ETH or USDG is not available on this network yet.");
         const account = await ensureReady();
-        const approved = (await getClient().readContract({
+        // The pair vault is its own ERC-20 share token; PairRouter redeems
+        // through a standard allowance, granted once per pair.
+        const allowance = await getClient().readContract({
           address: pair,
-          abi: pairVaultAbi,
-          functionName: "isOperator",
+          abi: erc20Abi,
+          functionName: "allowance",
           args: [account, PAIR_ROUTER_ADDRESS],
-        })) as boolean;
-        if (!approved) {
+        });
+        if (allowance < input.shares) {
           setStage("operator");
           await send(
-            { address: pair, abi: pairVaultAbi, functionName: "setOperator", args: [PAIR_ROUTER_ADDRESS, true] },
+            { address: pair, abi: erc20Abi, functionName: "approve", args: [PAIR_ROUTER_ADDRESS, maxUint256] },
             { onSubmitted: setHash },
           );
         }

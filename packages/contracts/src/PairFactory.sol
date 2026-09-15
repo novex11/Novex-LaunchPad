@@ -7,7 +7,6 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {PairShareToken} from "./PairShareToken.sol";
 import {PoolKey, IV4PositionManager, IPermit2, V4Actions} from "./interfaces/IUniswapV4.sol";
 import {PairVault} from "./PairVault.sol";
 import {PairDeployer} from "./PairDeployer.sol";
@@ -45,7 +44,7 @@ contract PairFactory is Ownable, ReentrancyGuard {
     OracleAdapter public immutable oracle;
     EmergencyRegistry public immutable emergency;
     address public immutable weth;
-    /// @notice Deploys each pair's vault + share token (keeps this contract under 24KB).
+    /// @notice Deploys each pair's vault, which is its own share token (keeps this contract under 24KB).
     PairDeployer public immutable pairDeployer;
 
     /// @notice Uniswap v4 PositionManager used to seed share/quote pools (0 = disabled).
@@ -295,7 +294,6 @@ contract PairFactory is Ownable, ReentrancyGuard {
                 tokenB: hi,
                 weightABps: weightLo,
                 creatorFeeBps: p.creatorFeeBps,
-                receiptToken: address(0), // set by the deployer
                 oracle: address(oracle),
                 emergency: address(emergency),
                 weth: weth,
@@ -304,8 +302,6 @@ contract PairFactory is Ownable, ReentrancyGuard {
             p.receiptName,
             p.receiptSymbol
         );
-        PairShareToken(receipt).setVault(pair);
-
         pairs.push(
             PairInfo({
                 pair: pair,

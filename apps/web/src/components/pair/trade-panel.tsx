@@ -287,7 +287,7 @@ export function TradePanel(props: TradePanelProps) {
           { id: "submit", label: `Buy ${symbol} with ${asset}` },
         ]
       : [
-          { id: "operator", label: "Enable selling (once per pair)" },
+          { id: "operator", label: `Approve ${symbol} for selling (once per pair)` },
           { id: "submit", label: `Sell ${symbol} for ${asset}` },
         ];
   const stageOrder: TradeStage[] = ["approve", "operator", "submit", "done"];

@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {PairFactory} from "../src/PairFactory.sol";
 import {PairDeployer} from "../src/PairDeployer.sol";
 import {PairVault} from "../src/PairVault.sol";
+import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {PairRouter} from "../src/PairRouter.sol";
 import {OracleAdapter} from "../src/OracleAdapter.sol";
 import {EmergencyRegistry} from "../src/EmergencyRegistry.sol";
@@ -157,7 +158,7 @@ contract PairRouterTest is Test {
 
         // $1,000 -> $997 of stock after the 0.3% pool fee -> 997 shares; the creator pays no fee
         assertApproxEqRel(shares, 997e18, 0.002e18);
-        assertEq(pair.receiptToken().balanceOf(alice), 1_000e18 + shares);
+        assertEq(pair.balanceOf(alice), 1_000e18 + shares);
         assertEq(usdg.balanceOf(alice), 99_000e6);
         _assertRouterEmpty();
     }
@@ -186,7 +187,7 @@ contract PairRouterTest is Test {
         uint256 shares = router.buy{value: 0.4 ether}(params);
 
         assertApproxEqRel(shares, 997e18, 0.002e18);
-        assertEq(pair.receiptToken().balanceOf(alice), 1_000e18 + shares);
+        assertEq(pair.balanceOf(alice), 1_000e18 + shares);
         assertGe(alice.balance, before - 0.4 ether, "any unused ETH is refunded");
         assertLe(alice.balance, before - 0.399 ether, "only dust comes back");
         _assertRouterEmpty();
@@ -210,11 +211,11 @@ contract PairRouterTest is Test {
         PairVault pair = PairVault(p);
 
         PairRouter.BuyParams memory params = _buyParams(pair, address(weth), 0.2 ether);
-        uint256 sharesBefore = pair.receiptToken().balanceOf(alice);
+        uint256 sharesBefore = pair.balanceOf(alice);
         uint256 ethBefore = alice.balance;
         vm.prank(alice);
         uint256 shares = router.buy{value: 0.2 ether}(params);
-        assertEq(pair.receiptToken().balanceOf(alice) - sharesBefore, shares);
+        assertEq(pair.balanceOf(alice) - sharesBefore, shares);
 
         // 0.1 WETH deposited as-is, 0.1 WETH -> 0.997 TSLA; TSLA leg limits -> 498.5 shares, no creator fee
         assertApproxEqRel(shares, 498.5e18, 0.002e18);
@@ -293,14 +294,14 @@ contract PairRouterTest is Test {
         PairVault pair = _launch();
         uint256 before = alice.balance;
         vm.startPrank(alice);
-        pair.setOperator(address(router), true);
+        pair.approve(address(router), type(uint256).max);
         uint256 out = router.sell(_sellParams(pair, address(weth), 500e18, true));
         vm.stopPrank();
 
         // $500 of stock -> $498.50 after the pool fee -> 0.1994 ETH at $2,500
         assertApproxEqRel(out, 0.1994 ether, 0.001e18);
         assertEq(alice.balance - before, out);
-        assertEq(pair.receiptToken().balanceOf(alice), 500e18);
+        assertEq(pair.balanceOf(alice), 500e18);
         _assertRouterEmpty();
     }
 
@@ -308,7 +309,7 @@ contract PairRouterTest is Test {
         PairVault pair = _launch();
         uint256 usdgBefore = usdg.balanceOf(alice);
         vm.startPrank(alice);
-        pair.setOperator(address(router), true);
+        pair.approve(address(router), type(uint256).max);
         uint256 out = router.sell(_sellParams(pair, address(usdg), 500e18, false));
         vm.stopPrank();
 
@@ -317,18 +318,22 @@ contract PairRouterTest is Test {
         _assertRouterEmpty();
     }
 
-    function test_SellRequiresOperatorAndRespectsRevoke() public {
+    function test_SellRequiresAllowanceAndRespectsRevoke() public {
         PairVault pair = _launch();
         PairRouter.SellParams memory params = _sellParams(pair, address(weth), 100e18, true);
 
         vm.prank(alice);
-        vm.expectRevert("PairVault: not operator");
+        vm.expectRevert(
+            abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, address(router), 0, 100e18)
+        );
         router.sell(params);
 
         vm.startPrank(alice);
-        pair.setOperator(address(router), true);
-        pair.setOperator(address(router), false);
-        vm.expectRevert("PairVault: not operator");
+        pair.approve(address(router), type(uint256).max);
+        pair.approve(address(router), 0);
+        vm.expectRevert(
+            abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, address(router), 0, 100e18)
+        );
         router.sell(params);
         vm.stopPrank();
     }
@@ -338,7 +343,7 @@ contract PairRouterTest is Test {
         PairRouter.SellParams memory params = _sellParams(pair, address(usdg), 500e18, false);
         params.minAmountOut = 500e6;
         vm.startPrank(alice);
-        pair.setOperator(address(router), true);
+        pair.approve(address(router), type(uint256).max);
         vm.expectRevert("PairRouter: slippage");
         router.sell(params);
         vm.stopPrank();
@@ -348,7 +353,7 @@ contract PairRouterTest is Test {
         PairVault pair = _launch();
         PairRouter.SellParams memory params = _sellParams(pair, address(usdg), 100e18, true);
         vm.startPrank(alice);
-        pair.setOperator(address(router), true);
+        pair.approve(address(router), type(uint256).max);
         vm.expectRevert("PairRouter: unwrap needs WETH");
         router.sell(params);
         vm.stopPrank();
@@ -363,13 +368,13 @@ contract PairRouterTest is Test {
 
         assertEq(tsla.balanceOf(bob), 1.2 ether);
         assertEq(amd.balanceOf(bob), 2 ether);
-        assertEq(pair.receiptToken().balanceOf(alice), 500e18);
+        assertEq(pair.balanceOf(alice), 500e18);
     }
 
     function test_RedeemFromRejectsStrangers() public {
         PairVault pair = _launch();
         vm.prank(bob);
-        vm.expectRevert("PairVault: not operator");
+        vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, bob, 0, 1e18));
         pair.redeemFrom(alice, 1e18, 0, 0, bob);
     }
 
