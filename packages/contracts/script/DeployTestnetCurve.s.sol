@@ -10,7 +10,7 @@ import {CurveRouter} from "../src/CurveRouter.sol";
 
 /// @title DeployTestnetCurve — bonding-curve launchpad on Robinhood Chain Testnet
 /// @notice Creator tokens need transferable pair shares, so this deploys a fresh
-///         PairFactory (PairShareToken) and a PairRouter bound to it, then
+///         PairFactory and a PairRouter bound to it, then
 ///         ComposeCurve and CurveRouter. Reuses the live oracle, feeds, keeper,
 ///         testnet swap router and TestUSDG.
 ///

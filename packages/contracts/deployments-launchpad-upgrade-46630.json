@@ -1,13 +1,13 @@
 {
   "chainId": 46630,
-  "composeCurve": "0x6B40D5bCb21322Fa29f8Bf226F96544AD740b764",
-  "curveRouter": "0x672E1dde2aa463866bcc3CAF9C679aAD4371e830",
+  "composeCurve": "0xf7Dca870aF46e5c215366cf003733C769D258e4b",
+  "curveRouter": "0x7f496625A872460C42cD5d3d7613fc958aFe8d20",
   "curveStartMarketCapUsd8": 5000000000,
   "owner": "0xf7D07942E1F8633F54F9200CB3b54d05EE60dca2",
-  "pairDeployer": "0xbe48BE5978F299F90e1e03caeC04754641785a8A",
-  "pairFactory": "0xbEc98864DD5315512683F25c8c66607BC01d0162",
-  "pairRouter": "0x063cf90B628bC82E1eda6c979C871204C8B60e74",
-  "startBlock": 11711841,
+  "pairDeployer": "0xe985b6d01BaaeE02D04FBFb532885e483E597FE2",
+  "pairFactory": "0x3DfbA5c3f7248C0314e397b10b41EB31bd34B53B",
+  "pairRouter": "0x38fEb239ff5c95a414Ab8A3Df9a6a6e1def45153",
+  "startBlock": 11712659,
   "swapRouter": "0x65d32D5beC4B5004C8b817254E3fa44fd48b3a64",
   "usdg": "0x5817D7934ecf0da56C96E3CC9DD8a685376D382B"
 }

@@ -6,7 +6,7 @@ import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IER
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {ReceiptToken} from "./ReceiptToken.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {OracleAdapter} from "./OracleAdapter.sol";
 import {EmergencyRegistry} from "./EmergencyRegistry.sol";
 import {IWETH} from "./interfaces/IWETH.sol";
@@ -24,7 +24,12 @@ import {IWETH} from "./interfaces/IWETH.sol";
 ///         the creator) only applies to depositors outside those paths, so in
 ///         practice it is never charged. Deposits pause while either stock token
 ///         has a pending ERC-8056 multiplier change.
-contract PairVault is ReentrancyGuard {
+///
+///         The vault is its own ERC-20 share token (like ERC-4626): shares are
+///         minted only inside `deposit` against the tokens pulled in and burned
+///         only from the caller (or from an owner who granted a standard ERC-20
+///         allowance) inside `redeem`. No address can mint or burn otherwise.
+contract PairVault is ERC20, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     /// @dev Max deviation of the seed's value split from `weightABps`.
@@ -40,7 +45,6 @@ contract PairVault is ReentrancyGuard {
         address tokenB;
         uint16 weightABps;
         uint16 creatorFeeBps;
-        address receiptToken;
         address oracle;
         address emergency;
         address weth;
@@ -57,15 +61,11 @@ contract PairVault is ReentrancyGuard {
     uint16 public immutable creatorFeeBps;
     uint8 public immutable decimalsA;
     uint8 public immutable decimalsB;
-    ReceiptToken public immutable receiptToken;
     OracleAdapter public immutable oracle;
     EmergencyRegistry public immutable emergency;
 
     /// @notice Total shares ever minted to the creator as deposit fees.
     uint256 public creatorFeeShares;
-
-    /// @notice owner => operator => may redeem the owner's shares (e.g. PairRouter).
-    mapping(address => mapping(address => bool)) public isOperator;
 
     event Deposited(
         address indexed user,
@@ -82,16 +82,13 @@ contract PairVault is ReentrancyGuard {
         uint256 amountB,
         uint256 valueUsd8
     );
-    event OperatorSet(address indexed owner, address indexed operator, bool approved);
-
-    constructor(Config memory c) {
+    constructor(Config memory c, string memory name_, string memory symbol_) ERC20(name_, symbol_) {
         factory = c.factory == address(0) ? msg.sender : c.factory;
         creator = c.creator;
         tokenA = c.tokenA;
         tokenB = c.tokenB;
         weightABps = c.weightABps;
         creatorFeeBps = c.creatorFeeBps;
-        receiptToken = ReceiptToken(c.receiptToken);
         oracle = OracleAdapter(c.oracle);
         emergency = EmergencyRegistry(c.emergency);
         weth = c.weth;
@@ -105,8 +102,14 @@ contract PairVault is ReentrancyGuard {
         return uint16(10_000 - weightABps);
     }
 
+    /// @notice The share token is the vault itself. Kept for callers that
+    ///         historically read a separate receipt-token address.
+    function receiptToken() external view returns (address) {
+        return address(this);
+    }
+
     function totalShares() public view returns (uint256) {
-        return receiptToken.totalSupply();
+        return totalSupply();
     }
 
     function reserves() public view returns (uint256 balA, uint256 balB) {
@@ -246,7 +249,7 @@ contract PairVault is ReentrancyGuard {
         shares = gross;
         require(shares >= minShares, "PairVault: slippage");
 
-        receiptToken.mint(recipient, shares);
+        _mint(recipient, shares);
 
         emit Deposited(recipient, usedA, usedB, shares, 0, navUsd8());
     }
@@ -319,15 +322,9 @@ contract PairVault is ReentrancyGuard {
         return _redeem(msg.sender, shares, minAmountA, minAmountB, msg.sender);
     }
 
-    /// @notice Let `operator` redeem your shares on your behalf (e.g. to sell
-    ///         them for ETH through PairRouter). Revoke with `approved = false`.
-    function setOperator(address operator, bool approved) external {
-        isOperator[msg.sender][operator] = approved;
-        emit OperatorSet(msg.sender, operator, approved);
-    }
-
     /// @notice Burn `owner`'s shares and send both tokens to `to`. Callable by
-    ///         the owner or an operator the owner approved.
+    ///         the owner, or by a spender the owner approved for at least
+    ///         `shares` through the standard ERC-20 `approve` (e.g. PairRouter).
     function redeemFrom(
         address owner,
         uint256 shares,
@@ -335,8 +332,8 @@ contract PairVault is ReentrancyGuard {
         uint256 minAmountB,
         address to
     ) external nonReentrant returns (uint256 amountA, uint256 amountB) {
-        require(msg.sender == owner || isOperator[owner][msg.sender], "PairVault: not operator");
         require(to != address(0), "PairVault: zero recipient");
+        if (msg.sender != owner) _spendAllowance(owner, msg.sender, shares);
         return _redeem(owner, shares, minAmountA, minAmountB, to);
     }
 
@@ -349,7 +346,7 @@ contract PairVault is ReentrancyGuard {
         (amountA, amountB, valueUsd8) = quoteRedeem(shares);
         require(amountA >= minAmountA && amountB >= minAmountB, "PairVault: slippage");
 
-        receiptToken.burn(owner, shares);
+        _burn(owner, shares);
         if (amountA > 0) IERC20(tokenA).safeTransfer(to, amountA);
         if (amountB > 0) IERC20(tokenB).safeTransfer(to, amountB);
 

@@ -195,12 +195,12 @@ export const launchpad: DocPage = {
         <>
           <Figure src="/docs/launch.png" alt="Launch wizard" caption="The launch wizard: pick two tokens, a weight split, a creator fee, a seed and optionally a DEX pool." />
           <p>
-            A launch deploys a <strong>PairVault</strong> plus a <strong>PairShareToken</strong> and seeds the vault with your two
-            tokens in one transaction. The vault holds both reserves directly; there is no bonding curve and no swap on
-            deposit. Shares represent a proportional claim on both reserves and, unlike basket receipts, are freely
-            transferable.
+            A launch deploys a <strong>PairVault</strong> and seeds it with your two tokens in one transaction. The vault
+            holds both reserves directly; there is no bonding curve and no swap on deposit. The vault is its own ERC-20
+            share token: shares are minted only against deposits, burned only by the holder who redeems them, and, unlike
+            basket receipts, are freely transferable. No address can mint or burn them otherwise.
           </p>
-          <Figure caption="Launch with pool seeding: vault, share token and a Uniswap v4 pool in one transaction.">
+          <Figure caption="Launch with pool seeding: vault (which is the share token) and a Uniswap v4 pool in one transaction.">
             <div className="p-4"><LaunchFlowDiagram /></div>
           </Figure>
         </>

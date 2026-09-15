@@ -11,7 +11,7 @@ import { encodeAbiParameters, parseAbi, type Address, type PublicClient } from "
 export interface VerifierOptions {
   /** e.g. https://explorer.testnet.chain.robinhood.com/api */
   explorerApiUrl: string;
-  /** Directory with compiler.json, PairVault.input.json, ReceiptToken.input.json */
+  /** Directory with compiler.json and PairVault.input.json */
   inputsDir: string;
   log?: (message: string) => void;
 }
@@ -28,11 +28,9 @@ const vaultAbi = parseAbi([
   "function oracle() view returns (address)",
   "function emergency() view returns (address)",
   "function weth() view returns (address)",
-]);
-const receiptAbi = parseAbi([
+  "function factory() view returns (address)",
   "function name() view returns (string)",
   "function symbol() view returns (string)",
-  "function owner() view returns (address)",
 ]);
 
 const POLL_MS = 5_000;
@@ -44,7 +42,6 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 interface Inputs {
   compilerVersion: string;
   pairVault: string;
-  receiptToken: string;
 }
 
 const inputsCache = new Map<string, Inputs | null>();
@@ -59,7 +56,6 @@ function loadInputs(dir: string): Inputs | null {
     inputs = {
       compilerVersion,
       pairVault: readFileSync(join(dir, "PairVault.input.json"), "utf8"),
-      receiptToken: readFileSync(join(dir, "ReceiptToken.input.json"), "utf8"),
     };
   } catch {
     inputs = null;
@@ -154,7 +150,10 @@ export async function verifyContract(
   return "failed";
 }
 
-/** Verify a launched pair's PairVault and ReceiptToken using constructor values read from chain. */
+/**
+ * Verify a launched pair's PairVault using constructor values read from chain.
+ * The vault is its own ERC-20 share token, so `receipt` mirrors the vault outcome.
+ */
 export async function verifyPairContracts(
   client: PublicClient,
   opts: VerifierOptions,
@@ -168,17 +167,19 @@ export async function verifyPairContracts(
 
   const read = <T>(functionName: (typeof vaultAbi)[number]["name"]) =>
     client.readContract({ address: pair, abi: vaultAbi, functionName }) as Promise<T>;
-  const [creator, tokenA, tokenB, weightABps, creatorFeeBps, receiptToken, oracle, emergency, weth] =
+  const [creator, tokenA, tokenB, weightABps, creatorFeeBps, oracle, emergency, weth, factory, name, symbol] =
     await Promise.all([
       read<Address>("creator"),
       read<Address>("tokenA"),
       read<Address>("tokenB"),
       read<number>("weightABps"),
       read<number>("creatorFeeBps"),
-      read<Address>("receiptToken"),
       read<Address>("oracle"),
       read<Address>("emergency"),
       read<Address>("weth"),
+      read<Address>("factory"),
+      read<string>("name"),
+      read<string>("symbol"),
     ]);
 
   const vaultArgs = encodeAbiParameters(
@@ -191,24 +192,16 @@ export async function verifyPairContracts(
           { name: "tokenB", type: "address" },
           { name: "weightABps", type: "uint16" },
           { name: "creatorFeeBps", type: "uint16" },
-          { name: "receiptToken", type: "address" },
           { name: "oracle", type: "address" },
           { name: "emergency", type: "address" },
           { name: "weth", type: "address" },
+          { name: "factory", type: "address" },
         ],
       },
+      { type: "string" },
+      { type: "string" },
     ],
-    [{ creator, tokenA, tokenB, weightABps, creatorFeeBps, receiptToken, oracle, emergency, weth }],
-  );
-
-  const [name, symbol, owner] = await Promise.all([
-    client.readContract({ address: receiptToken, abi: receiptAbi, functionName: "name" }),
-    client.readContract({ address: receiptToken, abi: receiptAbi, functionName: "symbol" }),
-    client.readContract({ address: receiptToken, abi: receiptAbi, functionName: "owner" }),
-  ]);
-  const receiptArgs = encodeAbiParameters(
-    [{ type: "string" }, { type: "string" }, { type: "address" }],
-    [name, symbol, owner],
+    [{ creator, tokenA, tokenB, weightABps, creatorFeeBps, oracle, emergency, weth, factory }, name, symbol],
   );
 
   const vault = await verifyContract(
@@ -216,16 +209,7 @@ export async function verifyPairContracts(
     { address: pair, contractName: "src/PairVault.sol:PairVault", input: inputs.pairVault, constructorArgs: vaultArgs },
     inputs.compilerVersion,
   );
-  const receipt = await verifyContract(
-    opts,
-    {
-      address: receiptToken,
-      contractName: "src/ReceiptToken.sol:ReceiptToken",
-      input: inputs.receiptToken,
-      constructorArgs: receiptArgs,
-    },
-    inputs.compilerVersion,
-  );
+  const receipt = vault;
   return { vault, receipt };
 }
 

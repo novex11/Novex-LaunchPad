@@ -34,11 +34,6 @@
             "internalType": "uint16"
           },
           {
-            "name": "receiptToken",
-            "type": "address",
-            "internalType": "address"
-          },
-          {
             "name": "oracle",
             "type": "address",
             "internalType": "address"

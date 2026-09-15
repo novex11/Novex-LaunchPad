@@ -168,9 +168,10 @@ contract CurveRouter is ReentrancyGuard {
 
     /// @dev Redeem this contract's shares through PairRouter and swap to the payout asset.
     function _sellShares(SellParams calldata p, address pair, uint256 shares) internal returns (uint256) {
-        PairVault vault = PairVault(pair);
-        if (!vault.isOperator(address(this), address(pairRouter))) {
-            vault.setOperator(address(pairRouter), true);
+        // The vault is its own share token; PairRouter redeems through the
+        // standard ERC-20 allowance.
+        if (IERC20(pair).allowance(address(this), address(pairRouter)) < shares) {
+            IERC20(pair).forceApprove(address(pairRouter), type(uint256).max);
         }
         return pairRouter.sell(
             PairRouter.SellParams({

@@ -6,7 +6,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {PairFactory} from "../src/PairFactory.sol";
 import {PairDeployer} from "../src/PairDeployer.sol";
 import {PairVault} from "../src/PairVault.sol";
-import {PairShareToken} from "../src/PairShareToken.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {OracleAdapter} from "../src/OracleAdapter.sol";
 import {EmergencyRegistry} from "../src/EmergencyRegistry.sol";
 import {PushPriceFeed} from "../src/PushPriceFeed.sol";
@@ -90,8 +90,8 @@ contract PairPoolTest is Test {
         address pool = pm.holdingOf(poolId);
 
         assertEq(shares, 1_000e18, "no creator fee on the launch seed");
-        assertEq(PairShareToken(share).balanceOf(alice), 800e18, "creator keeps 80%");
-        assertEq(PairShareToken(share).balanceOf(pool), 200e18, "20% of shares in pool");
+        assertEq(IERC20(share).balanceOf(alice), 800e18, "creator keeps 80%");
+        assertEq(IERC20(share).balanceOf(pool), 200e18, "20% of shares in pool");
         assertEq(usdg.balanceOf(pool), 200e6, "$200 of USDG in pool");
         assertEq(usdg.balanceOf(alice), 10_000e6 - 200e6);
         assertEq(factory.poolIdOf(pair), poolId);
@@ -122,7 +122,7 @@ contract PairPoolTest is Test {
         );
         // Shares move wallet to wallet, and the holder can redeem in kind.
         vm.prank(alice);
-        PairShareToken(share).transfer(bob, 100e18);
+        IERC20(share).transfer(bob, 100e18);
         vm.prank(bob);
         (uint256 outA, uint256 outB) = PairVault(pair).redeem(100e18, 0, 0);
         // 10% of reserves (2 TSLA / 5 AMD); the vault orders legs by address.
@@ -165,7 +165,7 @@ contract PairPoolTest is Test {
         vm.prank(alice);
         (address pair, address share, uint256 shares) = factory.launchPair(_params());
         assertEq(shares, 1_000e18);
-        assertEq(PairShareToken(share).balanceOf(alice), 1_000e18);
+        assertEq(IERC20(share).balanceOf(alice), 1_000e18);
         assertEq(factory.poolIdOf(pair), bytes32(0));
     }
 

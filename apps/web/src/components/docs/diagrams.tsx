@@ -107,7 +107,7 @@ export function LaunchFlowDiagram() {
       <Node x={20} y={40} w={150} h={56} title="Creator" subtitle="two stock tokens" />
       <Node x={230} y={40} w={170} h={56} title="PairFactory" subtitle="launchPairWithPool" accent />
       <Node x={470} y={20} w={140} h={50} title="PairVault" subtitle="in-kind reserves" />
-      <Node x={470} y={95} w={140} h={50} title="PairShareToken" subtitle="transferable" />
+      <Node x={470} y={95} w={140} h={50} title="Vault shares" subtitle="ERC-20 = the vault" />
       <Node x={470} y={170} w={140} h={50} title="Uniswap v4 pool" subtitle="share / USDG @ NAV" accent />
       <Node x={640} y={170} w={100} h={50} title="Axiom" subtitle="DexScreener" />
       <Arrow x1={170} y1={68} x2={230} y2={68} text="seed + USDG" />

@@ -6,7 +6,6 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {PairFactory} from "../src/PairFactory.sol";
 import {PairDeployer} from "../src/PairDeployer.sol";
 import {PairVault} from "../src/PairVault.sol";
-import {PairShareToken} from "../src/PairShareToken.sol";
 import {OracleAdapter} from "../src/OracleAdapter.sol";
 import {EmergencyRegistry} from "../src/EmergencyRegistry.sol";
 import {PushPriceFeed} from "../src/PushPriceFeed.sol";
@@ -103,10 +102,10 @@ contract PairPoolForkTest is Test {
 
         assertEq(shares, 1_000e18);
         // Creator keeps 80% of shares; the rest (minus dust) is in the pool.
-        uint256 aliceShares = PairShareToken(share).balanceOf(alice);
+        uint256 aliceShares = IERC20(share).balanceOf(alice);
         assertGe(aliceShares, 800e18);
         assertLt(aliceShares, 800e18 + 1e15, "at most rounding dust refunded");
-        assertEq(PairShareToken(share).balanceOf(address(factory)), 0, "factory keeps nothing");
+        assertEq(IERC20(share).balanceOf(address(factory)), 0, "factory keeps nothing");
         assertEq(usdg.balanceOf(address(factory)), 0, "factory keeps no USDG");
 
         // Real v4 state: pool initialized at ~NAV and holding our liquidity.

@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {PairFactory} from "../src/PairFactory.sol";
 import {PairDeployer} from "../src/PairDeployer.sol";
 import {PairVault} from "../src/PairVault.sol";
-import {ReceiptToken} from "../src/ReceiptToken.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {OracleAdapter} from "../src/OracleAdapter.sol";
 import {EmergencyRegistry} from "../src/EmergencyRegistry.sol";
 import {PushPriceFeed} from "../src/PushPriceFeed.sol";
@@ -100,7 +100,7 @@ contract PairLaunchpadTest is Test {
 
     function test_LaunchSeedsCreatorAtOneDollarPerShare() public {
         PairVault pair = _launch();
-        ReceiptToken receipt = pair.receiptToken();
+        IERC20 receipt = IERC20(address(pair));
 
         assertEq(pair.creator(), alice);
         assertEq(factory.pairCount(), 1);
@@ -284,7 +284,7 @@ contract PairLaunchpadTest is Test {
 
         // 1.2 TSLA is half the TSLA reserve -> 500 shares, no fee, all to the creator
         assertEq(shares, 500e18);
-        assertEq(pair.receiptToken().balanceOf(alice), 1_500e18);
+        assertEq(pair.balanceOf(alice), 1_500e18);
         assertEq(pair.creatorFeeShares(), 0);
         (uint256 balTsla, uint256 balAmd) = _balances(pair);
         assertEq(balTsla, 3.6 ether);
@@ -377,7 +377,7 @@ contract PairLaunchpadTest is Test {
         (uint256 outTsla, uint256 outAmd) = pair.tokenA() == address(tsla) ? (outA, outB) : (outB, outA);
         assertEq(outTsla, 1.2 ether);
         assertEq(outAmd, 2 ether);
-        assertEq(pair.receiptToken().balanceOf(alice), 500e18);
+        assertEq(pair.balanceOf(alice), 500e18);
         assertEq(tsla.balanceOf(alice), 1_000 ether - 1.2 ether);
     }
 
@@ -405,7 +405,7 @@ contract PairLaunchpadTest is Test {
 
     function test_SharesAreTransferable() public {
         PairVault pair = _launch();
-        ReceiptToken receipt = pair.receiptToken();
+        IERC20 receipt = IERC20(address(pair));
         uint256 before = receipt.balanceOf(alice);
         vm.prank(alice);
         receipt.transfer(bob, 1e18);
@@ -425,7 +425,7 @@ contract PairLaunchpadTest is Test {
     /// Redeem stays open: a holder who received shares by transfer (e.g. a token seller) can exit.
     function test_TransferredHolderCanRedeem() public {
         PairVault pair = _launch();
-        ReceiptToken receipt = pair.receiptToken();
+        IERC20 receipt = IERC20(address(pair));
         vm.prank(alice);
         receipt.transfer(bob, 100e18);
         uint256 tslaBefore = tsla.balanceOf(bob);
@@ -470,7 +470,7 @@ contract PairLaunchpadTest is Test {
         PairVault pair = _launch();
         (address found, address receipt) = factory.getPair(address(amd), address(tsla));
         assertEq(found, address(pair));
-        assertEq(receipt, address(pair.receiptToken()));
+        assertEq(receipt, address(pair), "share token is the vault");
         assertTrue(factory.isPair(address(pair)));
         assertEq(factory.listedTokens().length, 3);
 

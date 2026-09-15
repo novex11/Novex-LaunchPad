@@ -215,7 +215,7 @@ export function CreatorRewards({
       {busy && (
         <p className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
           <CircleNotch size={14} className="animate-spin" />
-          {trade.stage === "operator" ? "Enable selling in your wallet (once per pair)…" : "Confirm the claim in your wallet…"}
+          {trade.stage === "operator" ? "Approve the shares in your wallet (once per pair)…" : "Confirm the claim in your wallet…"}
         </p>
       )}
       {error && (
