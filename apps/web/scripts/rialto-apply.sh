@@ -20,6 +20,7 @@ export OWNER_PRIVATE_KEY
 export DISPLAY_NAME="${DISPLAY_NAME:-Novex}"
 export SLUG="${SLUG:-novex}"
 export CONTACT_EMAIL="${CONTACT_EMAIL:-saurabh.sharma9827@gmail.com}"
+export TELEGRAM_HANDLE="${TELEGRAM_HANDLE:-Sol_sohan}"
 export APP_URL="${APP_URL:-https://github.com/novex11/contract-v2}"
 export MAX_FEE_BPS="${MAX_FEE_BPS:-50}"
 # Raw key is shown once by Rialto; it is written here with 0600 perms.
