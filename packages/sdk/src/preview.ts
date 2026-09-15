@@ -1,22 +1,56 @@
-import { computeAllocation } from "./allocation.js";
+import {
+  computeAllocation,
+  validateStrategyCompliance,
+  type AllocationItem,
+  type AllocationResult,
+} from "./allocation.js";
 import { computeStockbackPreview } from "./cashback.js";
-import type { PreviewRequestInput, PreviewResponse } from "./schemas.js";
+import type { PreviewRequest, PreviewRequestInput, PreviewResponse } from "./schemas.js";
 import type { StockToken } from "@compose/config";
+
+/** Price a vault's fixed target mix instead of computing a basket. */
+function fixedAllocation(
+  lines: Array<{ ticker: string; weight: number }>,
+  depositTicker: string,
+  depositUsd: number,
+  strategy: PreviewRequest["strategy"],
+): AllocationResult {
+  const deposit = depositTicker.toUpperCase();
+  const items: AllocationItem[] = lines.map((l) => {
+    const ticker = l.ticker.toUpperCase();
+    return {
+      ticker,
+      weight: l.weight,
+      usd: depositUsd * l.weight,
+      rationale:
+        ticker === deposit ? "retained-from-deposit" : ticker === "USDG" ? "risk-control" : "diversification",
+    };
+  });
+  items.sort((a, b) => b.usd - a.usd);
+  return {
+    items,
+    totalUsd: items.reduce((s, i) => s + i.usd, 0),
+    violations: validateStrategyCompliance(items, strategy),
+  };
+}
 
 export function buildPreview(
   req: PreviewRequestInput,
   walletLifetimeStockbackUsd = 0,
   tokens?: StockToken[],
 ): PreviewResponse {
-  const allocation = computeAllocation({
-    tokens,
-    depositTicker: req.depositTicker,
-    depositUsd: req.depositUsd,
-    strategy: req.strategy ?? "balanced",
-    preferred: req.preferred,
-    excluded: req.excluded,
-    maxTokens: req.maxTokens,
-  });
+  const strategy = req.strategy ?? "balanced";
+  const allocation: AllocationResult = req.allocation
+    ? fixedAllocation(req.allocation, req.depositTicker, req.depositUsd, strategy)
+    : computeAllocation({
+        tokens,
+        depositTicker: req.depositTicker,
+        depositUsd: req.depositUsd,
+        strategy,
+        preferred: req.preferred,
+        excluded: req.excluded,
+        maxTokens: req.maxTokens,
+      });
 
   const stockback = computeStockbackPreview(
     req.depositUsd,

@@ -81,16 +81,17 @@ export function composeCurveAddress(): `0x${string}` | undefined {
 }
 
 /**
- * VaultFactory (managed baskets). Baskets are mainnet-only, so this is
- * undefined on testnet; on mainnet env overrides the synced deployment file.
+ * VaultFactory (managed baskets): the synced deployment file on testnet, env
+ * override on mainnet.
  */
 export function vaultFactoryAddress(): `0x${string}` | undefined {
-  if (USE_TESTNET) return undefined;
-  const value = mainnetAddress(
-    process.env.VAULT_FACTORY_ADDRESS,
-    process.env.NEXT_PUBLIC_FACTORY_ADDRESS,
-    mainnetDeployment().contracts.vaultFactory,
-  );
+  const value = USE_TESTNET
+    ? testnetDeployment().contracts.vaultFactory
+    : mainnetAddress(
+        process.env.VAULT_FACTORY_ADDRESS,
+        process.env.NEXT_PUBLIC_FACTORY_ADDRESS,
+        mainnetDeployment().contracts.vaultFactory,
+      );
   return isHexAddress(value) ? value : undefined;
 }
 

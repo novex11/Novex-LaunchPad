@@ -3,7 +3,7 @@
 import { useCallback, useState } from "react";
 import { useReadContract } from "wagmi";
 import { decodeEventLog, parseAbi, type Address, type Hash } from "viem";
-import { BASKET_CONFIG, applySlippage } from "@compose/config";
+import { BASKET_CONFIG, applySlippage, getTokenByAddress } from "@compose/config";
 import {
   strategyVaultAbi,
   receiptTokenAbi,
@@ -83,6 +83,33 @@ export function useDepositTokenPrice(vaultAddress: `0x${string}` | undefined) {
   };
 }
 
+export interface TargetMixLine {
+  address: `0x${string}`;
+  ticker: string;
+  /** Fraction of every deposit (0–1). */
+  weight: number;
+}
+
+/**
+ * The vault's fixed target mix — what every deposit is swapped into. Set by
+ * the factory at creation, so it is the same for every depositor.
+ */
+export function useVaultTargetMix(vaultAddress: `0x${string}` | undefined) {
+  const { data, isLoading } = useReadContract({
+    address: vaultAddress,
+    abi: strategyVaultAbi as readonly unknown[],
+    functionName: "targetMix",
+    query: { enabled: !!vaultAddress && contractsReady, staleTime: 60_000 },
+  });
+  const [tokens, weights] = (data as [readonly `0x${string}`[], readonly bigint[]] | undefined) ?? [[], []];
+  const lines: TargetMixLine[] = tokens.map((address, i) => ({
+    address,
+    ticker: getTokenByAddress(address)?.ticker ?? `${address.slice(0, 6)}…${address.slice(-4)}`,
+    weight: Number(weights[i] ?? 0n) / 10_000,
+  }));
+  return { lines, isLoading };
+}
+
 // ─── Slippage math ───────────────────────────────────────
 
 /**
@@ -143,15 +170,11 @@ export function useApproveAndDeposit(vaultAddress: `0x${string}` | undefined) {
     async ({
       tokenAddress,
       depositAmount,
-      basketTokens,
-      basketWeightsBps,
       minShares,
       onStage,
     }: {
       tokenAddress: Address;
       depositAmount: bigint;
-      basketTokens: Address[];
-      basketWeightsBps: bigint[];
       /** Slippage floor. Pass `minSharesFor(...)`; never 0 on mainnet. */
       minShares: bigint;
       /** Progress callback so the UI can show approve → deposit → mined. */
@@ -161,9 +184,6 @@ export function useApproveAndDeposit(vaultAddress: `0x${string}` | undefined) {
         throw new Error("Vault not configured for this deposit asset");
       }
       if (depositAmount <= 0n) throw new Error("Deposit amount must be greater than zero.");
-      if (basketTokens.length !== basketWeightsBps.length) {
-        throw new Error("Allocation is malformed. Refresh and retry.");
-      }
       setIsPending(true);
       setError(null);
       setTxHash(undefined);
@@ -189,14 +209,7 @@ export function useApproveAndDeposit(vaultAddress: `0x${string}` | undefined) {
             address: vaultAddress,
             abi: strategyVaultAbi,
             functionName: "deposit",
-            args: [
-              {
-                amount: depositAmount,
-                basketTokens,
-                basketWeightsBps,
-                minShares,
-              },
-            ],
+            args: [depositAmount, minShares],
           },
           { onSubmitted: (h) => setTxHash(h) },
         );

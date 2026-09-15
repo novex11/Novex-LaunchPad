@@ -62,6 +62,19 @@
   },
   {
     "type": "function",
+    "name": "MAX_TARGET_TOKENS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "basketTokenCount",
     "inputs": [],
     "outputs": [
@@ -123,31 +136,14 @@
     "name": "deposit",
     "inputs": [
       {
-        "name": "params",
-        "type": "tuple",
-        "internalType": "struct StrategyVault.DepositParams",
-        "components": [
-          {
-            "name": "amount",
-            "type": "uint256",
-            "internalType": "uint256"
-          },
-          {
-            "name": "basketTokens",
-            "type": "address[]",
-            "internalType": "address[]"
-          },
-          {
-            "name": "basketWeightsBps",
-            "type": "uint256[]",
-            "internalType": "uint256[]"
-          },
-          {
-            "name": "minShares",
-            "type": "uint256",
-            "internalType": "uint256"
-          }
-        ]
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "minShares",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "outputs": [
@@ -314,6 +310,24 @@
   },
   {
     "type": "function",
+    "name": "setTargetMix",
+    "inputs": [
+      {
+        "name": "tokens",
+        "type": "address[]",
+        "internalType": "address[]"
+      },
+      {
+        "name": "weightsBps",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setTvlCapUsd8",
     "inputs": [
       {
@@ -347,6 +361,75 @@
         "name": "",
         "type": "uint8",
         "internalType": "enum AllocationController.Strategy"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "targetMix",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "tokens",
+        "type": "address[]",
+        "internalType": "address[]"
+      },
+      {
+        "name": "weightsBps",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "targetMixLength",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "targetTokens",
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "targetWeightsBps",
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -530,6 +613,25 @@
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "TargetMixSet",
+    "inputs": [
+      {
+        "name": "tokens",
+        "type": "address[]",
+        "indexed": false,
+        "internalType": "address[]"
+      },
+      {
+        "name": "weightsBps",
+        "type": "uint256[]",
+        "indexed": false,
+        "internalType": "uint256[]"
       }
     ],
     "anonymous": false

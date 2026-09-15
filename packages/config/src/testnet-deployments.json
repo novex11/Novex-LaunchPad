@@ -28,7 +28,34 @@
     "usdg": "0x5817D7934ecf0da56C96E3CC9DD8a685376D382B",
     "usdgFeed": "0x7380a0B8f106F2196D82767FDae104A362188bC3",
     "composeCurve": "0x6B40D5bCb21322Fa29f8Bf226F96544AD740b764",
-    "curveRouter": "0x672E1dde2aa463866bcc3CAF9C679aAD4371e830"
+    "curveRouter": "0x672E1dde2aa463866bcc3CAF9C679aAD4371e830",
+    "allocationController": "0x617778A27634D968984D052b06ee764aB1e374BB",
+    "cashbackReserve": "0x3832CdACB9c64f1525187bc591b223687820914D",
+    "executionRouter": "0xB1E0FB0D79e571aD9E99fdf80887a2A5ed97629D",
+    "swapAdapter": "0x9997cAcefD49e35985C46d3d444edE2a8F3dE5C8",
+    "vaultFactory": "0xAb91bB44758B430B011608011721126CfFC982ea"
   },
-  "syncedAt": "2026-09-15T19:21:06.227Z"
+  "vaults": {
+    "AMD": {
+      "receipt": "0x2f7EFf60BC8BcBd6f545eB87ff891FAa284354CF",
+      "vault": "0x3AE9EEA53D664De955e8420b43Fc0d515D533857"
+    },
+    "AMZN": {
+      "receipt": "0xea61e048E8D7Dca474a186a0999c64D86713496a",
+      "vault": "0x54f92053e8342435382403D7fE695724Ee19Df83"
+    },
+    "NFLX": {
+      "receipt": "0xCbDD041fdA22e04F3B02704fEF2E6DE1ec431798",
+      "vault": "0xD3940bc9940b4B5fCb42bF6E9A510d3240065E12"
+    },
+    "PLTR": {
+      "receipt": "0x906f7569e8a18FDD2Ec5935863824CF5A1D55B82",
+      "vault": "0x02D0A36e25bC57Eef9A6aeD3eFDb56569ec79531"
+    },
+    "TSLA": {
+      "receipt": "0x66E649c9c463b7AE5fecA6E9294218016D0cc4d4",
+      "vault": "0xC42bcdD7b4F096A86eb09674b02e0104A1ce8358"
+    }
+  },
+  "syncedAt": "2026-09-15T19:51:52.860Z"
 }

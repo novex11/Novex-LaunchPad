@@ -269,7 +269,7 @@ export async function initVaultRegistry(): Promise<RegisteredVault[]> {
     } else {
       console.log(
         USE_TESTNET
-          ? "[vault-registry] No vault factory on testnet (baskets are mainnet-only) — no basket vaults"
+          ? "[vault-registry] No vault factory in testnet-deployments.json (run pnpm deploy:testnet:baskets) — no basket vaults"
           : "[vault-registry] No vault factory configured and no VAULT_ADDRESS env — no basket vaults",
       );
     }

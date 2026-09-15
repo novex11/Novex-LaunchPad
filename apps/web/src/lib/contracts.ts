@@ -131,9 +131,9 @@ export const CURVE_ROUTER_ADDRESS = testnet
   ? addr(testnet.contracts.curveRouter)
   : pick(process.env.NEXT_PUBLIC_CURVE_ROUTER_ADDRESS, mainnet?.contracts.curveRouter);
 
-/** Managed-basket contracts are mainnet-only (they need DEX liquidity). */
+/** Managed baskets: VaultFactory from the synced deployment (testnet swaps through the oracle-priced router). */
 export const FACTORY_ADDRESS = testnet
-  ? ZERO
+  ? addr(testnet.contracts.vaultFactory)
   : pick(process.env.NEXT_PUBLIC_FACTORY_ADDRESS, mainnet?.contracts.vaultFactory);
 export const VAULT_ADDRESS = testnet ? ZERO : addr(process.env.NEXT_PUBLIC_VAULT_ADDRESS);
 export const RECEIPT_TOKEN_ADDRESS = testnet
@@ -181,7 +181,7 @@ export const contractsReady =
   factoryReady || (VAULT_ADDRESS !== ZERO && RECEIPT_TOKEN_ADDRESS !== ZERO);
 
 /** Managed baskets can be created on this network */
-export const basketsAvailable = !testnet && contractsReady;
+export const basketsAvailable = contractsReady;
 
 export function isWeth(token: string | undefined): boolean {
   return !!token && WETH_ADDRESS !== ZERO && token.toLowerCase() === WETH_ADDRESS.toLowerCase();

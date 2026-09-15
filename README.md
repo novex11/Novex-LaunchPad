@@ -96,6 +96,19 @@ full pass (prices, on-chain reads, chunking) without sending anything.
 
 Copy `.env.example` to `.env` and fill in Privy, RPC, and database credentials.
 
+## Basket vaults
+
+Every basket vault holds one fixed target mix (deposit asset + the strategy's default basket), set by the factory at creation and validated by the `AllocationController`. All depositors share that basket; `pnpm mixes:testnet` / `pnpm mixes:mainnet` compute the mixes with the same allocator the app previews with and write `packages/contracts/vault-mixes-<chainId>.json`, which the deploy scripts read.
+
+### Testnet
+
+Testnet has no Uniswap, so the basket stack trades through the oracle-priced `OracleSwapRouter` the pair router already uses:
+
+```bash
+pnpm deploy:testnet:baskets      # controller, cashback, swap adapter, execution router, factory + one Balanced vault per faucet stock
+pnpm smoke:baskets:testnet TSLA 20   # real deposit + both redeem modes
+```
+
 ## Mainnet basket deployment
 
 `packages/contracts/script/DeployMainnet.s.sol` deploys the oracle, allocation controller, cashback reserve, emergency registry, execution router, a Uniswap V3 swap adapter (or the `SWAP_VENUE_ROUTER` you provide), the vault factory, and one vault per deposit asset × strategy (Defensive / Balanced / Aggressive).

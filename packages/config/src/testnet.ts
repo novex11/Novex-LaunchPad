@@ -36,8 +36,21 @@ export interface TestnetDeployment {
     composeCurve?: string;
     /** Buy/sell creator tokens with ETH or USDG. */
     curveRouter?: string;
+    /** Managed baskets (DeployTestnetBaskets) — swap through the oracle-priced router. */
+    allocationController?: string;
+    cashbackReserve?: string;
+    executionRouter?: string;
+    swapAdapter?: string;
+    vaultFactory?: string;
   };
+  /** Balanced StrategyVault + receipt token per stock ticker (DeployTestnetBaskets). */
+  vaults?: Record<string, { vault: string; receipt: string }>;
   syncedAt?: string;
+}
+
+/** Whether the testnet basket stack has been deployed and synced. */
+export function testnetBasketsReady(): boolean {
+  return isTestnetMode() && isHexAddress(testnetDeployment().contracts.vaultFactory);
 }
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;

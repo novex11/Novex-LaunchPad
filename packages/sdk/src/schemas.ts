@@ -10,6 +10,16 @@ export const PreviewRequestSchema = z.object({
   excluded: z.array(z.string()).optional(),
   /** Max number of tokens in the basket (default 5). Set 0 for all eligible. */
   maxTokens: z.number().int().min(0).max(30).optional().default(5),
+  /**
+   * A vault's fixed on-chain target mix. When given, the preview prices this
+   * exact basket instead of computing one, so Stockback and cost figures match
+   * what the deposit will buy.
+   */
+  allocation: z
+    .array(z.object({ ticker: z.string().min(1), weight: z.number().min(0).max(1) }))
+    .min(1)
+    .max(32)
+    .optional(),
 });
 
 export const QuoteRequestSchema = z.object({

@@ -28,6 +28,8 @@ export interface PreviewBody {
   excluded?: string[];
   /** Max tokens in the basket (default 5). 0 = all eligible. */
   maxTokens?: number;
+  /** The vault's fixed on-chain mix; when set the allocator prices exactly this basket. */
+  allocation?: Array<{ ticker: string; weight: number }>;
 }
 
 export type { PreviewResponse };

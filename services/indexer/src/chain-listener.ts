@@ -35,12 +35,6 @@ export function startChainListener(): (() => void) | null {
     console.log("[chain-listener] No RPC URL configured, skipping");
     return null;
   }
-  // Basket vaults are mainnet-only; testnet has no DEX liquidity for them.
-  if (USE_TESTNET) {
-    console.log("[chain-listener] Basket vaults are mainnet-only, skipping on testnet");
-    return null;
-  }
-
   const db = createDb();
   let unwatchers: Array<() => void> = [];
 

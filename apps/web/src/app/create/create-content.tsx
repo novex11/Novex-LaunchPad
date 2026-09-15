@@ -12,6 +12,7 @@ import {
   DEPOSIT_ASSETS,
   STRATEGIES,
   basketAmountPresets,
+  getActiveStockTokens,
   isPlaceholderAddress,
   isTestnetMode,
   type StrategyId,
@@ -26,6 +27,7 @@ import {
   useApproveAndDeposit,
   useDepositTokenPrice,
   useVaultSharePrice,
+  useVaultTargetMix,
 } from "@/hooks/useContracts";
 import { useResolveVault } from "@/hooks/use-resolve-vault";
 import { useWallet } from "@/hooks/use-wallet";
@@ -37,6 +39,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { StockLogo } from "@/components/ui/stock-logo";
+import { Skeleton } from "@/components/ui/skeleton";
 import { AssetPicker } from "@/components/ui/asset-picker";
 import { AllocationDonut, chartColor } from "@/components/ui/allocation-donut";
 import { TxStepper, type TxStepperState } from "@/components/ui/tx-stepper";
@@ -46,53 +49,12 @@ import { MobileConfirmBar } from "@/components/create/mobile-confirm-bar";
 
 const spring = { type: "spring", stiffness: 100, damping: 20 } as const;
 const AMOUNT_PRESETS = basketAmountPresets();
-const ALL_DEPOSIT_TICKERS = DEPOSIT_ASSETS.map((t) => t.ticker);
-
-/**
- * Convert fractional weights to integer bps that sum to exactly 10,000 without
- * pushing any line over `capBps` (the strategy's on-chain single-stock limit),
- * so largest-remainder rounding can never trip `AllocationController`.
- */
-export function weightsToBps(weights: number[], capBps = 10_000): bigint[] {
-  const total = weights.reduce((a, b) => a + b, 0) || 1;
-  const raw = weights.map((w) => (w / total) * 10_000);
-  const bps = raw.map((r) => Math.min(capBps, Math.floor(r)));
-  let remainder = 10_000 - bps.reduce((a, b) => a + b, 0);
-  const order = raw
-    .map((r, i) => [r - Math.floor(r), i] as const)
-    .sort((a, b) => b[0] - a[0]);
-  // Hand out the remainder one bp at a time, always to a line with room.
-  while (remainder > 0) {
-    let placed = false;
-    for (const [, i] of order) {
-      if (remainder <= 0) break;
-      if (bps[i]! >= capBps) continue;
-      bps[i]! += 1;
-      remainder -= 1;
-      placed = true;
-    }
-    if (!placed) break; // every line at cap: the allocator already reported a violation
-  }
-  return bps.map((b) => BigInt(b));
-}
-
-/** Resolve allocation tickers to deployed token addresses, or explain why not. */
-function resolveBasketTokens(allocation: Array<{ ticker: string }>): `0x${string}`[] {
-  const missing: string[] = [];
-  const addresses: `0x${string}`[] = [];
-  for (const line of allocation) {
-    const token = getTokenByTicker(line.ticker);
-    if (!token || isPlaceholderAddress(token.address)) {
-      missing.push(line.ticker);
-      continue;
-    }
-    addresses.push(token.address);
-  }
-  if (missing.length > 0) {
-    throw new Error(`${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} not deployed on-chain yet. Exclude ${missing.length === 1 ? "it" : "them"} and retry.`);
-  }
-  return addresses;
-}
+/** Deposit assets on the active network: the faucet stocks on testnet, the registry on mainnet. */
+const DEPOSIT_TOKENS = isTestnetMode()
+  ? getActiveStockTokens().filter((t) => !["stable", "forex", "crypto"].includes(t.category))
+  : DEPOSIT_ASSETS;
+const ALL_DEPOSIT_TICKERS = DEPOSIT_TOKENS.map((t) => t.ticker);
+const DEFAULT_DEPOSIT_TICKER = ALL_DEPOSIT_TICKERS.includes("NVDA") ? "NVDA" : (ALL_DEPOSIT_TICKERS[0] ?? "NVDA");
 
 function Section({
   n,
@@ -127,12 +89,12 @@ export default function CreateBasketContent() {
 
   const [depositTicker, setDepositTicker] = useState(() => {
     const p = (searchParams.get("deposit") ?? searchParams.get("asset"))?.toUpperCase();
-    return p && DEPOSIT_ASSETS.some((t) => t.ticker === p) ? p : "NVDA";
+    return p && ALL_DEPOSIT_TICKERS.includes(p) ? p : DEFAULT_DEPOSIT_TICKER;
   });
   const [amountStr, setAmountStr] = useState(() => {
     const fromUrl = Number(searchParams.get("amount"));
     if (fromUrl > 0) return String(fromUrl);
-    return String(isTestnetMode() ? 50 : 500);
+    return String(BASKET_CONFIG.defaultDepositUsd);
   });
   const [strategy, setStrategy] = useState<StrategyId>(() => {
     const s = searchParams.get("strategy") as StrategyId | null;
@@ -145,9 +107,12 @@ export default function CreateBasketContent() {
     resolvedVault.vaultAddress,
   );
   const { data: vaultSharePrice } = useVaultSharePrice(resolvedVault.vaultAddress);
-  const [preferred, setPreferred] = useState<string[]>(["AAPL", "MSFT"]);
-  const [excluded, setExcluded] = useState<string[]>([]);
-  const [maxTokens, setMaxTokens] = useState<number>(5);
+  // The vault's fixed target mix: every depositor gets the same basket.
+  const targetMix = useVaultTargetMix(resolvedVault.vaultAddress);
+  const mixLines = useMemo(
+    () => targetMix.lines.map((l) => ({ ticker: l.ticker, weight: l.weight })),
+    [targetMix.lines],
+  );
   const [costs, setCosts] = useState<DepositCosts | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [stage, setStage] = useState<TxStepperState>("idle");
@@ -165,8 +130,12 @@ export default function CreateBasketContent() {
 
   const depositUsd = Number(amountStr) || 0;
 
+  // Preview prices the on-chain mix once it is known (Stockback, costs); until
+  // then it shows the strategy's default basket, which is what the vault holds.
   const preview = useRewardPreview(
-    depositUsd > 0 ? { depositTicker, depositUsd, strategy, preferred, excluded, maxTokens } : null,
+    depositUsd > 0
+      ? { depositTicker, depositUsd, strategy, ...(mixLines.length > 0 ? { allocation: mixLines } : {}) }
+      : null,
     wallet.address,
   );
   const data = preview.data;
@@ -212,18 +181,11 @@ export default function CreateBasketContent() {
       basketsAvailable &&
       resolvedVault.ready &&
       pricingReady &&
+      mixLines.length > 0 &&
       !hasViolations &&
       previewIsLive,
   );
   const busy = confirming || (stage !== "idle" && stage !== "done" && stage !== "error");
-
-  function toggle(list: string[], set: (v: string[]) => void, t: string, other: string[], setOther: (v: string[]) => void) {
-    if (list.includes(t)) set(list.filter((x) => x !== t));
-    else {
-      set([...list, t]);
-      if (other.includes(t)) setOther(other.filter((x) => x !== t));
-    }
-  }
 
   async function confirm() {
     if (!wallet.address || !data) return;
@@ -251,19 +213,12 @@ export default function CreateBasketContent() {
       const decimals = depositToken?.decimals ?? 18;
       const tokenAmount = depositUsd / depositTokenPriceUsd;
       const depositAmount = parseUnits(tokenAmount.toFixed(decimals), decimals);
-      const basketTokens = resolveBasketTokens(data.allocation);
-      const capBps = Math.round(STRATEGIES[strategy].maxSingleStock * 10_000);
-      const basketWeightsBps = weightsToBps(
-        data.allocation.map((a) => a.weight),
-        capBps,
-      );
+      if (mixLines.length === 0) throw new Error("The vault's target mix is still loading. Retry in a moment.");
       const minShares = minSharesFor(depositAmount, depositTokenPriceUsd8, vaultSharePrice as bigint, decimals);
 
       const outcome = await onchainDeposit.execute({
         tokenAddress,
         depositAmount,
-        basketTokens,
-        basketWeightsBps,
         minShares,
         onStage: (s) => {
           current = s === "mined" ? "record" : s;
@@ -400,10 +355,10 @@ export default function CreateBasketContent() {
         <p className="mb-3 flex items-start gap-1.5 text-xs text-muted-foreground">
           <Info size={14} className="mt-0.5 shrink-0" />
           <span>
-            Managed baskets swap through DEX liquidity and are available on mainnet only.{" "}
+            Managed baskets are not deployed on this network yet.{" "}
             {isTestnetMode() && (
               <Link href="/launch" className="text-accent-strong underline">
-                Launch a stock pair on testnet instead
+                Launch a stock pair instead
               </Link>
             )}
           </span>
@@ -442,8 +397,8 @@ export default function CreateBasketContent() {
             Build a managed basket
           </h1>
           <p className="mt-3 max-w-xl text-muted-foreground">
-            Every change recalculates the allocation and Stockback in real time against the allocator. Confirm once at
-            the end.
+            Pick a deposit asset and strategy. Each vault holds one fixed basket shared by every depositor; your
+            deposit is swapped into it in a single transaction.
           </p>
         </div>
       </div>
@@ -452,16 +407,7 @@ export default function CreateBasketContent() {
         {/* Left: stacked sections */}
         <div className="lg:col-span-7">
           <Section n="01" title="Deposit asset" hint="The tokenized stock you send in.">
-            <AssetPicker
-              assets={DEPOSIT_ASSETS}
-              value={depositTicker}
-              onChange={(t) => {
-                setDepositTicker(t);
-                setPreferred((p) => p.filter((x) => x !== t));
-                setExcluded((p) => p.filter((x) => x !== t));
-              }}
-              quotes={byTicker}
-            />
+            <AssetPicker assets={DEPOSIT_TOKENS} value={depositTicker} onChange={setDepositTicker} quotes={byTicker} />
           </Section>
 
           <Section
@@ -535,76 +481,45 @@ export default function CreateBasketContent() {
             />
           </Section>
 
-          <Section n="04" title="Custom basket" hint="Shape the allocation — prefer, exclude, and cap size.">
-            <p className="text-xs font-medium text-muted-foreground">Prefer</p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {DEPOSIT_ASSETS.filter((t) => t.ticker !== depositTicker).map((t) => {
-                const on = preferred.includes(t.ticker);
-                return (
-                  <button
-                    key={t.ticker}
-                    type="button"
-                    onClick={() => toggle(preferred, setPreferred, t.ticker, excluded, setExcluded)}
-                    className={cn(
-                      "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-all active:scale-[0.98]",
-                      on
-                        ? "border-accent bg-accent text-accent-foreground shadow-sm"
-                        : "border-border text-muted-foreground hover:border-accent/40",
-                    )}
-                  >
-                    <StockLogo ticker={t.ticker} size="xs" className={on ? "border-white/30" : ""} />
-                    {t.ticker}
-                  </button>
-                );
-              })}
-            </div>
-            <p className="mt-4 text-xs font-medium text-muted-foreground">Exclude</p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {DEPOSIT_ASSETS.filter((t) => t.ticker !== depositTicker).map((t) => {
-                const on = excluded.includes(t.ticker);
-                return (
-                  <button
-                    key={t.ticker}
-                    type="button"
-                    onClick={() => toggle(excluded, setExcluded, t.ticker, preferred, setPreferred)}
-                    className={cn(
-                      "rounded-full border px-2.5 py-1 font-mono text-xs transition-all active:scale-[0.98]",
-                      on
-                        ? "border-destructive/40 bg-destructive/10 text-destructive line-through"
-                        : "border-border text-muted-foreground hover:border-destructive/40",
-                    )}
-                  >
-                    {t.ticker}
-                  </button>
-                );
-              })}
-            </div>
-            <p className="mt-6 text-xs font-medium text-muted-foreground">Basket size</p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {[3, 5, 8, 10, 0].map((n) => {
-                const label = n === 0 ? "All" : `${n} tokens`;
-                const on = maxTokens === n;
-                return (
-                  <button
-                    key={n}
-                    type="button"
-                    onClick={() => setMaxTokens(n)}
-                    className={cn(
-                      "rounded-full border px-3.5 py-1.5 font-mono text-xs font-medium transition-all active:scale-[0.98]",
-                      on
-                        ? "border-accent bg-accent-subtle text-accent-strong"
-                        : "border-border text-muted-foreground hover:border-accent/40",
-                    )}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
-            <p className="mt-2 text-[11px] text-muted-foreground">
-              {maxTokens === 0
-                ? "All eligible tokens will be included in the basket."
-                : `Your basket will hold up to ${maxTokens} tokens plus the deposit asset. Preferred tokens are always included.`}
+          <Section
+            n="04"
+            title="Basket mix"
+            hint="Fixed per vault and set on-chain, so every depositor shares one basket."
+          >
+            {resolvedVault.ready && targetMix.isLoading && mixLines.length === 0 ? (
+              <div className="grid gap-2">
+                <Skeleton className="h-9 w-full rounded-xl" />
+                <Skeleton className="h-9 w-full rounded-xl" />
+                <Skeleton className="h-9 w-2/3 rounded-xl" />
+              </div>
+            ) : mixLines.length > 0 ? (
+              <ul className="divide-y divide-border-subtle rounded-2xl border border-border">
+                {mixLines.map((l, i) => (
+                  <li key={l.ticker} className="flex items-center justify-between gap-3 px-3.5 py-2.5">
+                    <span className="flex items-center gap-2.5">
+                      <span className="h-2 w-2 rounded-full" style={{ background: chartColor(i) }} />
+                      <StockLogo ticker={l.ticker} size="xs" />
+                      <span className="text-sm font-medium">{l.ticker}</span>
+                      {l.ticker === depositTicker && (
+                        <span className="rounded-md bg-surface-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                          retained
+                        </span>
+                      )}
+                    </span>
+                    <span className="font-mono text-sm tabular-nums">{(l.weight * 100).toFixed(2)}%</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                {resolvedVault.ready
+                  ? "This vault has no target mix yet."
+                  : `No ${STRATEGIES[strategy].label} vault for ${depositTicker} on this network.`}
+              </p>
+            )}
+            <p className="mt-3 text-[11px] text-muted-foreground">
+              Weights are enforced by the AllocationController ({Math.round(STRATEGIES[strategy].maxSingleStock * 100)}%
+              cap per stock). The retained line stays as {depositTicker}; the rest is swapped at launch.
             </p>
           </Section>
         </div>

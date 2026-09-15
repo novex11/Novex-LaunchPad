@@ -66,29 +66,46 @@
     "name": "createVault",
     "inputs": [
       {
-        "name": "depositAsset",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "strategy",
-        "type": "uint8",
-        "internalType": "enum AllocationController.Strategy"
-      },
-      {
-        "name": "receiptName",
-        "type": "string",
-        "internalType": "string"
-      },
-      {
-        "name": "receiptSymbol",
-        "type": "string",
-        "internalType": "string"
-      },
-      {
-        "name": "tvlCapUsd8",
-        "type": "uint256",
-        "internalType": "uint256"
+        "name": "p",
+        "type": "tuple",
+        "internalType": "struct VaultFactory.CreateParams",
+        "components": [
+          {
+            "name": "depositAsset",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "strategy",
+            "type": "uint8",
+            "internalType": "enum AllocationController.Strategy"
+          },
+          {
+            "name": "receiptName",
+            "type": "string",
+            "internalType": "string"
+          },
+          {
+            "name": "receiptSymbol",
+            "type": "string",
+            "internalType": "string"
+          },
+          {
+            "name": "tvlCapUsd8",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "targetTokens",
+            "type": "address[]",
+            "internalType": "address[]"
+          },
+          {
+            "name": "targetWeightsBps",
+            "type": "uint256[]",
+            "internalType": "uint256[]"
+          }
+        ]
       }
     ],
     "outputs": [
@@ -201,6 +218,29 @@
         "name": "token",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setVaultTargetMix",
+    "inputs": [
+      {
+        "name": "vault",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "tokens",
+        "type": "address[]",
+        "internalType": "address[]"
+      },
+      {
+        "name": "weightsBps",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
       }
     ],
     "outputs": [],
