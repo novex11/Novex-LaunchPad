@@ -65,11 +65,12 @@ export interface DepositCosts {
 export async function fetchDepositCosts(
   depositUsd: number,
   allocation?: Array<{ ticker: string; usd: number }>,
+  depositTicker?: string,
 ): Promise<DepositCosts> {
   const res = await fetch(`${QUOTE_URL}/estimate-deposit-costs`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ depositUsd, allocation }),
+    body: JSON.stringify({ depositUsd, allocation, depositTicker }),
   });
   return parseJson<DepositCosts>(res);
 }

@@ -182,7 +182,7 @@ export default function CreateBasketContent() {
   useEffect(() => {
     if (!data || depositUsd <= 0) return;
     let cancelled = false;
-    fetchDepositCosts(depositUsd, data.allocation)
+    fetchDepositCosts(depositUsd, data.allocation, depositTicker)
       .then((c) => !cancelled && setCosts(c))
       .catch(() => !cancelled && setCosts(null));
     return () => {
