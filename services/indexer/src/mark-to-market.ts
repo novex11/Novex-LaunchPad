@@ -16,6 +16,9 @@ import {
 const USE_TESTNET = process.env.NEXT_PUBLIC_USE_TESTNET === "true";
 const chain = USE_TESTNET ? robinhoodTestnet : robinhoodChain;
 
+/** StrategyVault shares are minted at 1e-8 USD scale (initial share price 1e18). */
+const RECEIPT_SHARE_SCALE = 1e8;
+
 const vaultAbi = parseAbi([
   "function navUsd8() view returns (uint256)",
   "function sharePrice() view returns (uint256)",
@@ -139,7 +142,7 @@ async function updatePortfolioValues(): Promise<void> {
         .set({
           tvlUsd: String(s.navUsd.toFixed(4)),
           sharePrice: String(s.sharePrice.toFixed(8)),
-          receiptSupply: (Number(s.totalShares) / 1e18).toFixed(3),
+          receiptSupply: (Number(s.totalShares) / RECEIPT_SHARE_SCALE).toFixed(3),
           contractAddress: s.vault.vault,
         })
         .where(eq(vaultsTable.id, s.vault.vaultId));
@@ -178,7 +181,7 @@ async function updatePortfolioValues(): Promise<void> {
         if (typeof balance !== "bigint") continue; // skip individual wallet errors
         const { pos, sharePrice } = slice[j];
         try {
-          const receiptBalNum = Number(balance) / 1e18;
+          const receiptBalNum = Number(balance) / RECEIPT_SHARE_SCALE;
           const currentValue = receiptBalNum * sharePrice;
           await db
             .update(positions)

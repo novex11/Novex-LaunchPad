@@ -10,6 +10,7 @@ import {
   onVaultsChanged,
   type RegisteredVault,
 } from "./vault-registry.js";
+import { verifyDeposit, verifyRedeem } from "./basket-verify.js";
 
 /*
  * Managed-basket (StrategyVault) event listener. Watches every vault known
@@ -19,7 +20,7 @@ import {
  */
 
 const DepositedEvent = parseAbiItem(
-  "event Deposited(address indexed user, uint256 amountIn, uint256 sharesMinted, uint256 navUsd8AtDeposit)",
+  "event Deposited(address indexed user, uint256 amountIn, uint256 sharesMinted, uint256 valueUsd8)",
 );
 const RedeemedEvent = parseAbiItem(
   "event Redeemed(address indexed user, uint256 sharesBurned, uint8 mode, uint256 valueUsd8)",
@@ -111,28 +112,42 @@ async function handleDepositEvent(
   log: Log<bigint, number, false, typeof DepositedEvent>,
   db: ReturnType<typeof createDb>,
 ): Promise<void> {
-  const { user, amountIn, sharesMinted, navUsd8AtDeposit } = log.args;
+  const { user, amountIn, sharesMinted, valueUsd8 } = log.args;
   if (!user) return;
   const vault = resolveVault(log.address, "Deposited");
   if (!vault) return;
 
-  const valueUsd = Number(navUsd8AtDeposit ?? 0n) / 1e8;
+  // USD value credited after swaps (not post-deposit NAV).
+  const valueUsd = Number(valueUsd8 ?? 0n) / 1e8;
   const txHash = log.transactionHash ?? "";
   const { depositTicker, strategy, vaultId } = vault;
+
+  // Stockback is emitted by the CashbackReserve, not the vault, so read it from
+  // the full receipt. Falls back to 0 if the receipt can't be fetched.
+  let stockbackUsd = 0;
+  try {
+    stockbackUsd = (await verifyDeposit(txHash, user)).stockbackUsd;
+  } catch {
+    // keep 0
+  }
+
   const input = {
     wallet: user,
     txHash,
     depositTicker,
     depositUsd: valueUsd,
     strategy,
-    openingNetUsd: valueUsd,
-    stockbackUsd: 0,
+    openingNetUsd: valueUsd + stockbackUsd,
+    stockbackUsd,
     allocation: [],
     vaultId,
+    sharesMinted: sharesMinted ?? 0n,
   };
 
   try {
     if (db) {
+      // The browser ledger write may have recorded this tx already.
+      if (await dbStore.hasActivityTx(db, txHash)) return;
       await dbStore.recordDeposit(db, input);
       await volumeTracker.recordDeposit(db, {
         txHash,
@@ -164,9 +179,18 @@ async function handleRedeemEvent(
   const txHash = log.transactionHash ?? "";
   const { vaultId } = vault;
 
+  // Shares still held after this redeem, so a partial exit keeps the position.
+  let remainingShares: bigint | undefined;
+  try {
+    remainingShares = (await verifyRedeem(txHash, user)).remainingShares;
+  } catch {
+    // unknown: treat as full exit
+  }
+
   try {
     if (db) {
-      await dbStore.recordRedeem(db, { wallet: user, valueUsd, txHash, vaultId });
+      if (await dbStore.hasActivityTx(db, txHash)) return;
+      await dbStore.recordRedeem(db, { wallet: user, valueUsd, txHash, vaultId, remainingShares });
       await volumeTracker.recordRedeem(db, {
         txHash,
         blockNumber: log.blockNumber ?? 0n,

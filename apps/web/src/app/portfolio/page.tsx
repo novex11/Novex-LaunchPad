@@ -7,7 +7,7 @@ import { ArrowRight, Stack } from "@phosphor-icons/react";
 import { formatUnits } from "viem";
 import { formatUsd } from "@/lib/utils";
 import { cn } from "@/lib/utils";
-import { useReceiptPositions } from "@/hooks/use-receipt-positions";
+import { RECEIPT_SHARE_DECIMALS, useReceiptPositions } from "@/hooks/use-receipt-positions";
 import { useWallet } from "@/hooks/use-wallet";
 import { usePortfolio, useActivity } from "@/hooks/use-portfolio";
 import { useQuotes } from "@/hooks/use-quotes";
@@ -54,8 +54,9 @@ export default function PortfolioPage() {
   const totalValue = basketValue + holdingsValue;
   const netPerf = (data?.netPerformanceUsd ?? 0) + (holdingsValue - holdingsCost);
   const primaryReceipt = chainPositions[0];
+  // Vault shares are minted at 1e-8 USD scale (see StrategyVault.deposit), not 18 decimals.
   const receiptBalance = primaryReceipt
-    ? formatUnits(primaryReceipt.receiptBalance, 18)
+    ? formatUnits(primaryReceipt.receiptBalance, RECEIPT_SHARE_DECIMALS)
     : (data?.receiptBalance ?? "0");
 
   const hasBasket =
@@ -175,7 +176,7 @@ export default function PortfolioPage() {
                   <div className="text-right">
                     <p className="font-mono text-sm tabular-nums">{formatUsd(pos.valueUsd)}</p>
                     <p className="font-mono text-[11px] tabular-nums text-muted-foreground">
-                      {Number(formatUnits(pos.receiptBalance, 18)).toFixed(3)} · share{" "}
+                      {Number(formatUnits(pos.receiptBalance, RECEIPT_SHARE_DECIMALS)).toFixed(3)} · share{" "}
                       {pos.sharePriceUsd.toFixed(4)}
                     </p>
                   </div>

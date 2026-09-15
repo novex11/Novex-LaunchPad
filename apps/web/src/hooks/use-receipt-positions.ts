@@ -18,6 +18,12 @@ import {
 } from "@/lib/contracts";
 import { STRATEGY_FROM_CHAIN } from "@/lib/vault-registry";
 
+/**
+ * StrategyVault mints `depositValue8 * 1e18 / sharePrice` shares with an initial
+ * share price of 1e18, so one whole share is 1e8 base units (= $1 at launch).
+ */
+export const RECEIPT_SHARE_DECIMALS = 8;
+
 export interface OnChainReceiptPosition {
   vaultAddress: `0x${string}`;
   receiptTokenAddress: `0x${string}`;
@@ -26,6 +32,8 @@ export interface OnChainReceiptPosition {
   strategy: StrategyId;
   receiptBalance: bigint;
   sharePrice: bigint;
+  /** Position value in 8-decimal USD, exactly as the vault computes it */
+  valueUsd8: bigint;
   /** USD value from on-chain balance × sharePrice */
   valueUsd: number;
   /** Share price in USD (8-decimal oracle scale normalized) */
@@ -65,7 +73,8 @@ async function readPosition(
 
   const token = getTokenByAddress(depositAsset);
   const strategy = STRATEGY_FROM_CHAIN[strategyEnum] ?? "balanced";
-  const valueUsd = Number((balance * sharePrice) / BigInt(1e18)) / 1e8;
+  const valueUsd8 = (balance * sharePrice) / BigInt(1e18);
+  const valueUsd = Number(valueUsd8) / 1e8;
   const sharePriceUsd = Number(sharePrice) / 1e18;
 
   return {
@@ -76,6 +85,7 @@ async function readPosition(
     strategy,
     receiptBalance: balance,
     sharePrice,
+    valueUsd8,
     valueUsd,
     sharePriceUsd,
     onChainVerified: true,

@@ -236,3 +236,18 @@ export function getTokenByAddress(address: string): StockToken | undefined {
     TESTNET_TOKENS.find((t) => t.address.toLowerCase() === wanted)
   );
 }
+
+/**
+ * Placeholder addresses (`0x…0011`, `0x…0128`) mark tokens or feeds that are in
+ * the registry for future use but have no contract on-chain yet. Anything with a
+ * placeholder address must never reach a transaction.
+ */
+export function isPlaceholderAddress(address: string | undefined | null): boolean {
+  if (!address || !/^0x[0-9a-fA-F]{40}$/.test(address)) return true;
+  return /^0x0{32}[0-9a-fA-F]{8}$/.test(address);
+}
+
+/** Whether a token has a real contract and can be a line in an on-chain basket. */
+export function isBasketEligible(token: StockToken): boolean {
+  return !isPlaceholderAddress(token.address) && token.category !== "crypto";
+}

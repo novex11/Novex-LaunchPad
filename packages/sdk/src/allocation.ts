@@ -1,5 +1,6 @@
 import {
   getActiveStockTokens,
+  isBasketEligible,
   STRATEGIES,
   type StockToken,
   type StrategyId,
@@ -37,147 +38,141 @@ export interface AllocationResult {
   violations: string[];
 }
 
+/** Tolerance when comparing weights against the on-chain single-stock cap. */
+const CAP_EPSILON = 1e-9;
+
+/** Share of the forex sleeve given to the first, second and third available pair. */
+const FX_SHARES = [0.4, 0.3, 0.3];
+
+/**
+ * Water-fill: clamp every line to `cap` and hand the excess to lines with room,
+ * proportionally to their current weight. Returns the remaining excess when
+ * every line is at the cap (caller decides whether to widen the basket).
+ */
+function capAndRedistribute(weights: Map<string, number>, cap: number): number {
+  for (let iter = 0; iter < 32; iter++) {
+    let excess = 0;
+    for (const [ticker, w] of weights) {
+      if (w > cap + CAP_EPSILON) {
+        excess += w - cap;
+        weights.set(ticker, cap);
+      }
+    }
+    if (excess <= CAP_EPSILON) return 0;
+
+    const room = new Map<string, number>();
+    let roomTotal = 0;
+    for (const [ticker, w] of weights) {
+      if (w < cap - CAP_EPSILON) {
+        room.set(ticker, w);
+        roomTotal += w;
+      }
+    }
+    if (room.size === 0) return excess;
+
+    for (const [ticker, w] of room) {
+      // Spread by weight when possible, evenly when every open line is at zero.
+      const share = roomTotal > 0 ? w / roomTotal : 1 / room.size;
+      weights.set(ticker, w + excess * share);
+    }
+  }
+  return 0;
+}
+
 export function computeAllocation(input: AllocationInput): AllocationResult {
   const strategy = STRATEGIES[input.strategy];
   const universe = input.tokens ?? getActiveStockTokens();
-  const depositToken = universe.find(
-    (t) => t.ticker === input.depositTicker.toUpperCase(),
-  );
-  if (!depositToken) {
+  const findToken = (ticker: string) => universe.find((t) => t.ticker === ticker.toUpperCase());
+
+  const depositToken = findToken(input.depositTicker);
+  if (!depositToken || !isBasketEligible(depositToken)) {
     return {
       items: [],
       totalUsd: 0,
-      violations: [`Unknown deposit asset: ${input.depositTicker}`],
+      violations: [`${input.depositTicker.toUpperCase()} is not deployed on-chain on this network`],
     };
   }
 
-  const preferred = new Set(
-    (input.preferred ?? []).map((t) => t.toUpperCase()),
-  );
-  const excluded = new Set(
-    (input.excluded ?? []).map((t) => t.toUpperCase()),
-  );
-  excluded.delete(input.depositTicker.toUpperCase());
+  const preferred = new Set((input.preferred ?? []).map((t) => t.toUpperCase()));
+  const excluded = new Set((input.excluded ?? []).map((t) => t.toUpperCase()));
+  excluded.delete(depositToken.ticker);
 
-  const retention = strategy.defaultDepositRetention;
-  const swappableUsd = input.depositUsd * (1 - retention);
-  const retainedUsd = input.depositUsd * retention;
-
+  // Only tokens with real contracts can be basket lines; the stable and forex
+  // sleeves are handled separately below (also gated on deployment).
   const candidates = universe.filter(
     (t) =>
+      isBasketEligible(t) &&
       t.ticker !== depositToken.ticker &&
       t.category !== "stable" &&
-      t.category !== "crypto" &&
+      t.category !== "forex" &&
       !excluded.has(t.ticker),
   );
+  // Preferred names first, then deep-liquidity numeraires, then the long tail.
+  const ranked = candidates
+    .map((t) => ({ ticker: t.ticker, base: preferred.has(t.ticker) ? 2.5 : t.numeraire ? 1.5 : 1 }))
+    .sort((a, b) => b.base - a.base);
 
-  const weights = new Map<string, number>();
+  // ─── Sleeves that can actually be bought on-chain ─────────
+  const usdgToken = findToken("USDG");
+  const stableTarget = (strategy.stable.min + strategy.stable.max) / 2;
+  const stableSlice =
+    stableTarget > 0.05 && usdgToken && isBasketEligible(usdgToken) && !excluded.has("USDG")
+      ? stableTarget * 0.5
+      : 0;
 
-  for (const token of candidates) {
-    let base = 1;
-    // Deep-liquidity names fill the default slots before the long tail.
-    if (token.numeraire) base = 1.5;
-    if (preferred.has(token.ticker)) base = 2.5;
-    if (token.category === "forex") base *= 0.6; // lower default weight for forex
-    weights.set(token.ticker, base);
-  }
-
-  // Limit to top N tokens (default 5). Preferred tokens always stay.
-  const maxSlots = input.maxTokens ?? 5;
-  if (maxSlots > 0 && weights.size > maxSlots) {
-    const sorted = Array.from(weights.entries()).sort(
-      ([, a], [, b]) => b - a,
-    );
-    const kept = new Set<string>();
-    // Always keep preferred tokens
-    for (const [ticker] of sorted) {
-      if (preferred.has(ticker)) kept.add(ticker);
-    }
-    // Fill remaining slots with highest-weight candidates
-    for (const [ticker] of sorted) {
-      if (kept.size >= maxSlots) break;
-      kept.add(ticker);
-    }
-    for (const ticker of weights.keys()) {
-      if (!kept.has(ticker)) weights.delete(ticker);
-    }
-  }
-
-  const totalWeight = Array.from(weights.values()).reduce((a, b) => a + b, 0);
-  const items: AllocationItem[] = [];
-
-  items.push({
-    ticker: depositToken.ticker,
-    weight: retention,
-    usd: retainedUsd,
-    rationale: "retained-from-deposit",
-  });
-
-  for (const [ticker, w] of weights) {
-    const share = totalWeight > 0 ? w / totalWeight : 0;
-    const usd = swappableUsd * share;
-    const token = candidates.find((t) => t.ticker === ticker)!;
-    let rationale: AllocationRationale = "diversification";
-    if (preferred.has(ticker)) rationale = "user-selected";
-    items.push({ ticker, weight: share * (1 - retention), usd, rationale });
-  }
-
-  const stableTarget =
-    (strategy.stable.min + strategy.stable.max) / 2;
   // Forex only exists once real forex tokens are in the universe.
-  const fxAvailable = universe.filter((t) => t.category === "forex" && !excluded.has(t.ticker));
-  const forexTarget = fxAvailable.length
-    ? (strategy.forex.min + strategy.forex.max) / 2
-    : 0;
+  const fxPairs = universe
+    .filter((t) => t.category === "forex" && isBasketEligible(t) && !excluded.has(t.ticker))
+    .slice(0, FX_SHARES.length)
+    .map((t, i) => ({ ticker: t.ticker, share: FX_SHARES[i] }));
+  const fxShareTotal = fxPairs.reduce((s, fx) => s + fx.share, 0);
+  const forexTarget = (strategy.forex.min + strategy.forex.max) / 2;
+  const forexSlice = forexTarget > 0.02 && fxShareTotal > 0 ? forexTarget * 0.5 : 0;
 
-  // Allocate stable and forex slices if strategy requires them
-  if (stableTarget > 0.05 || forexTarget > 0.02) {
-    const stableSlice = stableTarget * 0.5;
-    const forexSlice = forexTarget * 0.5;
-    const totalSlice = stableSlice + forexSlice;
+  // The vault retains exactly this share of the deposit on-chain; sleeves come
+  // out of the swap budget, never out of the retained line.
+  const retention = strategy.defaultDepositRetention;
+  const cap = strategy.maxSingleStock;
 
-    const adjusted = items.map((i) => ({
-      ...i,
-      usd: i.usd * (1 - totalSlice),
-      weight: i.weight * (1 - totalSlice),
-    }));
+  // ─── Build with N equity slots; widen until the cap is satisfiable ──
+  const requestedSlots = input.maxTokens ?? 5;
+  const minSlots = requestedSlots > 0 ? Math.min(requestedSlots, ranked.length) : ranked.length;
 
-    if (stableSlice > 0.01) {
-      adjusted.push({
-        ticker: "USDG",
-        weight: stableSlice,
-        usd: input.depositUsd * stableSlice,
-        rationale: "risk-control",
-      });
+  let weights = new Map<string, number>();
+  let leftover = 0;
+  for (let slots = minSlots; slots <= ranked.length; slots++) {
+    weights = new Map<string, number>();
+    weights.set(depositToken.ticker, retention);
+    if (stableSlice > 0) weights.set("USDG", stableSlice);
+    for (const fx of fxPairs) weights.set(fx.ticker, (forexSlice * fx.share) / fxShareTotal);
+
+    const kept = ranked.slice(0, slots);
+    const baseTotal = kept.reduce((s, c) => s + c.base, 0);
+    const equityBudget = 1 - retention - stableSlice - forexSlice;
+    for (const c of kept) {
+      weights.set(c.ticker, baseTotal > 0 ? (c.base / baseTotal) * equityBudget : 0);
     }
 
-    if (forexSlice > 0.01) {
-      // Split forex evenly across the first three available pairs.
-      const fxPairs = fxAvailable.slice(0, 3).map((t, i, arr) => ({
-        ticker: t.ticker,
-        share: i === 0 ? 1 - 0.3 * (arr.length - 1) : 0.3,
-      }));
-      for (const fx of fxPairs) {
-        adjusted.push({
-          ticker: fx.ticker,
-          weight: forexSlice * fx.share,
-          usd: input.depositUsd * forexSlice * fx.share,
-          rationale: "diversification",
-        });
-      }
-    }
-
-    items.length = 0;
-    items.push(...adjusted);
+    leftover = capAndRedistribute(weights, cap);
+    if (leftover <= CAP_EPSILON) break;
   }
 
+  const items: AllocationItem[] = [];
+  for (const [ticker, weight] of weights) {
+    if (weight <= 0) continue;
+    let rationale: AllocationRationale = "diversification";
+    if (ticker === depositToken.ticker) rationale = "retained-from-deposit";
+    else if (ticker === "USDG") rationale = "risk-control";
+    else if (preferred.has(ticker)) rationale = "user-selected";
+    items.push({ ticker, weight, usd: input.depositUsd * weight, rationale });
+  }
   items.sort((a, b) => b.usd - a.usd);
 
   const violations: string[] = [];
   const maxSingle = Math.max(...items.map((i) => i.weight));
-  if (maxSingle > strategy.maxSingleStock + 0.001) {
+  if (leftover > CAP_EPSILON || maxSingle > cap + 0.001) {
     violations.push(
-      `Max single stock ${(maxSingle * 100).toFixed(1)}% exceeds ${strategy.maxSingleStock * 100}% limit`,
+      `Max single stock ${(maxSingle * 100).toFixed(1)}% exceeds ${cap * 100}% limit — allow more tokens or exclude fewer`,
     );
   }
 
@@ -192,8 +187,12 @@ export function validateStrategyCompliance(
   const limits = STRATEGIES[strategy];
   const violations: string[] = [];
   const maxWeight = Math.max(...items.map((i) => i.weight));
-  if (maxWeight > limits.maxSingleStock) {
+  if (maxWeight > limits.maxSingleStock + 0.001) {
     violations.push("Single stock concentration exceeded");
+  }
+  const total = items.reduce((s, i) => s + i.weight, 0);
+  if (Math.abs(total - 1) > 0.001) {
+    violations.push("Weights do not sum to 100%");
   }
   return violations;
 }

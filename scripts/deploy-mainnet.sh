@@ -21,7 +21,7 @@
 #   --fork            may be combined with the *-only flags
 #
 # VAULT_TICKERS   comma list of deposit assets that get a Balanced vault now
-#                 (default: the 20 launch assets listed below; "all" = every manifest stock).
+#                 (default: the 5 launch assets listed below; "all" = every manifest stock).
 #                 The onboard phase always covers every stock regardless.
 #
 # Every phase is owner-gated by the launchpad owner. Real mode needs
@@ -211,7 +211,7 @@ baskets_phase() {
 
 # Balanced vaults are created for a fixed set of deposit assets; the rest are
 # created on demand later. VAULT_TICKERS=all creates one per manifest stock.
-DEFAULT_VAULT_TICKERS="NVDA,AAPL,TSLA,SPY,QQQ"
+DEFAULT_VAULT_TICKERS="NVDA,AMZN,TSLA,AAPL,MSFT"
 export VAULT_TICKERS="${VAULT_TICKERS:-$DEFAULT_VAULT_TICKERS}"
 vaults_phase() {
   if [[ "$(tr '[:upper:]' '[:lower:]' <<<"$VAULT_TICKERS")" == "all" ]]; then

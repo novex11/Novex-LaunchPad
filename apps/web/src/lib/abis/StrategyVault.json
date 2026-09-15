@@ -232,6 +232,19 @@
   },
   {
     "type": "function",
+    "name": "navUsd8Unchecked",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "total",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "oracle",
     "inputs": [],
     "outputs": [
@@ -296,6 +309,19 @@
     "type": "function",
     "name": "renounceOwnership",
     "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setTvlCapUsd8",
+    "inputs": [
+      {
+        "name": "newCap",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
     "outputs": [],
     "stateMutability": "nonpayable"
   },
@@ -450,7 +476,7 @@
         "internalType": "uint256"
       },
       {
-        "name": "navUsd8AtDeposit",
+        "name": "valueUsd8",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -509,6 +535,19 @@
     "anonymous": false
   },
   {
+    "type": "event",
+    "name": "TvlCapUpdated",
+    "inputs": [
+      {
+        "name": "tvlCapUsd8",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
     "type": "error",
     "name": "OwnableInvalidOwner",
     "inputs": [
@@ -529,6 +568,11 @@
         "internalType": "address"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "ReentrancyGuardReentrantCall",
+    "inputs": []
   },
   {
     "type": "error",

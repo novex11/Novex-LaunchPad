@@ -99,6 +99,25 @@ const REVERT_MESSAGES: Array<[string, string]> = [
   ["PairRouter: pair not seeded", "This pair has no liquidity yet."],
   ["PairRouter: corporate action pending", "A stock split or dividend is pending for one of these stocks. Trading resumes after it takes effect."],
   ["TestUSDG: cooldown", "You already claimed test USDG in the last hour."],
+  // Managed baskets
+  ["StrategyVault: deposits paused", "Basket deposits are paused by the protocol."],
+  ["StrategyVault: multiplier pending", "A stock split or dividend is pending for this stock. Deposits resume after it takes effect."],
+  ["StrategyVault: TVL cap", "This vault is at its deposit cap. Try a smaller amount or another strategy."],
+  ["StrategyVault: slippage", "Swaps would fill below your slippage tolerance. Refresh the preview and retry."],
+  ["StrategyVault: zero shares", "Amount too small to mint any shares."],
+  ["StrategyVault: zero amount", "Enter a deposit amount."],
+  ["StrategyVault: insufficient shares", "You don't hold that many receipt shares."],
+  ["StrategyVault: min output", "The basket value moved below your minimum. Refresh and retry."],
+  ["StrategyVault: no stable asset", "USDG redemption is not enabled for this vault."],
+  ["AllocationController: unapproved asset", "One of the basket lines is not approved on-chain yet. Exclude it and retry."],
+  ["AllocationController: weights must sum", "The allocation is out of date. Refresh the preview and retry."],
+  ["AllocationController: strategy inactive", "This strategy is disabled on-chain."],
+  ["Max single stock exceeded", "One line exceeds the strategy's single-stock cap. Allow more tokens or exclude fewer."],
+  ["ExecutionRouter: swaps paused", "Basket swaps are paused by the protocol."],
+  ["ExecutionRouter: unapproved", "One of the basket lines can't be swapped yet. Exclude it and retry."],
+  ["ExecutionRouter: slippage", "A swap would fill too far below the oracle price. Try a smaller amount."],
+  ["UniswapV3SwapAdapter: slippage", "A swap would fill too far below the oracle price. Try a smaller amount."],
+  ["ReentrancyGuardReentrantCall", "The transaction was rejected. Retry."],
 ];
 
 function matchRevert(text: string): string | null {

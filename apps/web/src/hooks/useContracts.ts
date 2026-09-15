@@ -1,11 +1,9 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import {
-  useWriteContract,
-  useReadContract,
-  useWaitForTransactionReceipt,
-} from "wagmi";
+import { useReadContract } from "wagmi";
+import { decodeEventLog, parseAbi, type Address, type Hash } from "viem";
+import { BASKET_CONFIG, applySlippage } from "@compose/config";
 import {
   strategyVaultAbi,
   receiptTokenAbi,
@@ -13,6 +11,7 @@ import {
   oracleAdapterAbi,
   contractsReady,
 } from "@/lib/contracts";
+import { useContractTx } from "@/lib/tx";
 
 // ─── Read hooks (address-parametric) ─────────────────────
 
@@ -43,7 +42,7 @@ export function useVaultSharePrice(vaultAddress: `0x${string}` | undefined) {
     address: vaultAddress,
     abi: strategyVaultAbi as readonly unknown[],
     functionName: "sharePrice",
-    query: { enabled: !!vaultAddress && contractsReady },
+    query: { enabled: !!vaultAddress && contractsReady, refetchInterval: 30_000 },
   });
 }
 
@@ -69,6 +68,7 @@ export function useDepositTokenPrice(vaultAddress: `0x${string}` | undefined) {
     args: depositAssetAddr ? [depositAssetAddr] : undefined,
     query: {
       enabled: !!oracleAddr && !!depositAssetAddr && contractsReady,
+      refetchInterval: 30_000,
     },
   });
 
@@ -77,19 +77,67 @@ export function useDepositTokenPrice(vaultAddress: `0x${string}` | undefined) {
 
   return {
     priceUsd,
+    /** Oracle price in 8-decimal USD, as the contract sees it. */
+    priceUsd8: priceRaw as bigint | undefined,
     depositAsset: (depositAssetAddr as `0x${string}`) ?? undefined,
   };
 }
 
+// ─── Slippage math ───────────────────────────────────────
+
+/**
+ * Shares the vault mints if every swap fills at oracle price. Mirrors
+ * `StrategyVault.deposit`: `depositValue8 * 1e18 / sharePrice`, where the value
+ * is `amount * price / 10^decimals`.
+ */
+export function expectedSharesFor(
+  depositAmount: bigint,
+  depositPriceUsd8: bigint,
+  sharePrice: bigint,
+  decimals = 18,
+): bigint {
+  if (sharePrice === 0n) return 0n;
+  const depositValue8 = (depositAmount * depositPriceUsd8) / 10n ** BigInt(decimals);
+  return (depositValue8 * 10n ** 18n) / sharePrice;
+}
+
+/** Minimum shares to accept for a deposit at the configured basket tolerance. */
+export function minSharesFor(
+  depositAmount: bigint,
+  depositPriceUsd8: bigint,
+  sharePrice: bigint,
+  decimals = 18,
+): bigint {
+  return applySlippage(expectedSharesFor(depositAmount, depositPriceUsd8, sharePrice, decimals));
+}
+
 // ─── Write hooks ────────────────────────────────────────
 
+export type DepositStage = "approve" | "deposit" | "mined";
+
+const DEPOSIT_EVENTS = parseAbi([
+  "event Deposited(address indexed user, uint256 amountIn, uint256 sharesMinted, uint256 valueUsd8)",
+  "event CashbackForwarded(address indexed user, uint256 amount)",
+  "event StockbackPaid(address indexed wallet, address indexed token, uint256 amount, uint256 usdValue8)",
+]);
+
+export interface DepositOutcome {
+  hash: Hash;
+  /** Receipt shares minted (1e8 = one share). */
+  sharesMinted: bigint | undefined;
+  /** USD value (8 decimals) the vault credited after swaps. */
+  valueUsd8: bigint | undefined;
+  /** Stockback actually paid on-chain to the wallet, in deposit-token base units. */
+  stockbackTokenAmount: bigint;
+  /** Stockback actually paid on-chain, in USD (from the reserve's event). */
+  stockbackUsd: number;
+}
+
 export function useApproveAndDeposit(vaultAddress: `0x${string}` | undefined) {
-  const { writeContractAsync } = useWriteContract();
-  const [txHash, setTxHash] = useState<`0x${string}` | undefined>();
+  const { send, approveIfNeeded, getClient, ensureReady } = useContractTx();
+  const [txHash, setTxHash] = useState<Hash | undefined>();
   const [isPending, setIsPending] = useState(false);
   const [error, setError] = useState<Error | null>(null);
-
-  const receipt = useWaitForTransactionReceipt({ hash: txHash });
 
   const execute = useCallback(
     async ({
@@ -97,51 +145,90 @@ export function useApproveAndDeposit(vaultAddress: `0x${string}` | undefined) {
       depositAmount,
       basketTokens,
       basketWeightsBps,
-      minShares = 0n,
+      minShares,
       onStage,
     }: {
-      tokenAddress: `0x${string}`;
+      tokenAddress: Address;
       depositAmount: bigint;
-      basketTokens: `0x${string}`[];
+      basketTokens: Address[];
       basketWeightsBps: bigint[];
-      minShares?: bigint;
+      /** Slippage floor. Pass `minSharesFor(...)`; never 0 on mainnet. */
+      minShares: bigint;
       /** Progress callback so the UI can show approve → deposit → mined. */
-      onStage?: (stage: "approve" | "deposit" | "mined") => void;
-    }) => {
+      onStage?: (stage: DepositStage) => void;
+    }): Promise<DepositOutcome> => {
       if (!contractsReady || !vaultAddress) {
         throw new Error("Vault not configured for this deposit asset");
+      }
+      if (depositAmount <= 0n) throw new Error("Deposit amount must be greater than zero.");
+      if (basketTokens.length !== basketWeightsBps.length) {
+        throw new Error("Allocation is malformed. Refresh and retry.");
       }
       setIsPending(true);
       setError(null);
       setTxHash(undefined);
 
       try {
-        onStage?.("approve");
-        await writeContractAsync({
+        const account = await ensureReady();
+        const balance = await getClient().readContract({
           address: tokenAddress,
           abi: erc20Abi,
-          functionName: "approve",
-          args: [vaultAddress, depositAmount],
+          functionName: "balanceOf",
+          args: [account],
         });
+        if (balance < depositAmount) {
+          throw new Error("Not enough token balance in your wallet for this deposit.");
+        }
+
+        onStage?.("approve");
+        await approveIfNeeded(tokenAddress, vaultAddress, depositAmount);
 
         onStage?.("deposit");
-        const depositHash = await writeContractAsync({
-          address: vaultAddress,
-          abi: strategyVaultAbi as readonly unknown[],
-          functionName: "deposit",
-          args: [
-            {
-              amount: depositAmount,
-              basketTokens,
-              basketWeightsBps,
-              minShares,
-            },
-          ],
-        });
+        const { hash, receipt } = await send(
+          {
+            address: vaultAddress,
+            abi: strategyVaultAbi,
+            functionName: "deposit",
+            args: [
+              {
+                amount: depositAmount,
+                basketTokens,
+                basketWeightsBps,
+                minShares,
+              },
+            ],
+          },
+          { onSubmitted: (h) => setTxHash(h) },
+        );
 
-        setTxHash(depositHash);
         onStage?.("mined");
-        return depositHash;
+        // Read what actually happened from the receipt, not from the preview.
+        const outcome: DepositOutcome = {
+          hash,
+          sharesMinted: undefined,
+          valueUsd8: undefined,
+          stockbackTokenAmount: 0n,
+          stockbackUsd: 0,
+        };
+        const vaultLower = vaultAddress.toLowerCase();
+        const me = account.toLowerCase();
+        for (const log of receipt.logs) {
+          let ev;
+          try {
+            ev = decodeEventLog({ abi: DEPOSIT_EVENTS, data: log.data, topics: log.topics });
+          } catch {
+            continue;
+          }
+          if (ev.eventName === "Deposited" && log.address.toLowerCase() === vaultLower) {
+            outcome.sharesMinted = ev.args.sharesMinted;
+            outcome.valueUsd8 = ev.args.valueUsd8;
+          } else if (ev.eventName === "CashbackForwarded" && ev.args.user.toLowerCase() === me) {
+            outcome.stockbackTokenAmount += ev.args.amount;
+          } else if (ev.eventName === "StockbackPaid" && ev.args.wallet.toLowerCase() === me) {
+            outcome.stockbackUsd += Number(ev.args.usdValue8) / 1e8;
+          }
+        }
+        return outcome;
       } catch (e) {
         const err = e instanceof Error ? e : new Error(String(e));
         setError(err);
@@ -150,47 +237,58 @@ export function useApproveAndDeposit(vaultAddress: `0x${string}` | undefined) {
         setIsPending(false);
       }
     },
-    [writeContractAsync, vaultAddress],
+    [send, approveIfNeeded, getClient, ensureReady, vaultAddress],
   );
 
-  return { execute, txHash, isPending, error, receipt };
+  return { execute, txHash, isPending, error };
 }
 
 export function useVaultRedeem(vaultAddress: `0x${string}` | undefined) {
-  const { writeContractAsync } = useWriteContract();
-  const [txHash, setTxHash] = useState<`0x${string}` | undefined>();
+  const { send } = useContractTx();
+  const [txHash, setTxHash] = useState<Hash | undefined>();
   const [isPending, setIsPending] = useState(false);
   const [error, setError] = useState<Error | null>(null);
-
-  const receipt = useWaitForTransactionReceipt({ hash: txHash });
 
   const execute = useCallback(
     async ({
       shares,
       mode,
-      minOut = 0n,
+      minOut,
+      onSubmitted,
     }: {
       shares: bigint;
       /** 0 = original asset, 1 = proportional stocks, 2 = USDG stable */
       mode: 0 | 1 | 2;
-      minOut?: bigint;
-    }) => {
+      /**
+       * Slippage floor in the mode's units: deposit-asset wei (0), USD8 (1) or
+       * USDG base units (2). Pass a value derived from the quoted position value.
+       */
+      minOut: bigint;
+      onSubmitted?: (hash: Hash) => void;
+    }): Promise<Hash> => {
       if (!contractsReady || !vaultAddress) {
         throw new Error("Vault not configured");
       }
+      if (shares <= 0n) throw new Error("Nothing to redeem.");
       setIsPending(true);
       setError(null);
       setTxHash(undefined);
 
       try {
-        const hash = await writeContractAsync({
-          address: vaultAddress,
-          abi: strategyVaultAbi as readonly unknown[],
-          functionName: "redeem",
-          args: [shares, mode, minOut],
-        });
-
-        setTxHash(hash);
+        const { hash } = await send(
+          {
+            address: vaultAddress,
+            abi: strategyVaultAbi,
+            functionName: "redeem",
+            args: [shares, mode, minOut],
+          },
+          {
+            onSubmitted: (h) => {
+              setTxHash(h);
+              onSubmitted?.(h);
+            },
+          },
+        );
         return hash;
       } catch (e) {
         const err = e instanceof Error ? e : new Error(String(e));
@@ -200,8 +298,8 @@ export function useVaultRedeem(vaultAddress: `0x${string}` | undefined) {
         setIsPending(false);
       }
     },
-    [writeContractAsync, vaultAddress],
+    [send, vaultAddress],
   );
 
-  return { execute, txHash, isPending, error, receipt };
+  return { execute, txHash, isPending, error, slippageBps: BASKET_CONFIG.slippageBps };
 }

@@ -46,6 +46,8 @@ contract DeployMainnetBaskets is MainnetScriptBase {
 
         controller = new AllocationController(owner);
         cashback = new CashbackReserve(owner);
+        // Cap every Stockback payout at its USD reward via the oracle (1% tolerance).
+        cashback.setOracle(oracle, 100);
         adapter = new UniswapV3SwapAdapter(owner, swapRouter);
         execRouter = new ExecutionRouter(owner, address(adapter));
         adapter.setAuthorizedCaller(address(execRouter), true);

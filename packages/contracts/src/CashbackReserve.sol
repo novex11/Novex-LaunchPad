@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {OracleAdapter} from "./OracleAdapter.sol";
 
 /// @title CashbackReserve — holds Compose-funded Stockback inventory
 contract CashbackReserve is Ownable {
@@ -17,6 +18,12 @@ contract CashbackReserve is Ownable {
     uint256 public perWalletCapUsd8 = 50e8;
     bool public paused;
 
+    /// @notice When set, every payout is checked against the oracle so a vault (or a
+    ///         mispriced feed) can never pull more inventory than the USD reward is worth.
+    OracleAdapter public oracle;
+    /// @notice Tolerance on the oracle check, in bps (rounding + price drift within a block).
+    uint256 public payoutToleranceBps = 100;
+
     mapping(address => uint256) public walletStockbackUsd8;
     mapping(address => uint256) public lastRewardTimestamp;
     uint256 public duplicateGuardSeconds = 86400;
@@ -26,6 +33,8 @@ contract CashbackReserve is Ownable {
     event StockbackPaid(address indexed wallet, address indexed token, uint256 amount, uint256 usdValue8);
     event BudgetUpdated(uint256 newBudget);
     event CashbackPaused(bool paused);
+    event OracleUpdated(address indexed oracle, uint256 toleranceBps);
+    event RewardParamsUpdated(uint256 minEligibleDepositUsd8, uint256 depositStockbackUsd8, uint256 perWalletCapUsd8);
 
     constructor(address owner_) Ownable(owner_) {}
 
@@ -36,6 +45,29 @@ contract CashbackReserve is Ownable {
     function setPaused(bool paused_) external onlyOwner {
         paused = paused_;
         emit CashbackPaused(paused_);
+    }
+
+    function setOracle(address oracle_, uint256 toleranceBps) external onlyOwner {
+        require(toleranceBps <= 1_000, "CashbackReserve: tolerance too high");
+        oracle = OracleAdapter(oracle_);
+        payoutToleranceBps = toleranceBps;
+        emit OracleUpdated(oracle_, toleranceBps);
+    }
+
+    function setGlobalBudget(uint256 budgetUsd8) external onlyOwner {
+        globalBudgetUsd8 = budgetUsd8;
+        emit BudgetUpdated(budgetUsd8);
+    }
+
+    function setRewardParams(
+        uint256 minEligibleDepositUsd8_,
+        uint256 depositStockbackUsd8_,
+        uint256 perWalletCapUsd8_
+    ) external onlyOwner {
+        minEligibleDepositUsd8 = minEligibleDepositUsd8_;
+        depositStockbackUsd8 = depositStockbackUsd8_;
+        perWalletCapUsd8 = perWalletCapUsd8_;
+        emit RewardParamsUpdated(minEligibleDepositUsd8_, depositStockbackUsd8_, perWalletCapUsd8_);
     }
 
     function budgetRemaining() public view returns (uint256) {
@@ -64,6 +96,13 @@ contract CashbackReserve is Ownable {
         require(canReward(wallet, depositUsd8), "CashbackReserve: ineligible");
         uint256 rewardUsd8 = depositStockbackUsd8;
         require(budgetRemaining() >= rewardUsd8, "CashbackReserve: budget exhausted");
+        if (address(oracle) != address(0)) {
+            uint256 paidUsd8 = oracle.getTokenValueUsd(rewardToken, tokenAmount);
+            require(
+                paidUsd8 <= (rewardUsd8 * (10_000 + payoutToleranceBps)) / 10_000,
+                "CashbackReserve: amount exceeds reward"
+            );
+        }
         budgetSpentUsd8 += rewardUsd8;
         walletStockbackUsd8[wallet] += rewardUsd8;
         lastRewardTimestamp[wallet] = block.timestamp;
@@ -73,5 +112,10 @@ contract CashbackReserve is Ownable {
 
     function fund(address token, uint256 amount) external onlyOwner {
         IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
+    }
+
+    /// @notice Recover inventory (e.g. when retiring a reward token).
+    function withdraw(address token, address to, uint256 amount) external onlyOwner {
+        IERC20(token).safeTransfer(to, amount);
     }
 }

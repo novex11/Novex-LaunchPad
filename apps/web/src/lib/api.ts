@@ -74,16 +74,18 @@ export async function fetchDepositCosts(
   return parseJson<DepositCosts>(res);
 }
 
+/**
+ * Tell the indexer about a mined basket deposit. The indexer verifies the
+ * receipt and takes every amount from the chain; only the allocation breakdown
+ * (cosmetic) and the hints are used from here.
+ */
 export async function recordDeposit(body: {
   wallet: string;
-  depositTicker: string;
-  depositUsd: number;
-  strategy: string;
-  openingNetUsd: number;
-  stockbackUsd: number;
+  txHash: string;
   allocation: Array<{ ticker: string; weight: number; usd: number }>;
+  depositTicker?: string;
+  strategy?: string;
   vaultId?: string;
-  txHash?: string;
 }) {
   const res = await fetch(`${INDEXER_URL}/deposits`, {
     method: "POST",
@@ -95,9 +97,9 @@ export async function recordDeposit(body: {
 
 export async function recordRedeem(body: {
   wallet: string;
-  valueUsd: number;
-  vaultId: string;
-  txHash?: string;
+  txHash: string;
+  valueUsd?: number;
+  vaultId?: string;
 }) {
   const res = await fetch(`${INDEXER_URL}/redeems`, {
     method: "POST",

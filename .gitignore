@@ -32,3 +32,6 @@ docs/AUDIT_CHECKLIST.md
 docs/BONDING_CURVE_PLAN.md
 .claude/
 docs/MAINNET_ALL_STOCKS_PLAN.md
+
+# Rialto integrator key (written once by apps/web/scripts/rialto-apply.sh)
+.rialto-key.json

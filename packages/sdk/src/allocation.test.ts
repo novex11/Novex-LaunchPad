@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { APPROVED_STOCK_TOKENS, STRATEGIES, isPlaceholderAddress } from "@compose/config";
 import { computeAllocation } from "./allocation.js";
 import { computeStockbackPreview } from "./cashback.js";
 import { buildPreview } from "./preview.js";
@@ -21,7 +22,9 @@ describe("allocation engine", () => {
     expect(result.totalUsd).toBeCloseTo(500, 0);
     const nvda = result.items.find((i) => i.ticker === "NVDA");
     expect(nvda?.rationale).toBe("retained-from-deposit");
-    expect(nvda!.usd).toBeCloseTo(96.25, 0);
+    // Balanced retains exactly 20% of the deposit; sleeves come out of the swap budget.
+    expect(nvda!.usd).toBeCloseTo(100, 6);
+    expect(nvda!.weight).toBeCloseTo(0.2, 6);
   });
 
   it("excludes specified tickers", () => {
@@ -32,6 +35,63 @@ describe("allocation engine", () => {
       excluded: ["TSLA"],
     });
     expect(result.items.some((i) => i.ticker === "TSLA")).toBe(false);
+  });
+
+  it("never allocates to tokens without a deployed contract", () => {
+    for (const strategy of ["defensive", "balanced", "aggressive"] as const) {
+      const result = computeAllocation({
+        depositTicker: "AAPL",
+        depositUsd: 1000,
+        strategy,
+        maxTokens: 0,
+      });
+      for (const item of result.items) {
+        const token = APPROVED_STOCK_TOKENS.find((t) => t.ticker === item.ticker);
+        expect(token, item.ticker).toBeDefined();
+        expect(isPlaceholderAddress(token!.address), `${item.ticker} placeholder`).toBe(false);
+      }
+      expect(result.items.some((i) => i.ticker === "EURUSD")).toBe(false);
+    }
+  });
+
+  it("weights sum to 100% and USD sums to the deposit, even with sleeves excluded", () => {
+    const cases = [
+      { excluded: [] as string[] },
+      { excluded: ["USDG"] },
+      { excluded: ["EURUSD", "GBPUSD", "AUDUSD", "USDG"] },
+    ];
+    for (const c of cases) {
+      const result = computeAllocation({
+        depositTicker: "TSLA",
+        depositUsd: 750,
+        strategy: "defensive",
+        excluded: c.excluded,
+      });
+      const weight = result.items.reduce((s, i) => s + i.weight, 0);
+      expect(weight).toBeCloseTo(1, 6);
+      expect(result.totalUsd).toBeCloseTo(750, 6);
+      expect(result.violations).toHaveLength(0);
+    }
+  });
+
+  it("keeps every line under the strategy's single-stock cap, widening the basket if needed", () => {
+    for (const strategy of ["defensive", "balanced", "aggressive"] as const) {
+      for (const maxTokens of [3, 5, 8, 0]) {
+        const result = computeAllocation({ depositTicker: "NVDA", depositUsd: 500, strategy, maxTokens });
+        const cap = STRATEGIES[strategy].maxSingleStock;
+        expect(result.violations, `${strategy}/${maxTokens}`).toHaveLength(0);
+        for (const item of result.items) {
+          expect(item.weight, `${strategy}/${maxTokens}/${item.ticker}`).toBeLessThanOrEqual(cap + 1e-9);
+        }
+        expect(result.items.reduce((s, i) => s + i.weight, 0)).toBeCloseTo(1, 6);
+      }
+    }
+  });
+
+  it("rejects an undeployed deposit asset", () => {
+    const result = computeAllocation({ depositTicker: "EURUSD", depositUsd: 500, strategy: "balanced" });
+    expect(result.items).toHaveLength(0);
+    expect(result.violations[0]).toMatch(/not deployed/);
   });
 });
 
