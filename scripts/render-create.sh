@@ -2,7 +2,8 @@
 # Create the Novex services on Render from the CLI.
 #
 #   scripts/render-create.sh indexer     # create one service
-#   scripts/render-create.sh all         # indexer, allocator, quote, web (in that order)
+#   scripts/render-create.sh backend     # indexer, allocator, quote
+#   scripts/render-create.sh all         # backend + web
 #
 # Requires: `render login` done, and a .env at the repo root (secrets are read
 # from it and sent only to Render; nothing is printed). Non-secret settings
@@ -91,6 +92,7 @@ case "${1:-}" in
   allocator) create_allocator ;;
   quote)     create_quote ;;
   web)       create_web ;;
+  backend)   create_indexer; create_allocator; create_quote ;;
   all)       create_indexer; create_allocator; create_quote; create_web ;;
-  *) echo "usage: $0 {indexer|allocator|quote|web|all}" >&2; exit 2 ;;
+  *) echo "usage: $0 {indexer|allocator|quote|web|backend|all}" >&2; exit 2 ;;
 esac
