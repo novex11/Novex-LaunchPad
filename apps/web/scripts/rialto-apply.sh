@@ -23,6 +23,7 @@ export CONTACT_EMAIL="${CONTACT_EMAIL:-saurabh.sharma9827@gmail.com}"
 export TELEGRAM_HANDLE="${TELEGRAM_HANDLE:-Sol_sohan}"
 export APP_URL="${APP_URL:-https://github.com/novex11/contract-v2}"
 export MAX_FEE_BPS="${MAX_FEE_BPS:-50}"
+# Free-text reason shown to the Rialto team (APPLICATION_DESCRIPTION overrides the default in the .mjs).
 # Raw key is shown once by Rialto; it is written here with 0600 perms.
 export RIALTO_OUT_FILE="${RIALTO_OUT_FILE:-$ROOT/.rialto-key.json}"
 
