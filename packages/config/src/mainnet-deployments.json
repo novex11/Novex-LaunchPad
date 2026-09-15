@@ -1,7 +1,7 @@
 {
   "chainId": 4663,
   "rpcUrl": "https://rpc.mainnet.chain.robinhood.com",
-  "startBlock": 63903809,
+  "startBlock": 64002821,
   "feeds": {
     "AAPL": "0x273Cb738FE4eF162BCDFb603c89DA224e1b67b0E",
     "AMZN": "0xD5110Cb8fdbeab56dA82fE76d9c8060BB6381A7d",
@@ -16,17 +16,17 @@
     "WETH": "0x6f1DFF3f9201a0545bF463478D4D098f30fF2B8c"
   },
   "contracts": {
-    "pairFactory": "0x5Aa951533B1f0C1D910843BcBF648C5cf463E764",
+    "pairFactory": "0x14F7fD2eeC1D716b30B161aD7072A7DcCDA2dc69",
     "oracle": "0xbdBDf97fe07d1fb9593c0f700d38ED76174A2DE3",
     "emergency": "0x1be34265bbd154109a79175aB9EcF4d3E09F9aC5",
     "priceFeedUpdater": "0x538C10dC06450819E8E9eb552c87bF17cFBab702",
-    "pairDeployer": "0xC47ebdDD1cBc9392F070E712e995565f617432DB",
-    "pairRouter": "0xffba7117c19D1aB3DF23C3989e4F1c69669CCbD3",
+    "pairDeployer": "0x595DBcE2CCCBEC4010d407f72D9c047a6891c20D",
+    "pairRouter": "0x67B32aFf036461e41392C2d6985a5b82965f8Eb1",
     "swapRouter": "0xCaf681a66D020601342297493863E78C959E5cb2",
     "usdg": "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
     "usdgFeed": "0xBBC83BF6C3330d691a27eca9402E6d1ba3F09CAC",
-    "composeCurve": "0xdFE2248dBEd03d7138269f71e39Fd180683A341A",
-    "curveRouter": "0xBf60E10a92317b2D17699c74763d03484471Ef1F",
+    "composeCurve": "0x2e82fB1a8F0f44085DD4a83fFB52026112E60abE",
+    "curveRouter": "0x0051e9d3034B151b24e0Cadd8F54965f0E6ebD8f",
     "allocationController": "",
     "cashbackReserve": "",
     "executionRouter": "",
@@ -34,5 +34,5 @@
     "vaultFactory": ""
   },
   "vaults": {},
-  "syncedAt": "2026-09-15T19:31:30.362Z"
+  "syncedAt": "2026-09-15T22:20:27.002Z"
 }
