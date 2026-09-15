@@ -192,8 +192,15 @@ async function main() {
   console.log(`\nCurve smoke test: ${tickerA}/${tickerB} 50/50, $${seedUsd} seed · wallet ${account.address}`);
   console.log(`  factory ${factory} · curve ${curve} · router ${curveRouter}\n`);
 
-  // ── 1. Launch a fresh pair ────────────────────────────────
+  // ── 1. Launch a fresh pair (or reuse one this wallet already created) ──
   console.log("1. Launch pair");
+  const existingKey = await client.readContract({ address: factory, abi: factoryAbi, functionName: "computePairKey", args: [inA, inB] });
+  const existingPair = await client.readContract({ address: factory, abi: factoryAbi, functionName: "pairByKey", args: [existingKey] });
+  if (existingPair !== zeroAddress) {
+    const existingCreator = await client.readContract({ address: existingPair, abi: vaultAbi, functionName: "creator" });
+    assert(existingCreator.toLowerCase() === account.address.toLowerCase(), `pair ${existingPair} exists but belongs to ${existingCreator}`);
+    console.log(`  · reusing existing pair ${existingPair} (launched earlier by this wallet)`);
+  }
   const [priceInA, priceInB] = await Promise.all([
     client.readContract({ address: oracle, abi: oracleAbi, functionName: "getPrice", args: [inA] }),
     client.readContract({ address: oracle, abi: oracleAbi, functionName: "getPrice", args: [inB] }),
@@ -202,16 +209,24 @@ async function main() {
   const seedA = (half * 10n ** 18n) / priceInA;
   const seedB = (half * 10n ** 18n) / priceInB;
   console.log(`  prices ${tickerA} $${formatUnits(priceInA, 8)} · ${tickerB} $${formatUnits(priceInB, 8)}`);
-  await send(`approve ${tickerA} → factory`, { address: inA, abi: erc20, functionName: "approve", args: [factory, seedA] });
-  await send(`approve ${tickerB} → factory`, { address: inB, abi: erc20, functionName: "approve", args: [factory, seedB] });
-  const receiptName = `Smoke ${tickerA}/${tickerB}`;
-  const receiptSymbol = `SMK${Date.now().toString().slice(-6)}`;
-  await send("launchPair", {
-    address: factory,
-    abi: factoryAbi,
-    functionName: "launchPair",
-    args: [{ tokenA: inA, tokenB: inB, weightABps: 5000, creatorFeeBps: 0, receiptName, receiptSymbol, amountA: seedA, amountB: seedB, minShares: 0n }],
-  });
+  let receiptName = `Smoke ${tickerA}/${tickerB}`;
+  let receiptSymbol = `SMK${Date.now().toString().slice(-6)}`;
+  if (existingPair !== zeroAddress) {
+    const existingShare = await client.readContract({ address: existingPair, abi: vaultAbi, functionName: "receiptToken" });
+    [receiptName, receiptSymbol] = await Promise.all([
+      client.readContract({ address: existingShare, abi: erc20, functionName: "name" }),
+      client.readContract({ address: existingShare, abi: erc20, functionName: "symbol" }),
+    ]);
+  } else {
+    await send(`approve ${tickerA} → factory`, { address: inA, abi: erc20, functionName: "approve", args: [factory, seedA] });
+    await send(`approve ${tickerB} → factory`, { address: inB, abi: erc20, functionName: "approve", args: [factory, seedB] });
+    await send("launchPair", {
+      address: factory,
+      abi: factoryAbi,
+      functionName: "launchPair",
+      args: [{ tokenA: inA, tokenB: inB, weightABps: 5000, creatorFeeBps: 0, receiptName, receiptSymbol, amountA: seedA, amountB: seedB, minShares: 0n }],
+    });
+  }
 
   // ── 2. Pair assertions ────────────────────────────────────
   console.log("2. Verify pair");
@@ -235,15 +250,16 @@ async function main() {
   const legB = same(tokenB, inB) ? tickerB : tickerA;
   console.log(`  ✓ pair ${pair} · receipt ${share} (${shareSymbol}) · legs ${legA}/${legB}`);
 
-  // ── 3. createToken with a 2% dev buy ──────────────────────
-  console.log("3. Create token (2% dev buy)");
+  // ── 3. createToken with a dev buy ─────────────────────────
+  // Dev buy as bps of supply; SMOKE_DEV_BUY_BPS overrides (mainnet's $3,450 start cap makes 2% ≈ $70).
+  const targetBps = BigInt(process.env.SMOKE_DEV_BUY_BPS ?? "200");
+  console.log(`3. Create token (${Number(targetBps) / 100}% dev buy)`);
   const [startMcap8, sharePrice8] = await Promise.all([
     client.readContract({ address: curve, abi: curveAbi, functionName: "startMarketCapUsd8" }),
     client.readContract({ address: pair, abi: vaultAbi, functionName: "sharePrice" }),
   ]);
   assert(sharePrice8 > 0n, "share price > 0");
   const q0 = (startMcap8 * 10n ** 18n) / sharePrice8;
-  const targetBps = 200n;
   const net = (q0 * targetBps) / (10_000n - targetBps);
   const devBuyShares = ceilDiv(net * 10_000n, 10_000n - CURVE_FEE_BPS);
   const fee = (devBuyShares * CURVE_FEE_BPS) / 10_000n;
