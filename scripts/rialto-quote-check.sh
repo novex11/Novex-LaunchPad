@@ -25,8 +25,22 @@ SELL_ADDR=$(resolve "$SELL"); BUY_ADDR=$(resolve "$BUY")
 [ -n "$SELL_ADDR" ] && [ -n "$BUY_ADDR" ] || { echo "Unknown ticker (sell=$SELL_ADDR buy=$BUY_ADDR)"; exit 1; }
 
 echo "Quote: sell $AMOUNT $SELL ($SELL_ADDR) -> $BUY ($BUY_ADDR), chain 4663"
-curl -s -w '\nHTTP %{http_code}\n' \
-  -H "Authorization: Bearer $KEY" \
+curl -s -H "Authorization: Bearer $KEY" \
   "https://rialto-trade-api.rialto.xyz/quote?sell_token=$SELL_ADDR&buy_token=$BUY_ADDR&sell_amount=$AMOUNT&taker=$TAKER&slippage_bps=50&chain_id=4663" \
-  | head -c 3000
-echo
+  | node -e '
+    let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{
+      let q; try { q=JSON.parse(d); } catch { console.log(d.slice(0,500)); return; }
+      if (q.error) { console.log("error:", JSON.stringify(q)); return; }
+      const dec=(x)=>Number(BigInt(x))/1e18;
+      console.log("quote_id      ", q.quote_id);
+      console.log("settlement    ", q.settlement);
+      console.log("sell_amount   ", dec(q.sell_amount), process.argv[1]);
+      console.log("buy_amount    ", dec(q.buy_amount), process.argv[2]);
+      console.log("min_buy_amount", dec(q.min_buy_amount), process.argv[2], "(after", q.slippage_bps, "bps slippage)");
+      console.log("platform_fee  ", JSON.stringify(q.platform_fee));
+      if (q.integrator_fee) console.log("integrator_fee", JSON.stringify(q.integrator_fee));
+      console.log("network_fee   ", JSON.stringify(q.network_fee));
+      console.log("route legs    ", (q.route?.legs??[]).length, "| routes ok/failed:", q.successful_routes, "/", q.failed_routes);
+      for (const l of q.route?.legs??[]) console.log("  ", JSON.stringify(l).slice(0,200));
+      console.log("tx.to         ", q.tx?.to);
+    });' "$SELL" "$BUY"
