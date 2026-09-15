@@ -61,5 +61,26 @@ cd "$ROOT"
 OUT="packages/contracts/deployments-pons-$CHAIN_ID.json"
 echo "✅  wrote $OUT"
 cat "$OUT"
+
+# Carry the addresses into the launchpad deployment file and the synced config
+# (contracts.ponsFactory / ponsLauncher / ponsRouter) so the indexer and web pick them up.
+merge_into() {
+  node -e '
+    const fs = require("fs");
+    const out = require("./'"$OUT"'");
+    const file = process.argv[1];
+    const cfg = JSON.parse(fs.readFileSync(file, "utf8"));
+    cfg.contracts = cfg.contracts || {};
+    cfg.contracts.ponsFactory = out.ponsFactory;
+    cfg.contracts.ponsLauncher = out.ponsLauncher;
+    cfg.contracts.ponsRouter = out.ponsRouter;
+    fs.writeFileSync(file, JSON.stringify(cfg, null, 2) + "\n");
+    console.log("   updated " + file);
+  ' "$1"
+}
+merge_into "$CONFIG"
+if [[ "$NETWORK" == "mainnet" ]]; then
+  merge_into "packages/config/src/mainnet-deployments.json"
+fi
 echo
-echo "Next: add ponsLauncher / ponsRouter / ponsFactory from $OUT to $CONFIG (contracts.*) and push."
+echo "Next: commit the updated deployment files, redeploy the indexer + web, and set NEXT_PUBLIC_PONS_* on Render if env overrides are used."
