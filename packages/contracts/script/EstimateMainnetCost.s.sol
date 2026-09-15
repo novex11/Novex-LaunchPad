@@ -94,13 +94,24 @@ contract EstimateMainnetCost is Script {
         execRouter.setApprovedToken(USDG, true);
         execRouter.setEmergency(address(emergency));
         vaultFactory.setUsdStableAsset(USDG);
+        // Representative 5-line mix (20% each) so the estimate covers setTargetMix.
         for (uint256 i; i < stocks.length; ++i) {
+            address[] memory mixTokens = new address[](5);
+            uint256[] memory mixWeights = new uint256[](5);
+            for (uint256 j; j < 5; ++j) {
+                mixTokens[j] = stocks[(i + j) % stocks.length];
+                mixWeights[j] = 2000;
+            }
             (address v, ) = vaultFactory.createVault(
-                stocks[i],
-                AllocationController.Strategy.Balanced,
-                "Compose Balanced Basket",
-                "tSTK-B",
-                1_000_000e8
+                VaultFactory.CreateParams({
+                    depositAsset: stocks[i],
+                    strategy: AllocationController.Strategy.Balanced,
+                    receiptName: "Compose Balanced Basket",
+                    receiptSymbol: "tSTK-B",
+                    tvlCapUsd8: 1_000_000e8,
+                    targetTokens: mixTokens,
+                    targetWeightsBps: mixWeights
+                })
             );
             execRouter.setAuthorizedCaller(v, true);
             cashback.setAuthorizedVault(v, true);

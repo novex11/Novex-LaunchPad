@@ -12,6 +12,7 @@ import {ExecutionRouter} from "../src/ExecutionRouter.sol";
 import {StrategyVault} from "../src/StrategyVault.sol";
 import {PairFactory} from "../src/PairFactory.sol";
 import {PairDeployer} from "../src/PairDeployer.sol";
+import {VaultMixes} from "./VaultMixes.sol";
 
 /// @title DeployMainnet — deploys Compose protocol against real Robinhood Chain tokens
 /// @notice No mocks. All token addresses are the real ERC-8056 contracts on
@@ -103,19 +104,28 @@ contract DeployMainnet is Script {
             address[9] memory depositTokens = [NVDA, AAPL, MSFT, GOOGL, AMZN, TSLA, SNDK, SPY, QQQ];
             string[9] memory tickers = ["NVDA", "AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "SNDK", "SPY", "QQQ"];
 
+            // Fixed target mix per deposit asset from vault-mixes-<chainId>.json
+            // (pnpm mixes:mainnet); assets without a mix get no vault.
+            string memory mixes = VaultMixes.load(block.chainid);
             for (uint256 i; i < depositTokens.length; ++i) {
+                if (!VaultMixes.has(mixes, tickers[i])) continue;
+                (address[] memory mixTokens, uint256[] memory mixWeights) = VaultMixes.get(mixes, tickers[i]);
                 string memory symbol = string.concat("t", tickers[i], "-B");
                 string memory name = string.concat("Compose ", tickers[i], " Balanced");
                 (address v, ) = factory.createVault(
-                    depositTokens[i],
-                    AllocationController.Strategy.Balanced,
-                    name,
-                    symbol,
-                    1_000_000e8
+                    VaultFactory.CreateParams({
+                        depositAsset: depositTokens[i],
+                        strategy: AllocationController.Strategy.Balanced,
+                        receiptName: name,
+                        receiptSymbol: symbol,
+                        tvlCapUsd8: 1_000_000e8,
+                        targetTokens: mixTokens,
+                        targetWeightsBps: mixWeights
+                    })
                 );
                 router.setAuthorizedCaller(v, true);
                 cashback.setAuthorizedVault(v, true);
-                if (i == 0) {
+                if (firstVault == address(0)) {
                     firstVault = v;
                 }
             }

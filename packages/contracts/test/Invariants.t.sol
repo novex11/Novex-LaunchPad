@@ -79,6 +79,7 @@ contract InvariantsTest is Test {
             1_000_000e8
         );
         receipt.setVault(address(vault));
+        vault.setTargetMix(_mixTokens(), _mixWeights());
         router.setAuthorizedCaller(address(vault), true);
 
         // Fund mock swap router with all tokens
@@ -93,23 +94,20 @@ contract InvariantsTest is Test {
         nvda.approve(address(vault), type(uint256).max);
     }
 
-    function _params4Token() internal view returns (StrategyVault.DepositParams memory) {
-        address[] memory tokens = new address[](4);
+    function _mixTokens() internal view returns (address[] memory tokens) {
+        tokens = new address[](4);
         tokens[0] = address(nvda);
         tokens[1] = address(aapl);
         tokens[2] = address(msft);
         tokens[3] = address(googl);
-        uint256[] memory weights = new uint256[](4);
+    }
+
+    function _mixWeights() internal pure returns (uint256[] memory weights) {
+        weights = new uint256[](4);
         weights[0] = 2500;
         weights[1] = 2500;
         weights[2] = 2500;
         weights[3] = 2500;
-        return StrategyVault.DepositParams({
-            amount: 2 ether,
-            basketTokens: tokens,
-            basketWeightsBps: weights,
-            minShares: 0
-        });
     }
 
     function test_SharePriceAlwaysPositive() public view {
@@ -119,7 +117,7 @@ contract InvariantsTest is Test {
 
     function test_NavMatchesTokenBalances() public {
         vm.prank(user);
-        vault.deposit(_params4Token());
+        vault.deposit(2 ether, 0);
 
         uint256 nav = vault.navUsd8();
         uint256 manual = oracle.getTokenValueUsd(address(nvda), nvda.balanceOf(address(vault)))
@@ -131,7 +129,7 @@ contract InvariantsTest is Test {
 
     function test_ReceiptTokenNonTransferable() public {
         vm.prank(user);
-        vault.deposit(_params4Token());
+        vault.deposit(2 ether, 0);
 
         vm.prank(user);
         vm.expectRevert("ReceiptToken: non-transferable");
@@ -140,7 +138,7 @@ contract InvariantsTest is Test {
 
     function test_FullCycleDepositAndRedeem() public {
         vm.prank(user);
-        uint256 shares = vault.deposit(_params4Token());
+        uint256 shares = vault.deposit(2 ether, 0);
 
         assertGt(shares, 0, "shares minted");
         assertGt(vault.navUsd8(), 0, "NAV > 0");
@@ -155,7 +153,7 @@ contract InvariantsTest is Test {
 
     function test_NavZeroAfterOriginalRedeem() public {
         vm.prank(user);
-        uint256 shares = vault.deposit(_params4Token());
+        uint256 shares = vault.deposit(2 ether, 0);
 
         vm.prank(user);
         vault.redeem(shares, StrategyVault.RedeemMode.OriginalAsset, 0);

@@ -97,6 +97,7 @@ contract StrategyVaultTest is Test {
             1_000_000e8
         );
         receipt.setVault(address(vault));
+        vault.setTargetMix(_mixTokens(), _mixWeights());
 
         // Authorize vault
         router.setAuthorizedCaller(address(vault), true);
@@ -124,30 +125,28 @@ contract StrategyVaultTest is Test {
 
     // ─── Helpers ────────────────────────────────────────────
 
-    function _depositParams4Token() internal view returns (StrategyVault.DepositParams memory) {
-        address[] memory tokens = new address[](4);
+    /// @dev 25% retained NVDA + 25% each AAPL / MSFT / GOOGL — the vault's fixed mix.
+    function _mixTokens() internal view returns (address[] memory tokens) {
+        tokens = new address[](4);
         tokens[0] = address(nvda);
         tokens[1] = address(aapl);
         tokens[2] = address(msft);
         tokens[3] = address(googl);
-        uint256[] memory weights = new uint256[](4);
+    }
+
+    function _mixWeights() internal pure returns (uint256[] memory weights) {
+        weights = new uint256[](4);
         weights[0] = 2500;
         weights[1] = 2500;
         weights[2] = 2500;
         weights[3] = 2500;
-        return StrategyVault.DepositParams({
-            amount: 1 ether,
-            basketTokens: tokens,
-            basketWeightsBps: weights,
-            minShares: 0
-        });
     }
 
     // ─── B.1: Deposit with basket swaps ─────────────────────
 
     function test_DepositMintsShares() public {
         vm.prank(user);
-        uint256 shares = vault.deposit(_depositParams4Token());
+        uint256 shares = vault.deposit(1 ether, 0);
 
         assertGt(shares, 0, "should mint shares");
         assertEq(receipt.balanceOf(user), shares, "receipt balance");
@@ -159,7 +158,7 @@ contract StrategyVaultTest is Test {
         uint256 googlBefore = googl.balanceOf(address(vault));
 
         vm.prank(user);
-        vault.deposit(_depositParams4Token());
+        vault.deposit(1 ether, 0);
 
         // 25% of 1 ether = 0.25 ether swapped to each non-deposit token
         assertGt(aapl.balanceOf(address(vault)) - aaplBefore, 0, "AAPL received");
@@ -169,7 +168,7 @@ contract StrategyVaultTest is Test {
 
     function test_DepositRetainsDepositAsset() public {
         vm.prank(user);
-        vault.deposit(_depositParams4Token());
+        vault.deposit(1 ether, 0);
 
         // 25% retained as NVDA = 0.25 ether
         assertEq(nvda.balanceOf(address(vault)), 0.25 ether, "NVDA retained");
@@ -177,7 +176,7 @@ contract StrategyVaultTest is Test {
 
     function test_DepositTracksBasketTokens() public {
         vm.prank(user);
-        vault.deposit(_depositParams4Token());
+        vault.deposit(1 ether, 0);
 
         assertEq(vault.basketTokenCount(), 4, "4 basket tokens");
         assertTrue(vault.isBasketToken(address(nvda)), "NVDA tracked");
@@ -190,7 +189,7 @@ contract StrategyVaultTest is Test {
 
     function test_NavUsd8MultiAsset() public {
         vm.prank(user);
-        vault.deposit(_depositParams4Token());
+        vault.deposit(1 ether, 0);
 
         uint256 nav = vault.navUsd8();
         // Oracle-priced swaps: deposit 1 NVDA ($500) with 25% each:
@@ -208,7 +207,7 @@ contract StrategyVaultTest is Test {
 
     function test_SharePriceAfterDeposit() public {
         vm.prank(user);
-        vault.deposit(_depositParams4Token());
+        vault.deposit(1 ether, 0);
 
         // First deposit: shares = depositValue / 1e18
         // depositValue = 1 ether * 500e8 / 1e18 = 500e8
@@ -229,11 +228,11 @@ contract StrategyVaultTest is Test {
     function test_NoDilutionSecondDepositor() public {
         // First deposit
         vm.prank(user);
-        uint256 shares1 = vault.deposit(_depositParams4Token());
+        uint256 shares1 = vault.deposit(1 ether, 0);
 
         // Second deposit (same amount)
         vm.prank(user2);
-        uint256 shares2 = vault.deposit(_depositParams4Token());
+        uint256 shares2 = vault.deposit(1 ether, 0);
 
         // Both deposited the same value, so shares should be proportional to value
         // With 1:1 mock swaps (token amounts, not USD), NAV shifts after first deposit
@@ -253,17 +252,18 @@ contract StrategyVaultTest is Test {
             address(cashback), address(emergency), address(router), address(usdg), 600e8
         );
         receipt2.setVault(address(smallVault));
+        smallVault.setTargetMix(_mixTokens(), _mixWeights());
         router.setAuthorizedCaller(address(smallVault), true);
 
         // First deposit of 1 NVDA ($500) should succeed
         nvda.transfer(user, 10 ether);
         vm.startPrank(user);
         nvda.approve(address(smallVault), type(uint256).max);
-        smallVault.deposit(_depositParams4Token());
+        smallVault.deposit(1 ether, 0);
 
         // Second deposit should fail: $500 + $500 > $600 cap
         vm.expectRevert("StrategyVault: TVL cap");
-        smallVault.deposit(_depositParams4Token());
+        smallVault.deposit(1 ether, 0);
         vm.stopPrank();
     }
 
@@ -273,7 +273,7 @@ contract StrategyVaultTest is Test {
         uint256 userNvdaBefore = nvda.balanceOf(user);
 
         vm.prank(user);
-        vault.deposit(_depositParams4Token());
+        vault.deposit(1 ether, 0);
 
         // Deposit value = 1 NVDA * $500 = $500 → eligible for $2 stockback
         // $2 stockback in NVDA terms = 2e8 * 1e18 / 500e8 = 0.004e18
@@ -285,7 +285,7 @@ contract StrategyVaultTest is Test {
 
     function test_CashbackTrackedPerWallet() public {
         vm.prank(user);
-        vault.deposit(_depositParams4Token());
+        vault.deposit(1 ether, 0);
 
         assertGt(cashback.walletStockbackUsd8(user), 0, "cashback tracked");
         assertEq(cashback.walletStockbackUsd8(user), 2e8, "cashback = $2 flat");
@@ -295,7 +295,7 @@ contract StrategyVaultTest is Test {
 
     function test_ProportionalRedeemDistributesAllTokens() public {
         vm.prank(user);
-        uint256 shares = vault.deposit(_depositParams4Token());
+        uint256 shares = vault.deposit(1 ether, 0);
 
         uint256 userAaplBefore = aapl.balanceOf(user);
         uint256 userMsftBefore = msft.balanceOf(user);
@@ -312,7 +312,7 @@ contract StrategyVaultTest is Test {
 
     function test_ProportionalRedeemBurnsShares() public {
         vm.prank(user);
-        uint256 shares = vault.deposit(_depositParams4Token());
+        uint256 shares = vault.deposit(1 ether, 0);
 
         vm.prank(user);
         vault.redeem(shares, StrategyVault.RedeemMode.ProportionalBasket, 0);
@@ -325,7 +325,7 @@ contract StrategyVaultTest is Test {
 
     function test_OriginalAssetRedeemSwapsBack() public {
         vm.prank(user);
-        uint256 shares = vault.deposit(_depositParams4Token());
+        uint256 shares = vault.deposit(1 ether, 0);
 
         uint256 userNvdaBefore = nvda.balanceOf(user);
 
@@ -344,7 +344,7 @@ contract StrategyVaultTest is Test {
 
         vm.prank(user);
         vm.expectRevert("StrategyVault: deposits paused");
-        vault.deposit(_depositParams4Token());
+        vault.deposit(1 ether, 0);
     }
 
     function test_PauseSwaps() public {
@@ -353,7 +353,7 @@ contract StrategyVaultTest is Test {
         // Deposit requiring swaps (4-token basket) should fail when swaps paused
         vm.prank(user);
         vm.expectRevert("ExecutionRouter: swaps paused");
-        vault.deposit(_depositParams4Token());
+        vault.deposit(1 ether, 0);
     }
 
     // ─── Share price invariant ──────────────────────────────
@@ -366,7 +366,7 @@ contract StrategyVaultTest is Test {
 
     function test_UsdStableRedeem() public {
         vm.prank(user);
-        uint256 shares = vault.deposit(_depositParams4Token());
+        uint256 shares = vault.deposit(1 ether, 0);
 
         uint256 userUsdgBefore = usdg.balanceOf(user);
 
@@ -379,7 +379,7 @@ contract StrategyVaultTest is Test {
 
     function test_PartialRedeem() public {
         vm.prank(user);
-        uint256 shares = vault.deposit(_depositParams4Token());
+        uint256 shares = vault.deposit(1 ether, 0);
 
         uint256 halfShares = shares / 2;
         vm.prank(user);

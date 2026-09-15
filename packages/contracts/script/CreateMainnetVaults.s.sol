@@ -9,6 +9,7 @@ import {CashbackReserve} from "../src/CashbackReserve.sol";
 import {ExecutionRouter} from "../src/ExecutionRouter.sol";
 import {VaultFactory} from "../src/VaultFactory.sol";
 import {StrategyVault} from "../src/StrategyVault.sol";
+import {VaultMixes} from "./VaultMixes.sol";
 
 /// @title CreateMainnetVaults — one Balanced basket vault per onboarded stock
 /// @notice Idempotent. For every stock in mainnet-onboard.json (category other
@@ -17,7 +18,9 @@ import {StrategyVault} from "../src/StrategyVault.sol";
 ///         mainnet-baskets.json, authorizes it on the ExecutionRouter and
 ///         CashbackReserve, and merges vault + receipt addresses into
 ///         deployments-mainnet-vaults.json. Existing vaults are reused; only
-///         missing authorizations are (re)applied.
+///         missing authorizations are (re)applied. Every vault is created with
+///         the fixed target mix from vault-mixes-4663.json (pnpm mixes:mainnet);
+///         stocks without a mix are skipped.
 ///
 ///   DEPLOYER_PRIVATE_KEY / FORK_IMPERSONATE_OWNER  see MainnetScriptBase (owner-gated)
 ///   VAULT_TICKERS                optional comma list restricting the run
@@ -36,9 +39,12 @@ contract CreateMainnetVaults is MainnetScriptBase {
     mapping(string => address) receiptOf;
     mapping(string => bool) hasVaultEntry;
 
+    string mixesJson;
+
     uint256 created;
     uint256 existing;
     uint256 skippedNoFeed;
+    uint256 skippedNoMix;
 
     function _tag() internal pure override returns (string memory) {
         return "CreateMainnetVaults";
@@ -55,6 +61,7 @@ contract CreateMainnetVaults is MainnetScriptBase {
         require(address(factoryC.oracle()) == oracle, _err("VaultFactory oracle differs from the launchpad oracle"));
 
         _loadOnboard();
+        mixesJson = VaultMixes.load(CHAIN_ID);
         string memory vaultsPath = string.concat(_deploymentsDir(), "/deployments-mainnet-vaults.json");
         _loadExistingVaults(vaultsPath);
 
@@ -74,6 +81,7 @@ contract CreateMainnetVaults is MainnetScriptBase {
         console2.log("vaults created:", created);
         console2.log("vaults already on-chain:", existing);
         console2.log("skipped (no price feed):", skippedNoFeed);
+        console2.log("skipped (no target mix):", skippedNoMix);
         console2.log("vaults in file:", vaultTickers.length);
     }
 
@@ -87,12 +95,22 @@ contract CreateMainnetVaults is MainnetScriptBase {
         address vault = factoryC.vaultByKey(keccak256(abi.encode(asset, strategy)));
         address receipt;
         if (vault == address(0)) {
+            if (!VaultMixes.has(mixesJson, ticker)) {
+                console2.log("skip (no target mix):", ticker);
+                ++skippedNoMix;
+                return;
+            }
+            (address[] memory mixTokens, uint256[] memory mixWeights) = VaultMixes.get(mixesJson, ticker);
             (vault, receipt) = factoryC.createVault(
-                asset,
-                strategy,
-                string.concat("Compose ", ticker, " Balanced"),
-                string.concat("t", ticker, "-B"),
-                TVL_CAP_USD8
+                VaultFactory.CreateParams({
+                    depositAsset: asset,
+                    strategy: strategy,
+                    receiptName: string.concat("Compose ", ticker, " Balanced"),
+                    receiptSymbol: string.concat("t", ticker, "-B"),
+                    tvlCapUsd8: TVL_CAP_USD8,
+                    targetTokens: mixTokens,
+                    targetWeightsBps: mixWeights
+                })
             );
             ++created;
         } else {

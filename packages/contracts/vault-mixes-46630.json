@@ -1,0 +1,127 @@
+{
+  "chainId": 46630,
+  "strategy": "balanced",
+  "generatedAt": "2026-09-15T19:44:00.756Z",
+  "mixes": {
+    "TSLA": {
+      "depositToken": "0xC9f9c86933092BbbfFF3CCb4b105A4A94bf3Bd4E",
+      "tickers": [
+        "AMZN",
+        "TSLA",
+        "AMD",
+        "PLTR",
+        "NFLX"
+      ],
+      "tokens": [
+        "0x5884aD2f920c162CFBbACc88C9C51AA75eC09E02",
+        "0xC9f9c86933092BbbfFF3CCb4b105A4A94bf3Bd4E",
+        "0x71178BAc73cBeb415514eB542a8995b82669778d",
+        "0x1FBE1a0e43594b3455993B5dE5Fd0A7A266298d0",
+        "0x3b8262A63d25f0477c4DDE23F83cfe22Cb768C93"
+      ],
+      "weightsBps": [
+        2500,
+        2046,
+        1818,
+        1818,
+        1818
+      ]
+    },
+    "AMZN": {
+      "depositToken": "0x5884aD2f920c162CFBbACc88C9C51AA75eC09E02",
+      "tickers": [
+        "TSLA",
+        "AMZN",
+        "AMD",
+        "PLTR",
+        "NFLX"
+      ],
+      "tokens": [
+        "0xC9f9c86933092BbbfFF3CCb4b105A4A94bf3Bd4E",
+        "0x5884aD2f920c162CFBbACc88C9C51AA75eC09E02",
+        "0x71178BAc73cBeb415514eB542a8995b82669778d",
+        "0x1FBE1a0e43594b3455993B5dE5Fd0A7A266298d0",
+        "0x3b8262A63d25f0477c4DDE23F83cfe22Cb768C93"
+      ],
+      "weightsBps": [
+        2500,
+        2046,
+        1818,
+        1818,
+        1818
+      ]
+    },
+    "AMD": {
+      "depositToken": "0x71178BAc73cBeb415514eB542a8995b82669778d",
+      "tickers": [
+        "TSLA",
+        "AMZN",
+        "AMD",
+        "PLTR",
+        "NFLX"
+      ],
+      "tokens": [
+        "0xC9f9c86933092BbbfFF3CCb4b105A4A94bf3Bd4E",
+        "0x5884aD2f920c162CFBbACc88C9C51AA75eC09E02",
+        "0x71178BAc73cBeb415514eB542a8995b82669778d",
+        "0x1FBE1a0e43594b3455993B5dE5Fd0A7A266298d0",
+        "0x3b8262A63d25f0477c4DDE23F83cfe22Cb768C93"
+      ],
+      "weightsBps": [
+        2400,
+        2400,
+        2000,
+        1600,
+        1600
+      ]
+    },
+    "PLTR": {
+      "depositToken": "0x1FBE1a0e43594b3455993B5dE5Fd0A7A266298d0",
+      "tickers": [
+        "TSLA",
+        "AMZN",
+        "PLTR",
+        "AMD",
+        "NFLX"
+      ],
+      "tokens": [
+        "0xC9f9c86933092BbbfFF3CCb4b105A4A94bf3Bd4E",
+        "0x5884aD2f920c162CFBbACc88C9C51AA75eC09E02",
+        "0x1FBE1a0e43594b3455993B5dE5Fd0A7A266298d0",
+        "0x71178BAc73cBeb415514eB542a8995b82669778d",
+        "0x3b8262A63d25f0477c4DDE23F83cfe22Cb768C93"
+      ],
+      "weightsBps": [
+        2400,
+        2400,
+        2000,
+        1600,
+        1600
+      ]
+    },
+    "NFLX": {
+      "depositToken": "0x3b8262A63d25f0477c4DDE23F83cfe22Cb768C93",
+      "tickers": [
+        "TSLA",
+        "AMZN",
+        "NFLX",
+        "AMD",
+        "PLTR"
+      ],
+      "tokens": [
+        "0xC9f9c86933092BbbfFF3CCb4b105A4A94bf3Bd4E",
+        "0x5884aD2f920c162CFBbACc88C9C51AA75eC09E02",
+        "0x3b8262A63d25f0477c4DDE23F83cfe22Cb768C93",
+        "0x71178BAc73cBeb415514eB542a8995b82669778d",
+        "0x1FBE1a0e43594b3455993B5dE5Fd0A7A266298d0"
+      ],
+      "weightsBps": [
+        2400,
+        2400,
+        2000,
+        1600,
+        1600
+      ]
+    }
+  }
+}

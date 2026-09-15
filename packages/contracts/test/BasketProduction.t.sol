@@ -78,7 +78,15 @@ contract BasketProductionTest is Test {
         );
         factory.setUsdStableAsset(address(usdg));
         (address v, address r) = factory.createVault(
-            address(nvda), AllocationController.Strategy.Balanced, "Compose NVDA Balanced", "tNVDA-B", 1_000_000e8
+            VaultFactory.CreateParams({
+                depositAsset: address(nvda),
+                strategy: AllocationController.Strategy.Balanced,
+                receiptName: "Compose NVDA Balanced",
+                receiptSymbol: "tNVDA-B",
+                tvlCapUsd8: 1_000_000e8,
+                targetTokens: _mixTokens(),
+                targetWeightsBps: _mixWeights()
+            })
         );
         vault = StrategyVault(v);
         receipt = ReceiptToken(r);
@@ -93,30 +101,28 @@ contract BasketProductionTest is Test {
         nvda.approve(address(vault), type(uint256).max);
     }
 
-    function _params(uint256 minShares) internal view returns (StrategyVault.DepositParams memory) {
-        address[] memory tokens = new address[](4);
+    /// @dev 25% retained NVDA + 25% each AAPL / MSFT / USDG — the vault's fixed mix.
+    function _mixTokens() internal view returns (address[] memory tokens) {
+        tokens = new address[](4);
         tokens[0] = address(nvda);
         tokens[1] = address(aapl);
         tokens[2] = address(msft);
         tokens[3] = address(usdg);
-        uint256[] memory weights = new uint256[](4);
+    }
+
+    function _mixWeights() internal pure returns (uint256[] memory weights) {
+        weights = new uint256[](4);
         weights[0] = 2500;
         weights[1] = 2500;
         weights[2] = 2500;
         weights[3] = 2500;
-        return StrategyVault.DepositParams({
-            amount: 1 ether,
-            basketTokens: tokens,
-            basketWeightsBps: weights,
-            minShares: minShares
-        });
     }
 
     // ─── Value-based minting ─────────────────────────────────
 
     function test_FirstDepositMintsValueReceived() public {
         vm.prank(user);
-        uint256 shares = vault.deposit(_params(0));
+        uint256 shares = vault.deposit(1 ether, 0);
         // 1 NVDA = $500; exact oracle-priced swaps → NAV ≈ $500 (integer rounding only)
         assertApproxEqAbs(shares, 500e8, 4, "shares track value received");
         assertEq(vault.navUsd8(), shares, "first deposit: 1 share = 1e-8 USD");
@@ -124,13 +130,13 @@ contract BasketProductionTest is Test {
 
     function test_SwapLossIsBorneByDepositorNotHolders() public {
         vm.prank(user);
-        uint256 shares1 = vault.deposit(_params(0));
+        uint256 shares1 = vault.deposit(1 ether, 0);
         uint256 priceBefore = vault.sharePrice();
 
         // Second depositor gets 0.8% slippage on every leg (within the 1% floor)
         uni.setLossBps(80);
         vm.prank(user2);
-        uint256 shares2 = vault.deposit(_params(0));
+        uint256 shares2 = vault.deposit(1 ether, 0);
 
         assertLt(shares2, shares1, "lossy deposit mints fewer shares");
         // 3 of 4 legs swap at 0.8% loss → ~0.6% less value → ~0.6% fewer shares
@@ -147,14 +153,14 @@ contract BasketProductionTest is Test {
 
         vm.prank(user);
         vm.expectRevert(bytes("StrategyVault: slippage"));
-        vault.deposit(_params(minShares));
+        vault.deposit(1 ether, minShares);
     }
 
     function test_MinSharesAcceptsWithinTolerance() public {
         uni.setLossBps(50);
         uint256 minShares = (500e8 * 9900) / 10_000;
         vm.prank(user);
-        uint256 shares = vault.deposit(_params(minShares));
+        uint256 shares = vault.deposit(1 ether, minShares);
         assertGe(shares, minShares);
     }
 
@@ -164,7 +170,7 @@ contract BasketProductionTest is Test {
         uni.setLossBps(150); // above the 1% protocol tolerance
         vm.prank(user);
         vm.expectRevert(bytes("Too little received"));
-        vault.deposit(_params(0));
+        vault.deposit(1 ether, 0);
     }
 
     function test_RouterQuoteHandlesDecimals() public {
@@ -180,7 +186,7 @@ contract BasketProductionTest is Test {
         router.setOracle(address(0));
         uni.setLossBps(400);
         vm.prank(user);
-        uint256 shares = vault.deposit(_params(0));
+        uint256 shares = vault.deposit(1 ether, 0);
         assertLt(shares, 500e8, "no floor: loss accepted, borne by depositor");
     }
 
@@ -204,7 +210,7 @@ contract BasketProductionTest is Test {
         router.setSwapRouter(address(adapter2));
 
         vm.prank(user);
-        vault.deposit(_params(0));
+        vault.deposit(1 ether, 0);
         assertGt(nvda.balanceOf(address(uni2)), 0, "swaps routed through new venue");
     }
 
@@ -212,7 +218,7 @@ contract BasketProductionTest is Test {
 
     function test_AdapterUsesConfiguredFeeTier() public {
         vm.prank(user);
-        vault.deposit(_params(0));
+        vault.deposit(1 ether, 0);
         assertEq(uint256(uni.lastFee()), 3000, "default 0.30% tier");
 
         adapter.setPairFee(address(nvda), address(usdg), 500);
@@ -237,12 +243,12 @@ contract BasketProductionTest is Test {
 
     function test_ProportionalRedeemWorksWithStaleOracle() public {
         vm.prank(user);
-        uint256 shares = vault.deposit(_params(0));
+        uint256 shares = vault.deposit(1 ether, 0);
 
         vm.warp(block.timestamp + 2 days);
         vm.prank(user);
         vm.expectRevert(bytes("OracleAdapter: stale"));
-        vault.deposit(_params(0));
+        vault.deposit(1 ether, 0);
 
         uint256 aaplBefore = aapl.balanceOf(user);
         vm.prank(user);
@@ -253,7 +259,7 @@ contract BasketProductionTest is Test {
 
     function test_RedeemOriginalRespectsMinOut() public {
         vm.prank(user);
-        uint256 shares = vault.deposit(_params(0));
+        uint256 shares = vault.deposit(1 ether, 0);
 
         vm.prank(user);
         vm.expectRevert(bytes("StrategyVault: min output"));
@@ -273,7 +279,7 @@ contract BasketProductionTest is Test {
 
         uint256 before = nvda.balanceOf(user);
         vm.prank(user);
-        uint256 shares = vault.deposit(_params(0));
+        uint256 shares = vault.deposit(1 ether, 0);
         // $2 stockback in NVDA at $500 = 0.004 NVDA forwarded to the user
         assertEq(nvda.balanceOf(user), before - 1 ether + 0.004 ether, "stockback forwarded");
         assertEq(cashback.walletStockbackUsd8(user), 2e8);
@@ -311,11 +317,89 @@ contract BasketProductionTest is Test {
     // ─── Guards + admin ──────────────────────────────────────
 
     function test_ZeroAmountAndZeroSharesRevert() public {
-        StrategyVault.DepositParams memory p = _params(0);
-        p.amount = 0;
         vm.prank(user);
         vm.expectRevert(bytes("StrategyVault: zero amount"));
-        vault.deposit(p);
+        vault.deposit(0, 0);
+    }
+
+    // ─── Fixed target mix ────────────────────────────────────
+
+    function test_DepositFollowsStoredMix() public {
+        vm.prank(user);
+        vault.deposit(1 ether, 0);
+        // 1 NVDA = $500: 25% retained, $125 into each other leg at oracle price.
+        assertEq(nvda.balanceOf(address(vault)), 0.25 ether, "retained NVDA");
+        assertApproxEqRel(aapl.balanceOf(address(vault)), 0.625 ether, 0.02e18, "AAPL leg");
+        assertApproxEqRel(msft.balanceOf(address(vault)), 0.3125 ether, 0.02e18, "MSFT leg");
+        assertApproxEqRel(usdg.balanceOf(address(vault)), 125 ether, 0.02e18, "USDG leg");
+        (address[] memory toks, uint256[] memory w) = vault.targetMix();
+        assertEq(toks.length, 4);
+        assertEq(w[0] + w[1] + w[2] + w[3], 10_000);
+    }
+
+    function test_OnlyOwnerSetsTargetMix() public {
+        vm.prank(user);
+        vm.expectRevert();
+        vault.setTargetMix(_mixTokens(), _mixWeights());
+    }
+
+    function test_TargetMixMustRespectStrategyCap() public {
+        address[] memory toks = new address[](2);
+        toks[0] = address(nvda);
+        toks[1] = address(aapl);
+        uint256[] memory w = new uint256[](2);
+        w[0] = 5000;
+        w[1] = 5000;
+        vm.expectRevert(bytes("Max single stock exceeded"));
+        factory.setVaultTargetMix(address(vault), toks, w);
+    }
+
+    function test_TargetMixRejectsDuplicateAndUnapproved() public {
+        address[] memory toks = _mixTokens();
+        toks[3] = address(aapl);
+        vm.expectRevert(bytes("StrategyVault: duplicate token"));
+        factory.setVaultTargetMix(address(vault), toks, _mixWeights());
+
+        toks[3] = address(0xDEAD);
+        vm.expectRevert(bytes("AllocationController: unapproved asset"));
+        factory.setVaultTargetMix(address(vault), toks, _mixWeights());
+    }
+
+    function test_FactoryCanReplaceTargetMix() public {
+        MockERC20 googl = new MockERC20("GOOGL", "GOOGL");
+        oracle.setPriceFeed(address(googl), address(new MockOracle(180e8)));
+        controller.setApprovedAsset(address(googl), true);
+        router.setApprovedToken(address(googl), true);
+        googl.transfer(address(uni), 100_000 ether);
+
+        address[] memory toks = new address[](5);
+        toks[0] = address(nvda);
+        toks[1] = address(aapl);
+        toks[2] = address(msft);
+        toks[3] = address(usdg);
+        toks[4] = address(googl);
+        uint256[] memory w = new uint256[](5);
+        for (uint256 i; i < 5; ++i) w[i] = 2000;
+        factory.setVaultTargetMix(address(vault), toks, w);
+
+        vm.prank(user);
+        vault.deposit(1 ether, 0);
+        assertGt(googl.balanceOf(address(vault)), 0, "new leg bought");
+        assertEq(nvda.balanceOf(address(vault)), 0.2 ether, "retention follows new mix");
+    }
+
+    function test_DepositRevertsWithoutTargetMix() public {
+        ReceiptToken r2 = new ReceiptToken("x", "x", address(this));
+        StrategyVault bare = new StrategyVault(
+            address(this), address(nvda), AllocationController.Strategy.Balanced, address(r2), address(oracle),
+            address(controller), address(cashback), address(emergency), address(router), address(usdg), 1_000_000e8
+        );
+        r2.setVault(address(bare));
+        vm.startPrank(user);
+        nvda.approve(address(bare), type(uint256).max);
+        vm.expectRevert(bytes("StrategyVault: no target mix"));
+        bare.deposit(1 ether, 0);
+        vm.stopPrank();
     }
 
     function test_FactoryCanRaiseTvlCap() public {

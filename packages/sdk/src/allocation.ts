@@ -180,6 +180,50 @@ export function computeAllocation(input: AllocationInput): AllocationResult {
   return { items, totalUsd, violations };
 }
 
+/**
+ * Convert fractional weights to integer bps that sum to exactly 10 000 without
+ * pushing any line over `capBps` (the strategy's on-chain single-stock limit),
+ * so largest-remainder rounding can never trip `AllocationController`.
+ * Returns an empty array when the cap makes 10 000 unreachable.
+ */
+export function weightsToBps(weights: number[], capBps = 10_000): number[] {
+  const total = weights.reduce((a, b) => a + b, 0) || 1;
+  const raw = weights.map((w) => (w / total) * 10_000);
+  const bps = raw.map((r) => Math.min(capBps, Math.floor(r)));
+  let remainder = 10_000 - bps.reduce((a, b) => a + b, 0);
+  const order = raw
+    .map((r, i) => [r - Math.floor(r), i] as const)
+    .sort((a, b) => b[0] - a[0]);
+  // Hand out the remainder one bp at a time, always to a line with room.
+  while (remainder > 0) {
+    let placed = false;
+    for (const [, i] of order) {
+      if (remainder <= 0) break;
+      if (bps[i]! >= capBps) continue;
+      bps[i]! += 1;
+      remainder -= 1;
+      placed = true;
+    }
+    if (!placed) return [];
+  }
+  return bps;
+}
+
+/** On-chain target mix for a vault: the strategy's default allocation as bps. */
+export function allocationToMix(
+  result: AllocationResult,
+  strategy: StrategyId,
+): { tickers: string[]; weightsBps: number[] } {
+  const capBps = Math.round(STRATEGIES[strategy].maxSingleStock * 10_000);
+  return {
+    tickers: result.items.map((i) => i.ticker),
+    weightsBps: weightsToBps(
+      result.items.map((i) => i.weight),
+      capBps,
+    ),
+  };
+}
+
 export function validateStrategyCompliance(
   items: AllocationItem[],
   strategy: StrategyId,

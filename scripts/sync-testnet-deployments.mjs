@@ -52,7 +52,13 @@ const config = {
     usdgFeed: "",
     composeCurve: "",
     curveRouter: "",
+    allocationController: "",
+    cashbackReserve: "",
+    executionRouter: "",
+    swapAdapter: "",
+    vaultFactory: "",
   },
+  vaults: {},
   syncedAt: new Date().toISOString(),
 };
 
@@ -95,6 +101,36 @@ if (existsSync(curvePath) && statSync(curvePath).mtimeMs >= newestOther) {
   }
 }
 
+// DeployTestnetBaskets (managed baskets over the oracle-priced swap router).
+// Only valid against the swap router + USDG it was deployed on.
+const basketsPath = join(root, "packages/contracts/deployments-testnet-baskets.json");
+if (existsSync(basketsPath)) {
+  const b = JSON.parse(readFileSync(basketsPath, "utf8"));
+  const sameStack =
+    String(b.swapRouter).toLowerCase() === String(config.contracts.swapRouter).toLowerCase() &&
+    String(b.oracle).toLowerCase() === String(config.contracts.oracle).toLowerCase();
+  if (sameStack) {
+    const c = asObject(b.contracts);
+    config.contracts.allocationController = c.allocationController ?? "";
+    config.contracts.cashbackReserve = c.cashbackReserve ?? "";
+    config.contracts.executionRouter = c.executionRouter ?? "";
+    config.contracts.swapAdapter = c.swapAdapter ?? "";
+    config.contracts.vaultFactory = c.vaultFactory ?? "";
+    config.vaults = asObject(b.vaults);
+  } else {
+    console.warn("⚠️  deployments-testnet-baskets.json belongs to another swap router/oracle; ignoring (redeploy baskets)");
+  }
+}
+
+// Later deployments (launchpad upgrades, baskets) never move the indexer's
+// backfill start backwards; only a fresh base deployment can.
+if (existsSync(configPath)) {
+  const prev = JSON.parse(readFileSync(configPath, "utf8"));
+  const samePairFactory =
+    String(prev.contracts?.pairFactory ?? "").toLowerCase() === String(config.contracts.pairFactory).toLowerCase();
+  if (samePairFactory && Number(prev.startBlock) > config.startBlock) config.startBlock = Number(prev.startBlock);
+}
+
 writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
 console.log("✅  Updated", configPath);
 
@@ -111,6 +147,7 @@ if (existsSync(envPath)) {
   set("PAIR_FACTORY_ADDRESS", config.contracts.pairFactory);
   set("NEXT_PUBLIC_ORACLE_ADAPTER_ADDRESS", config.contracts.oracle);
   set("INDEXER_START_BLOCK", String(config.startBlock));
+  set("VAULT_FACTORY_ADDRESS", config.contracts.vaultFactory);
   // Old mock deployment (USDG/Zap/mock vaults) and the mainnet WETH address do
   // not exist on testnet; leaving them set breaks testnet reads.
   for (const key of [
@@ -118,7 +155,6 @@ if (existsSync(envPath)) {
     "NEXT_PUBLIC_USDG_ADDRESS",
     "NEXT_PUBLIC_WETH_ADDRESS",
     "NEXT_PUBLIC_UNISWAP_V3_ROUTER",
-    "NEXT_PUBLIC_FACTORY_ADDRESS",
     "NEXT_PUBLIC_VAULT_ADDRESS",
     "NEXT_PUBLIC_RECEIPT_TOKEN_ADDRESS",
     "VAULT_CONTRACT_ADDRESS",
@@ -135,6 +171,10 @@ console.log("\n📋  Testnet launchpad:");
 console.log("   PairFactory:      ", config.contracts.pairFactory);
 console.log("   OracleAdapter:    ", config.contracts.oracle);
 console.log("   PriceFeedUpdater: ", config.contracts.priceFeedUpdater);
+if (config.contracts.vaultFactory) {
+  console.log("   VaultFactory:     ", config.contracts.vaultFactory);
+  console.log("   Basket vaults:    ", Object.keys(config.vaults).join(", "));
+}
 if (config.contracts.pairRouter) {
   console.log("   PairRouter:       ", config.contracts.pairRouter);
   console.log("   SwapRouter (test):", config.contracts.swapRouter);

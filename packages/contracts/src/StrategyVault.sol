@@ -33,12 +33,14 @@ contract StrategyVault is Ownable, ReentrancyGuard {
     address[] public basketTokens;
     mapping(address => bool) public isBasketToken;
 
-    struct DepositParams {
-        uint256 amount;
-        address[] basketTokens;
-        uint256[] basketWeightsBps;
-        uint256 minShares;
-    }
+    /// @notice Fixed target mix every deposit is swapped into. Set by the owner
+    ///         (the VaultFactory) at creation and validated against the strategy
+    ///         limits, so all holders share one basket and no depositor can pick
+    ///         their own weights.
+    address[] public targetTokens;
+    uint256[] public targetWeightsBps;
+
+    uint256 public constant MAX_TARGET_TOKENS = 32;
 
     enum RedeemMode {
         OriginalAsset,
@@ -67,6 +69,7 @@ contract StrategyVault is Ownable, ReentrancyGuard {
     );
     event CashbackForwarded(address indexed user, uint256 amount);
     event TvlCapUpdated(uint256 tvlCapUsd8);
+    event TargetMixSet(address[] tokens, uint256[] weightsBps);
 
     constructor(
         address owner_,
@@ -101,10 +104,37 @@ contract StrategyVault is Ownable, ReentrancyGuard {
         emit TvlCapUpdated(newCap);
     }
 
+    /// @notice Replace the target mix. Weights are validated by the
+    ///         AllocationController for this vault's strategy. Existing holdings
+    ///         are not rebalanced; only future deposits follow the new mix.
+    function setTargetMix(address[] calldata tokens, uint256[] calldata weightsBps) external onlyOwner {
+        require(tokens.length > 0 && tokens.length <= MAX_TARGET_TOKENS, "StrategyVault: bad mix size");
+        (bool valid, string memory reason) = controller.validateAllocation(strategy, tokens, weightsBps);
+        require(valid, reason);
+        for (uint256 i; i < tokens.length; ++i) {
+            require(tokens[i] != address(0), "StrategyVault: zero token");
+            for (uint256 j; j < i; ++j) {
+                require(tokens[i] != tokens[j], "StrategyVault: duplicate token");
+            }
+        }
+        targetTokens = tokens;
+        targetWeightsBps = weightsBps;
+        emit TargetMixSet(tokens, weightsBps);
+    }
+
     // ─── Views ──────────────────────────────────────────────
 
     function basketTokenCount() external view returns (uint256) {
         return basketTokens.length;
+    }
+
+    /// @notice The mix every deposit is swapped into (weights in bps, sum 10 000).
+    function targetMix() external view returns (address[] memory tokens, uint256[] memory weightsBps) {
+        return (targetTokens, targetWeightsBps);
+    }
+
+    function targetMixLength() external view returns (uint256) {
+        return targetTokens.length;
     }
 
     function sharePrice() public view returns (uint256) {
@@ -143,20 +173,16 @@ contract StrategyVault is Ownable, ReentrancyGuard {
 
     // ─── Deposit ────────────────────────────────────────────
 
-    function deposit(DepositParams calldata params) external nonReentrant returns (uint256 sharesMinted) {
-        require(params.amount > 0, "StrategyVault: zero amount");
+    /// @param amount    Deposit-asset amount to pull from the caller.
+    /// @param minShares Slippage floor on the shares minted after every swap leg.
+    function deposit(uint256 amount, uint256 minShares) external nonReentrant returns (uint256 sharesMinted) {
+        require(amount > 0, "StrategyVault: zero amount");
+        require(targetTokens.length > 0, "StrategyVault: no target mix");
         require(!emergency.depositsPaused(), "StrategyVault: deposits paused");
         require(
             !oracle.isMultiplierPending(depositAsset),
             "StrategyVault: multiplier pending"
         );
-
-        (bool valid, string memory reason) = controller.validateAllocation(
-            strategy,
-            params.basketTokens,
-            params.basketWeightsBps
-        );
-        require(valid, reason);
 
         // The retained (un-swapped) part of every deposit stays in the vault, so the
         // deposit asset always counts toward NAV even when it is not a basket line.
@@ -169,15 +195,15 @@ contract StrategyVault is Ownable, ReentrancyGuard {
             : (navBefore * 1e18) / totalShares;
         require(priceBefore > 0, "StrategyVault: zero price");
 
-        uint256 depositValue8 = oracle.getTokenValueUsd(depositAsset, params.amount);
+        uint256 depositValue8 = oracle.getTokenValueUsd(depositAsset, amount);
         require(depositValue8 > 0, "StrategyVault: zero value");
         require(navBefore + depositValue8 <= tvlCapUsd8, "StrategyVault: TVL cap");
 
         // Pull deposit asset from user
-        IERC20(depositAsset).safeTransferFrom(msg.sender, address(this), params.amount);
+        IERC20(depositAsset).safeTransferFrom(msg.sender, address(this), amount);
 
-        // Execute basket swaps via ExecutionRouter
-        _executeBasketSwaps(params);
+        // Swap into the target mix via ExecutionRouter
+        _executeBasketSwaps(amount);
 
         // Mint shares for the value that actually landed in the vault after swaps, so
         // swap slippage is borne by the depositor (and bounded by minShares) instead of
@@ -186,14 +212,14 @@ contract StrategyVault is Ownable, ReentrancyGuard {
         uint256 valueAdded8 = navAfter > navBefore ? navAfter - navBefore : 0;
         sharesMinted = (valueAdded8 * 1e18) / priceBefore;
         require(sharesMinted > 0, "StrategyVault: zero shares");
-        require(sharesMinted >= params.minShares, "StrategyVault: slippage");
+        require(sharesMinted >= minShares, "StrategyVault: slippage");
         totalShares += sharesMinted;
         receiptToken.mint(msg.sender, sharesMinted);
 
         // Try to pay Stockback cashback to user
         _tryCashback(msg.sender, depositValue8);
 
-        emit Deposited(msg.sender, params.amount, sharesMinted, valueAdded8);
+        emit Deposited(msg.sender, amount, sharesMinted, valueAdded8);
     }
 
     function _registerBasketToken(address token) internal {
@@ -203,16 +229,16 @@ contract StrategyVault is Ownable, ReentrancyGuard {
         }
     }
 
-    function _executeBasketSwaps(DepositParams calldata params) internal {
+    function _executeBasketSwaps(uint256 amount) internal {
         uint256 totalSwapAmount;
 
         // First pass: register tokens and tally swap total
-        for (uint256 i; i < params.basketTokens.length; ++i) {
-            address token = params.basketTokens[i];
+        for (uint256 i; i < targetTokens.length; ++i) {
+            address token = targetTokens[i];
             _registerBasketToken(token);
 
             if (token == depositAsset) continue;
-            uint256 legAmount = (params.amount * params.basketWeightsBps[i]) / 10_000;
+            uint256 legAmount = (amount * targetWeightsBps[i]) / 10_000;
             if (legAmount == 0) continue;
             totalSwapAmount += legAmount;
         }
@@ -223,10 +249,10 @@ contract StrategyVault is Ownable, ReentrancyGuard {
         IERC20(depositAsset).forceApprove(address(executionRouter), totalSwapAmount);
 
         // Second pass: execute each swap leg
-        for (uint256 i; i < params.basketTokens.length; ++i) {
-            address token = params.basketTokens[i];
+        for (uint256 i; i < targetTokens.length; ++i) {
+            address token = targetTokens[i];
             if (token == depositAsset) continue;
-            uint256 legAmount = (params.amount * params.basketWeightsBps[i]) / 10_000;
+            uint256 legAmount = (amount * targetWeightsBps[i]) / 10_000;
             if (legAmount == 0) continue;
 
             // Per-leg floor: ExecutionRouter enforces its oracle-based maxSlippageBps
