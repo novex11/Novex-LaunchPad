@@ -50,7 +50,7 @@ const config = {
     swapRouter: "",
     usdg: "",
     usdgFeed: "",
-    novexCurve: "",
+    composeCurve: "",
     curveRouter: "",
   },
   syncedAt: new Date().toISOString(),
@@ -85,7 +85,7 @@ if (existsSync(curvePath) && statSync(curvePath).mtimeMs >= newestOther) {
   const cv = JSON.parse(readFileSync(curvePath, "utf8"));
   config.contracts.pairFactory = cv.pairFactory;
   config.contracts.pairRouter = cv.pairRouter;
-  config.contracts.novexCurve = cv.novexCurve;
+  config.contracts.composeCurve = cv.composeCurve;
   config.contracts.curveRouter = cv.curveRouter;
   const curveBroadcast = join(root, "packages/contracts/broadcast/DeployTestnetCurve.s.sol/46630/run-latest.json");
   if (existsSync(curveBroadcast)) {

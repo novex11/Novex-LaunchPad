@@ -1,9 +1,10 @@
 # syntax=docker/dockerfile:1
 # Build one service from the monorepo, selected by the SERVICE build arg:
-#   docker build --build-arg SERVICE=web       -t novex-web .
-#   docker build --build-arg SERVICE=allocator -t novex-allocator .
-#   docker build --build-arg SERVICE=quote     -t novex-quote .
-#   docker build --build-arg SERVICE=indexer   -t novex-indexer .
+#   docker build --build-arg SERVICE=web       -t compose-web .
+#   docker build --build-arg SERVICE=allocator -t compose-allocator .
+#   docker build --build-arg SERVICE=quote     -t compose-quote .
+#   docker build --build-arg SERVICE=indexer   -t compose-indexer .
+#   docker build --build-arg SERVICE=keeper    -t compose-keeper .
 #
 # On Render, set SERVICE as an environment variable on each service; Render
 # passes env vars to `docker build` as build args for every declared ARG.
@@ -28,9 +29,9 @@ COPY services/indexer/package.json services/indexer/
 # ───────────────────────── backend: allocator | quote | indexer ─────────────────────────
 FROM manifests AS deps-backend
 RUN pnpm install --frozen-lockfile --ignore-scripts \
-  --filter "@novex/allocator..." \
-  --filter "@novex/quote..." \
-  --filter "@novex/indexer..."
+  --filter "@compose/allocator..." \
+  --filter "@compose/quote..." \
+  --filter "@compose/indexer..."
 
 FROM deps-backend AS build-backend
 COPY tsconfig.base.json ./
@@ -39,11 +40,11 @@ COPY packages/sdk packages/sdk
 COPY services/allocator services/allocator
 COPY services/quote services/quote
 COPY services/indexer services/indexer
-RUN pnpm --filter @novex/config build \
- && pnpm --filter @novex/sdk build \
- && pnpm --filter @novex/allocator build \
- && pnpm --filter @novex/quote build \
- && pnpm --filter @novex/indexer build
+RUN pnpm --filter @compose/config build \
+ && pnpm --filter @compose/sdk build \
+ && pnpm --filter @compose/allocator build \
+ && pnpm --filter @compose/quote build \
+ && pnpm --filter @compose/indexer build
 
 FROM base AS runner-backend
 ENV NODE_ENV=production
@@ -60,7 +61,7 @@ FROM runner-backend AS runner-indexer
 # ───────────────────────────────── web (Next.js) ─────────────────────────────────
 FROM manifests AS deps-web
 RUN pnpm install --frozen-lockfile --ignore-scripts \
-  --filter "@novex/web..."
+  --filter "@compose/web..."
 
 FROM deps-web AS build-web
 # next build needs more than Node's default heap on small build machines.
@@ -76,7 +77,7 @@ ARG NEXT_PUBLIC_FACTORY_ADDRESS
 ARG NEXT_PUBLIC_PAIR_FACTORY_ADDRESS
 ARG NEXT_PUBLIC_PAIR_ROUTER_ADDRESS
 ARG NEXT_PUBLIC_CURVE_ROUTER_ADDRESS
-ARG NEXT_PUBLIC_NOVEX_CURVE_ADDRESS
+ARG NEXT_PUBLIC_COMPOSE_CURVE_ADDRESS
 ARG NEXT_PUBLIC_ORACLE_ADAPTER_ADDRESS
 ARG NEXT_PUBLIC_USDG_ADDRESS
 ARG NEXT_PUBLIC_WETH_ADDRESS
@@ -97,10 +98,10 @@ COPY packages/config packages/config
 COPY packages/sdk packages/sdk
 COPY packages/ui packages/ui
 COPY apps/web apps/web
-RUN pnpm --filter @novex/config build \
- && pnpm --filter @novex/sdk build \
- && pnpm --filter @novex/ui build \
- && pnpm --filter @novex/web build
+RUN pnpm --filter @compose/config build \
+ && pnpm --filter @compose/sdk build \
+ && pnpm --filter @compose/ui build \
+ && pnpm --filter @compose/web build
 
 FROM base AS runner-web
 ENV NODE_ENV=production
@@ -113,6 +114,25 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 CMD ["node", "apps/web/server.js"]
+
+# ─────────────────────────── keeper (mainnet price keeper worker) ───────────────────────────
+# Runs scripts/price-keeper.ts straight from source with tsx (a root devDependency),
+# importing the feed/updater addresses from packages/config/src/*.json. viem is
+# not a root dependency, so it is installed through @compose/indexer and
+# public-hoisted to /app/node_modules where the root-level script resolves it.
+FROM manifests AS deps-keeper
+# Root devDependencies (tsx, viem) plus the config package the keeper imports.
+RUN pnpm install --frozen-lockfile --ignore-scripts -w \
+  --filter "@compose/config..."
+
+FROM deps-keeper AS runner-keeper
+ENV NODE_ENV=production
+COPY packages/config/src packages/config/src
+COPY scripts/lib scripts/lib
+COPY scripts/price-keeper.ts scripts/
+USER node
+# One pass without sending anything: docker run --rm compose-keeper pnpm keeper:mainnet:dry
+CMD ["pnpm", "keeper:mainnet"]
 
 # ───────────────────────────────── final image ─────────────────────────────────
 FROM runner-${SERVICE}

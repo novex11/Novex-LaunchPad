@@ -16,7 +16,7 @@ const stubModules = [
 
 const nextConfig: NextConfig = {
   output: "standalone",
-  transpilePackages: ["@novex/config", "@novex/sdk", "@novex/ui"],
+  transpilePackages: ["@compose/config", "@compose/sdk", "@compose/ui"],
   outputFileTracingRoot: path.join(__dirname, "../.."),
   webpack: (config) => {
     config.resolve.alias = {

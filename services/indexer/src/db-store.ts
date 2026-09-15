@@ -7,7 +7,7 @@ import {
   walletStockback,
   holdings,
 } from "./schema.js";
-import { CASHBACK_CONFIG, receiptTokenName } from "@novex/config";
+import { CASHBACK_CONFIG, receiptTokenName } from "@compose/config";
 import type {
   WalletPosition,
   ActivityRecord,

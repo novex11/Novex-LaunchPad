@@ -1,5 +1,5 @@
 {
-  "name": "@novex/web",
+  "name": "@compose/web",
   "version": "0.0.1",
   "private": true,
   "scripts": {
@@ -10,9 +10,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@novex/config": "workspace:*",
-    "@novex/sdk": "workspace:*",
-    "@novex/ui": "workspace:*",
+    "@compose/config": "workspace:*",
+    "@compose/sdk": "workspace:*",
+    "@compose/ui": "workspace:*",
     "@phosphor-icons/react": "^2.1.10",
     "@privy-io/chains": "^0.6.0",
     "@privy-io/react-auth": "^2.0.0",

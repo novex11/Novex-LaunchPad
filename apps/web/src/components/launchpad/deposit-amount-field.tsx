@@ -5,7 +5,7 @@ import {
   LAUNCHPAD_CONFIG,
   depositAmountError,
   parseDepositUsdInput,
-} from "@novex/config";
+} from "@compose/config";
 import { cn } from "@/lib/utils";
 
 export function DepositAmountField({

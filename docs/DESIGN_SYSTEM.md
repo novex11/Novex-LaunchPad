@@ -1,4 +1,4 @@
-# Novex Design System
+# Compose Design System
 
 ## Colors
 

@@ -5,6 +5,8 @@
  * Override with CORS_ORIGINS="https://a.com,https://b.com" (use "*" to allow all).
  */
 export const DEFAULT_CORS_ORIGINS = [
+  "https://compose-web.onrender.com",
+  // Pre-rebrand testnet deployment; keep until those Render services are retired.
   "https://novex-web.onrender.com",
   "http://localhost:3000",
   "http://localhost:3004",

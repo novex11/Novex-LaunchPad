@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CASHBACK_CONFIG, LAUNCH_CAPS } from "@novex/config";
+import { CASHBACK_CONFIG, LAUNCH_CAPS } from "@compose/config";
 
 export default function AdminPage() {
   const [pauses, setPauses] = useState({

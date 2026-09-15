@@ -29,6 +29,22 @@ export function usePairKey(tokenA: Address | undefined, tokenB: Address | undefi
   });
 }
 
+/**
+ * Tokens the PairFactory owner has listed (each has a live oracle feed).
+ * Launching with an unlisted leg reverts, so the picker filters on this.
+ */
+export function useListedTokens() {
+  const query = useReadContract({
+    address: PAIR_FACTORY_ADDRESS,
+    abi: pairFactoryAbi,
+    functionName: "listedTokens",
+    query: { enabled: pairFactoryReady, refetchInterval: 60_000 },
+  });
+  const listed = new Set<string>();
+  for (const a of (query.data as readonly Address[] | undefined) ?? []) listed.add(a.toLowerCase());
+  return { listed, isLoading: query.isLoading, loaded: query.data !== undefined };
+}
+
 export function useExistingPair(tokenA: Address | undefined, tokenB: Address | undefined) {
   const { data: key } = usePairKey(tokenA, tokenB);
   return useReadContract({

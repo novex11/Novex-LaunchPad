@@ -16,7 +16,7 @@ import {
   type StrategyId,
   getTokenByTicker,
   receiptTokenName,
-} from "@novex/config";
+} from "@compose/config";
 import { parseEther } from "viem";
 import { fetchDepositCosts, recordDeposit, type DepositCosts } from "@/lib/api";
 import { basketsAvailable, contractsReady } from "@/lib/contracts";

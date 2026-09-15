@@ -84,7 +84,7 @@ export function receiptTokenFullName(
   strategy: StrategyId,
 ): string {
   const label = STRATEGIES[strategy].label;
-  return `Novex ${depositTicker.toUpperCase()} ${label}`;
+  return `Compose ${depositTicker.toUpperCase()} ${label}`;
 }
 
 /** Maps config strategy id to on-chain AllocationController.Strategy enum (uint8) */

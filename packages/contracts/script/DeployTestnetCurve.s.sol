@@ -5,13 +5,13 @@ import {Script, console2} from "forge-std/Script.sol";
 import {PairFactory} from "../src/PairFactory.sol";
 import {PairDeployer} from "../src/PairDeployer.sol";
 import {PairRouter} from "../src/PairRouter.sol";
-import {NovexCurve} from "../src/NovexCurve.sol";
+import {ComposeCurve} from "../src/ComposeCurve.sol";
 import {CurveRouter} from "../src/CurveRouter.sol";
 
 /// @title DeployTestnetCurve — bonding-curve launchpad on Robinhood Chain Testnet
 /// @notice Creator tokens need transferable pair shares, so this deploys a fresh
 ///         PairFactory (PairShareToken) and a PairRouter bound to it, then
-///         NovexCurve and CurveRouter. Reuses the live oracle, feeds, keeper,
+///         ComposeCurve and CurveRouter. Reuses the live oracle, feeds, keeper,
 ///         testnet swap router and TestUSDG.
 ///
 ///   TESTNET_ORACLE, TESTNET_EMERGENCY, TESTNET_SWAP_ROUTER, TESTNET_USDG
@@ -27,7 +27,7 @@ contract DeployTestnetCurve is Script {
 
     PairFactory public factory;
     PairRouter public router;
-    NovexCurve public curve;
+    ComposeCurve public curve;
     CurveRouter public curveRouter;
 
     function run() external {
@@ -49,19 +49,19 @@ contract DeployTestnetCurve is Script {
             factory.setTokenListed(listed[i], true);
         }
         router = new PairRouter(address(factory), swapRouter, usdg);
-        curve = new NovexCurve(deployer, address(factory), treasury, startMcapUsd8);
+        curve = new ComposeCurve(deployer, address(factory), treasury, startMcapUsd8);
         curveRouter = new CurveRouter(address(curve), address(router));
         vm.stopBroadcast();
 
         vm.serializeAddress("curve", "pairFactory", address(factory));
         vm.serializeAddress("curve", "pairRouter", address(router));
-        vm.serializeAddress("curve", "novexCurve", address(curve));
+        vm.serializeAddress("curve", "composeCurve", address(curve));
         string memory out = vm.serializeAddress("curve", "curveRouter", address(curveRouter));
         vm.writeJson(out, "./deployments-testnet-curve.json");
 
         console2.log("PairFactory:", address(factory));
         console2.log("PairRouter:", address(router));
-        console2.log("NovexCurve:", address(curve));
+        console2.log("ComposeCurve:", address(curve));
         console2.log("CurveRouter:", address(curveRouter));
         console2.log("Start market cap (USD8):", startMcapUsd8);
     }

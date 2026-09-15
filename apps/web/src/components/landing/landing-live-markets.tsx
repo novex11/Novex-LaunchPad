@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { ArrowRight } from "@phosphor-icons/react";
-import { MARKET_STOCKS } from "@/lib/markets";
+import { FEATURED_MARKET_STOCKS } from "@/lib/markets";
 import { useQuotes } from "@/hooks/use-quotes";
 import { formatUsd } from "@/lib/utils";
 import { cn } from "@/lib/utils";
@@ -16,7 +16,7 @@ const FEATURED = ["NVDA", "AAPL", "MSFT", "TSLA", "SPY", "AMD"];
 
 export function LandingLiveMarkets() {
   const { byTicker, isLoading, updatedAt } = useQuotes(FEATURED);
-  const stocks = FEATURED.map((t) => MARKET_STOCKS.find((s) => s.ticker === t)!);
+  const stocks = FEATURED.map((t) => FEATURED_MARKET_STOCKS.find((s) => s.ticker === t)!);
 
   return (
     <SectionFrame

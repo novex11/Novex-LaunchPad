@@ -9,7 +9,7 @@ import {
   PreviewRequestSchema,
   RebalanceSimulateSchema,
   computeAllocation,
-} from "@novex/sdk";
+} from "@compose/sdk";
 import {
   getActiveStockTokens,
   isTestnetMode,
@@ -17,7 +17,7 @@ import {
   mergeRhjAssetsWithConfig,
   type StockToken,
   corsOrigins,
-} from "@novex/config";
+} from "@compose/config";
 
 const INDEXER_URL =
   process.env.INDEXER_URL ?? "http://localhost:3003";
@@ -119,7 +119,7 @@ app.post("/preview", async (c) => {
       c.req.header("x-wallet-stockback"),
     );
 
-    const preview = buildPreview(parsed.data, walletStockback);
+    const preview = buildPreview(parsed.data, walletStockback, resolvedTokens);
 
     if (preview.violations.length > 0) {
       return c.json({ ...preview, warning: "Allocation has constraint violations" });
@@ -162,6 +162,7 @@ app.post("/rebalance/simulate", async (c) => {
       depositTicker,
       depositUsd: totalUsd,
       strategy: parsed.data.strategy,
+      tokens: resolvedTokens,
     });
 
     return c.json({

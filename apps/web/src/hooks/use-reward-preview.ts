@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { buildPreview, type PreviewResponse } from "@novex/sdk";
+import { buildPreview, type PreviewResponse } from "@compose/sdk";
 import { fetchPreview, type PreviewBody } from "@/lib/api";
 
 export type PreviewSource = "allocator" | "local" | "idle";

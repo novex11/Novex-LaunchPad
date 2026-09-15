@@ -21,6 +21,7 @@ const links = [
   { href: "/portfolio", label: "Portfolio" },
   { href: "/vault/tNVDA-B", label: "Vaults" },
   { href: "/activity", label: "Activity" },
+  { href: "/docs", label: "Docs" },
   { href: "/legal/risk", label: "Risk" },
 ];
 
@@ -31,13 +32,13 @@ function isActive(pathname: string, href: string) {
 
 export function Wordmark({ className }: { className?: string }) {
   return (
-    <Link href="/" className={cn("flex items-center gap-2", className)} aria-label="Novex home">
+    <Link href="/" className={cn("flex items-center gap-2", className)} aria-label="Compose home">
       <span className="flex h-7 w-7 items-center justify-center bg-accent text-accent-foreground">
         <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" aria-hidden>
           <path d="M5 19V5l14 14V5" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </span>
-      <span className="text-sm font-semibold tracking-tight">Novex</span>
+      <span className="text-sm font-semibold tracking-tight">Compose</span>
     </Link>
   );
 }
@@ -54,7 +55,7 @@ export function Navbar() {
 
   return (
     <>
-      <header className="sticky top-0 z-50 border-b border-border bg-background/85 backdrop-blur-md">
+      <header data-site-chrome className="sticky top-0 z-50 border-b border-border bg-background/85 backdrop-blur-md">
         <div className="flex h-14 items-center justify-between gap-4 px-4 md:px-8">
           <Wordmark />
           <nav className="hidden items-center gap-6 lg:flex" aria-label="Main">

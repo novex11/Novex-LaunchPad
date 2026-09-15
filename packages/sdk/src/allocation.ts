@@ -1,8 +1,9 @@
 import {
-  APPROVED_STOCK_TOKENS,
+  getActiveStockTokens,
   STRATEGIES,
+  type StockToken,
   type StrategyId,
-} from "@novex/config";
+} from "@compose/config";
 
 export type AllocationRationale =
   | "user-selected"
@@ -26,6 +27,8 @@ export interface AllocationInput {
   prices?: Record<string, number>;
   /** Max equity/forex slots in the basket (default 5). 0 = all eligible. */
   maxTokens?: number;
+  /** Token universe to allocate over (defaults to the active network's list). */
+  tokens?: StockToken[];
 }
 
 export interface AllocationResult {
@@ -36,7 +39,8 @@ export interface AllocationResult {
 
 export function computeAllocation(input: AllocationInput): AllocationResult {
   const strategy = STRATEGIES[input.strategy];
-  const depositToken = APPROVED_STOCK_TOKENS.find(
+  const universe = input.tokens ?? getActiveStockTokens();
+  const depositToken = universe.find(
     (t) => t.ticker === input.depositTicker.toUpperCase(),
   );
   if (!depositToken) {
@@ -59,7 +63,7 @@ export function computeAllocation(input: AllocationInput): AllocationResult {
   const swappableUsd = input.depositUsd * (1 - retention);
   const retainedUsd = input.depositUsd * retention;
 
-  const candidates = APPROVED_STOCK_TOKENS.filter(
+  const candidates = universe.filter(
     (t) =>
       t.ticker !== depositToken.ticker &&
       t.category !== "stable" &&
@@ -71,6 +75,8 @@ export function computeAllocation(input: AllocationInput): AllocationResult {
 
   for (const token of candidates) {
     let base = 1;
+    // Deep-liquidity names fill the default slots before the long tail.
+    if (token.numeraire) base = 1.5;
     if (preferred.has(token.ticker)) base = 2.5;
     if (token.category === "forex") base *= 0.6; // lower default weight for forex
     weights.set(token.ticker, base);
@@ -118,8 +124,11 @@ export function computeAllocation(input: AllocationInput): AllocationResult {
 
   const stableTarget =
     (strategy.stable.min + strategy.stable.max) / 2;
-  const forexTarget =
-    (strategy.forex.min + strategy.forex.max) / 2;
+  // Forex only exists once real forex tokens are in the universe.
+  const fxAvailable = universe.filter((t) => t.category === "forex" && !excluded.has(t.ticker));
+  const forexTarget = fxAvailable.length
+    ? (strategy.forex.min + strategy.forex.max) / 2
+    : 0;
 
   // Allocate stable and forex slices if strategy requires them
   if (stableTarget > 0.05 || forexTarget > 0.02) {
@@ -143,14 +152,12 @@ export function computeAllocation(input: AllocationInput): AllocationResult {
     }
 
     if (forexSlice > 0.01) {
-      // Split forex across top pairs (EURUSD gets more weight)
-      const fxPairs = [
-        { ticker: "EURUSD", share: 0.40 },
-        { ticker: "GBPUSD", share: 0.30 },
-        { ticker: "AUDUSD", share: 0.30 },
-      ];
+      // Split forex evenly across the first three available pairs.
+      const fxPairs = fxAvailable.slice(0, 3).map((t, i, arr) => ({
+        ticker: t.ticker,
+        share: i === 0 ? 1 - 0.3 * (arr.length - 1) : 0.3,
+      }));
       for (const fx of fxPairs) {
-        if (excluded.has(fx.ticker)) continue;
         adjusted.push({
           ticker: fx.ticker,
           weight: forexSlice * fx.share,

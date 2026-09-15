@@ -1,4 +1,4 @@
-import { robinhoodChain, robinhoodTestnet } from "@novex/config";
+import { robinhoodChain, robinhoodTestnet } from "@compose/config";
 
 const TESTNET_EXPLORER = "https://explorer.testnet.chain.robinhood.com";
 const MAINNET_EXPLORER = "https://explorer.robinhood.com";

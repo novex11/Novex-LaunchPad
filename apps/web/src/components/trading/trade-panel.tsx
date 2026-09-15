@@ -11,7 +11,7 @@ import {
   WarningCircle,
   Stack,
 } from "@phosphor-icons/react";
-import { CASHBACK_CONFIG } from "@novex/config";
+import { CASHBACK_CONFIG } from "@compose/config";
 import type { MarketStock, QuoteData } from "@/lib/markets";
 import { isForexPair } from "@/lib/markets";
 import { fetchHoldings, recordTrade, type TradeSide, type DirectHolding } from "@/lib/api";

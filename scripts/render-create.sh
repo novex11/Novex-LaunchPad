@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Create the Novex services on Render from the CLI.
+# Create the Compose services on Render from the CLI.
 #
 #   scripts/render-create.sh indexer     # create one service
 #   scripts/render-create.sh backend     # indexer, allocator, quote
-#   scripts/render-create.sh all         # backend + web
+#   scripts/render-create.sh keeper      # mainnet price keeper (background worker)
+#   scripts/render-create.sh all         # backend + web + keeper
 #
 # Requires: `render login` done, and a .env at the repo root (secrets are read
 # from it and sent only to Render; nothing is printed). Non-secret settings
@@ -16,7 +17,7 @@ REPO_URL="${RENDER_REPO_URL:-https://github.com/novex11/contract-v2}"
 BRANCH="${RENDER_BRANCH:-main}"
 REGION="${RENDER_REGION:-oregon}"
 PLAN="${RENDER_PLAN:-starter}"
-PREFIX="${RENDER_NAME_PREFIX:-novex}"
+PREFIX="${RENDER_NAME_PREFIX:-compose}"
 DOMAIN="onrender.com"
 
 INDEXER_URL="https://${PREFIX}-indexer.${DOMAIN}"
@@ -30,8 +31,12 @@ from_env() {
   grep -E "^${1}=" .env | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//"
 }
 
+# create <name> <health-path|-> [ENV=value | @ENV_FROM_DOTENV]...
+# A health path of "-" creates a background worker instead of a web service.
 create() {
   local name="$1" health="$2"; shift 2
+  local type_args=(--type web_service --health-check-path "$health")
+  if [[ "$health" == "-" ]]; then type_args=(--type background_worker); fi
   local args=()
   for item in "$@"; do
     if [[ "$item" == @* ]]; then
@@ -45,9 +50,9 @@ create() {
   done
   echo "==> creating ${name}" >&2
   render services create --confirm -o json \
-    --name "$name" --type web_service --runtime docker \
+    --name "$name" "${type_args[@]}" --runtime docker \
     --repo "$REPO_URL" --branch "$BRANCH" \
-    --region "$REGION" --plan "$PLAN" --health-check-path "$health" \
+    --region "$REGION" --plan "$PLAN" \
     "${args[@]}" \
   | python3 -c '
 import sys, json
@@ -87,12 +92,19 @@ create_web() {
     @NEXT_PUBLIC_PAIR_FACTORY_ADDRESS @NEXT_PUBLIC_ORACLE_ADAPTER_ADDRESS
 }
 
+create_keeper() {
+  create "${PREFIX}-keeper" - SERVICE=keeper NEXT_PUBLIC_USE_TESTNET=false \
+    KEEPER_NETWORK=mainnet KEEPER_INTERVAL_MS=300000 \
+    @ROBINHOOD_RPC_URL @KEEPER_PRIVATE_KEY
+}
+
 case "${1:-}" in
   indexer)   create_indexer ;;
   allocator) create_allocator ;;
   quote)     create_quote ;;
   web)       create_web ;;
+  keeper)    create_keeper ;;
   backend)   create_indexer; create_allocator; create_quote ;;
-  all)       create_indexer; create_allocator; create_quote; create_web ;;
-  *) echo "usage: $0 {indexer|allocator|quote|web|backend|all}" >&2; exit 2 ;;
+  all)       create_indexer; create_allocator; create_quote; create_web; create_keeper ;;
+  *) echo "usage: $0 {indexer|allocator|quote|web|keeper|backend|all}" >&2; exit 2 ;;
 esac

@@ -1,6 +1,6 @@
 "use client";
 
-import { STRATEGIES, type StrategyId } from "@novex/config";
+import { STRATEGIES, type StrategyId } from "@compose/config";
 import { SectionFrame } from "./section-frame";
 import { LedgerCell, LedgerGrid } from "./ledger-cell";
 

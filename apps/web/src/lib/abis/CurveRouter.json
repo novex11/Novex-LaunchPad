@@ -88,7 +88,7 @@
       {
         "name": "",
         "type": "address",
-        "internalType": "contract NovexCurve"
+        "internalType": "contract ComposeCurve"
       }
     ],
     "stateMutability": "view"

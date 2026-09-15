@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { ArrowRight } from "@phosphor-icons/react";
-import { CASHBACK_CONFIG } from "@novex/config";
+import { CASHBACK_CONFIG } from "@compose/config";
 import { formatUsd } from "@/lib/utils";
 import { BracketPanel } from "./bracket-panel";
 import { MonoLabel } from "./mono-label";

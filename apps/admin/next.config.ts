@@ -2,7 +2,7 @@ import type { NextConfig } from "next";
 import path from "path";
 
 const nextConfig: NextConfig = {
-  transpilePackages: ["@novex/config", "@novex/ui"],
+  transpilePackages: ["@compose/config", "@compose/ui"],
   outputFileTracingRoot: path.join(__dirname, "../.."),
 };
 

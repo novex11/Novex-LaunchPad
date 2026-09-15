@@ -5,7 +5,7 @@ import { useParams, notFound } from "next/navigation";
 import Link from "next/link";
 import { motion } from "motion/react";
 import { CaretLeft, Star } from "@phosphor-icons/react";
-import { CASHBACK_CONFIG, ALLOCATION_STOCKBACK_RATES, DEFAULT_ALLOCATION_RATE } from "@novex/config";
+import { CASHBACK_CONFIG, ALLOCATION_STOCKBACK_RATES, DEFAULT_ALLOCATION_RATE } from "@compose/config";
 import { getMarketStock, isForexPair } from "@/lib/markets";
 import { useQuote } from "@/hooks/use-quotes";
 import { useWatchlist } from "@/hooks/use-watchlist";

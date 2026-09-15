@@ -1,14 +1,21 @@
-import { parseAbiItem, type Log } from "viem";
-import { receiptTokenName } from "@novex/config";
+import { parseAbiItem, type Address, type Log } from "viem";
 import * as jsonStore from "./store.js";
 import * as dbStore from "./db-store.js";
 import * as volumeTracker from "./volume-tracker.js";
 import { createDb } from "./db.js";
 import { USE_TESTNET, getPublicClient } from "./chain-client.js";
+import {
+  findVaultByAddress,
+  getVaults,
+  onVaultsChanged,
+  type RegisteredVault,
+} from "./vault-registry.js";
 
 /*
- * Managed-basket (StrategyVault) event listener. Launchpad pairs are indexed
- * by launchpad-indexer.ts.
+ * Managed-basket (StrategyVault) event listener. Watches every vault known
+ * to the registry (discovered from the VaultFactory, or the legacy env
+ * vault) and resolves each log's `vaultId` from `log.address`. Launchpad
+ * pairs are indexed by launchpad-indexer.ts.
  */
 
 const DepositedEvent = parseAbiItem(
@@ -21,67 +28,83 @@ const BasketSwapEvent = parseAbiItem(
   "event BasketSwap(address indexed tokenIn, address indexed tokenOut, uint256 amountIn, uint256 amountOut)",
 );
 
-// Basket vaults are mainnet-only; testnet has no DEX liquidity for them.
-const VAULT_ADDRESS = USE_TESTNET
-  ? undefined
-  : ((process.env.VAULT_CONTRACT_ADDRESS ?? process.env.NEXT_PUBLIC_VAULT_ADDRESS) as
-      | `0x${string}`
-      | undefined);
-
 export function startChainListener(): (() => void) | null {
   const client = getPublicClient();
   if (!client) {
     console.log("[chain-listener] No RPC URL configured, skipping");
     return null;
   }
-  if (!VAULT_ADDRESS) {
-    console.log("[chain-listener] No basket vault configured, skipping");
+  // Basket vaults are mainnet-only; testnet has no DEX liquidity for them.
+  if (USE_TESTNET) {
+    console.log("[chain-listener] Basket vaults are mainnet-only, skipping on testnet");
     return null;
   }
 
   const db = createDb();
-  console.log(`[chain-listener] Watching vault ${VAULT_ADDRESS}`);
+  let unwatchers: Array<() => void> = [];
 
-  const unwatchers = [
-    client.watchEvent({
-      address: VAULT_ADDRESS,
-      event: DepositedEvent,
-      onLogs: (logs) => {
-        for (const log of logs) void handleDepositEvent(log, db);
-      },
-      onError: (err) => console.error("[chain-listener] Deposit watch error:", err.message),
-    }),
-    client.watchEvent({
-      address: VAULT_ADDRESS,
-      event: RedeemedEvent,
-      onLogs: (logs) => {
-        for (const log of logs) void handleRedeemEvent(log, db);
-      },
-      onError: (err) => console.error("[chain-listener] Redeem watch error:", err.message),
-    }),
-    client.watchEvent({
-      address: VAULT_ADDRESS,
-      event: BasketSwapEvent,
-      onLogs: (logs) => {
-        for (const log of logs) void handleSwapEvent(log, db);
-      },
-      onError: (err) => console.error("[chain-listener] Swap watch error:", err.message),
-    }),
-  ];
+  const stop = () => {
+    for (const u of unwatchers) u();
+    unwatchers = [];
+  };
+
+  const watch = (vaults: RegisteredVault[]) => {
+    stop();
+    const addresses = vaults.map((v) => v.vault);
+    if (addresses.length === 0) {
+      console.log("[chain-listener] No basket vaults registered yet — waiting for discovery");
+      return;
+    }
+    console.log(
+      `[chain-listener] Watching ${addresses.length} vault(s): ${vaults.map((v) => `${v.vaultId}@${v.vault}`).join(", ")}`,
+    );
+
+    unwatchers = [
+      client.watchEvent({
+        address: addresses,
+        event: DepositedEvent,
+        onLogs: (logs) => {
+          for (const log of logs) void handleDepositEvent(log, db);
+        },
+        onError: (err) => console.error("[chain-listener] Deposit watch error:", err.message),
+      }),
+      client.watchEvent({
+        address: addresses,
+        event: RedeemedEvent,
+        onLogs: (logs) => {
+          for (const log of logs) void handleRedeemEvent(log, db);
+        },
+        onError: (err) => console.error("[chain-listener] Redeem watch error:", err.message),
+      }),
+      client.watchEvent({
+        address: addresses,
+        event: BasketSwapEvent,
+        onLogs: (logs) => {
+          for (const log of logs) void handleSwapEvent(log, db);
+        },
+        onError: (err) => console.error("[chain-listener] Swap watch error:", err.message),
+      }),
+    ];
+  };
+
+  watch(getVaults());
+  // Re-subscribe whenever the registry discovers a new vault.
+  const unsubscribe = onVaultsChanged(watch);
 
   return () => {
-    for (const u of unwatchers) u();
+    unsubscribe();
+    stop();
     console.log("[chain-listener] Stopped watching events");
   };
 }
 
-function defaultVaultId() {
-  const depositTicker = process.env.DEFAULT_DEPOSIT_TICKER ?? "NVDA";
-  const strategy = (process.env.DEFAULT_STRATEGY ?? "balanced") as
-    | "defensive"
-    | "balanced"
-    | "aggressive";
-  return { depositTicker, strategy, vaultId: receiptTokenName(depositTicker, strategy) };
+/** Resolve which basket a log came from; unknown addresses are skipped. */
+function resolveVault(address: Address, kind: string): RegisteredVault | undefined {
+  const vault = findVaultByAddress(address);
+  if (!vault) {
+    console.warn(`[chain-listener] ${kind} from unknown vault ${address}, skipping`);
+  }
+  return vault;
 }
 
 async function handleDepositEvent(
@@ -90,10 +113,12 @@ async function handleDepositEvent(
 ): Promise<void> {
   const { user, amountIn, sharesMinted, navUsd8AtDeposit } = log.args;
   if (!user) return;
+  const vault = resolveVault(log.address, "Deposited");
+  if (!vault) return;
 
   const valueUsd = Number(navUsd8AtDeposit ?? 0n) / 1e8;
   const txHash = log.transactionHash ?? "";
-  const { depositTicker, strategy, vaultId } = defaultVaultId();
+  const { depositTicker, strategy, vaultId } = vault;
   const input = {
     wallet: user,
     txHash,
@@ -116,6 +141,7 @@ async function handleDepositEvent(
         amountIn: amountIn ?? 0n,
         sharesMinted: sharesMinted ?? 0n,
         valueUsd,
+        vaultId,
       });
     } else {
       jsonStore.recordDeposit(input);
@@ -131,10 +157,12 @@ async function handleRedeemEvent(
 ): Promise<void> {
   const { user, sharesBurned, mode, valueUsd8 } = log.args;
   if (!user) return;
+  const vault = resolveVault(log.address, "Redeemed");
+  if (!vault) return;
 
   const valueUsd = Number(valueUsd8 ?? 0n) / 1e8;
   const txHash = log.transactionHash ?? "";
-  const { vaultId } = defaultVaultId();
+  const { vaultId } = vault;
 
   try {
     if (db) {
@@ -146,6 +174,7 @@ async function handleRedeemEvent(
         sharesBurned: sharesBurned ?? 0n,
         redeemMode: Number(mode ?? 0),
         valueUsd,
+        vaultId,
       });
     } else {
       jsonStore.recordRedeem({ wallet: user, valueUsd, txHash, vaultId });
@@ -161,13 +190,16 @@ async function handleSwapEvent(
 ): Promise<void> {
   const { tokenIn, tokenOut, amountIn, amountOut } = log.args;
   if (!tokenIn || !tokenOut || !db) return;
+  const vault = resolveVault(log.address, "BasketSwap");
+  if (!vault) return;
 
   try {
     await volumeTracker.recordSwap(db, {
       txHash: log.transactionHash ?? "",
       blockNumber: log.blockNumber ?? 0n,
       logIndex: Number(log.logIndex ?? 0),
-      vaultAddress: VAULT_ADDRESS ?? "",
+      vaultAddress: vault.vault,
+      vaultId: vault.vaultId,
       tokenIn,
       tokenOut,
       amountIn: amountIn ?? 0n,

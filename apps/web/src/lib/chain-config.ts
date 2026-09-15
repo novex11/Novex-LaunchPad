@@ -1,6 +1,6 @@
 import { defineChain, type Chain } from "viem";
 import { addRpcUrlOverrideToChain } from "@privy-io/chains";
-import { robinhoodChain, robinhoodTestnet } from "@novex/config";
+import { robinhoodChain, robinhoodTestnet } from "@compose/config";
 
 /** Resolve the RPC URL the browser should use (Alchemy when configured). */
 export function resolveChainRpcUrl(useTestnet: boolean, serverRpcUrl?: string): string {

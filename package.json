@@ -1,10 +1,21 @@
 {
-  "name": "novex",
+  "name": "compose",
   "private": true,
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
     "dev:testnet": "bash scripts/dev-testnet.sh",
+    "manifest:mainnet": "tsx scripts/build-mainnet-manifest.ts",
+    "prices:mainnet": "tsx scripts/fetch-mainnet-prices.ts",
+    "deploy:mainnet": "bash scripts/deploy-mainnet.sh",
+    "deploy:mainnet:fork": "bash scripts/deploy-mainnet.sh --fork",
+    "onboard:mainnet": "bash scripts/deploy-mainnet.sh --onboard-only",
+    "vaults:mainnet": "bash scripts/deploy-mainnet.sh --vaults-only",
+    "sync:mainnet": "node scripts/sync-mainnet-deployments.mjs",
+    "smoke:mainnet": "tsx scripts/mainnet-smoke.ts",
+    "keeper:mainnet": "tsx scripts/price-keeper.ts --mainnet",
+    "keeper:mainnet:once": "tsx scripts/price-keeper.ts --mainnet --once",
+    "keeper:mainnet:dry": "tsx scripts/price-keeper.ts --mainnet --once --dry-run",
     "keeper:testnet": "tsx scripts/price-keeper.ts",
     "keeper:testnet:once": "tsx scripts/price-keeper.ts --once",
     "feeds:refresh:testnet": "tsx scripts/refresh-mock-feeds.ts",
@@ -23,13 +34,16 @@
     "deploy:testnet": "bash scripts/deploy-testnet.sh",
     "sync:testnet": "node scripts/sync-testnet-deployments.mjs",
     "deploy:testnet:router": "bash scripts/deploy-testnet-router.sh",
-    "deploy:testnet:curve": "bash scripts/deploy-testnet-curve.sh"
+    "deploy:testnet:curve": "bash scripts/deploy-testnet-curve.sh",
+    "keeper:mainnet": "tsx scripts/price-keeper.ts --mainnet",
+    "keeper:mainnet:once": "tsx scripts/price-keeper.ts --mainnet --once"
   },
   "devDependencies": {
     "prettier": "^3.4.2",
     "tsx": "^4.19.2",
     "turbo": "^2.3.3",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "viem": "^2.21.54"
   },
   "packageManager": "pnpm@9.15.0",
   "engines": {

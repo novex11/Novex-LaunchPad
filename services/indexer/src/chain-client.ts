@@ -2,17 +2,24 @@ import { createPublicClient, http, type PublicClient } from "viem";
 import {
   isHexAddress,
   isTestnetMode,
+  mainnetDeployment,
   robinhoodChain,
   robinhoodTestnet,
   testnetDeployment,
-} from "@novex/config";
+} from "@compose/config";
 
 export const USE_TESTNET = isTestnetMode();
 
 export function chainRpcUrl(): string | undefined {
   return USE_TESTNET
     ? process.env.ROBINHOOD_TESTNET_RPC_URL || testnetDeployment().rpcUrl
-    : process.env.ROBINHOOD_RPC_URL || undefined;
+    : process.env.ROBINHOOD_RPC_URL || mainnetDeployment().rpcUrl || undefined;
+}
+
+/** Env override first, then the synced mainnet deployment file. */
+function mainnetAddress(...envs: Array<string | undefined>): string | undefined {
+  for (const v of envs) if (isHexAddress(v)) return v;
+  return undefined;
 }
 
 let client: PublicClient | null | undefined;
@@ -38,27 +45,62 @@ export function getPublicClient(): PublicClient | null {
   return client;
 }
 
-/** On testnet the synced deployment file is authoritative; env configures mainnet. */
+/** On testnet the synced deployment file is authoritative; on mainnet env overrides the synced file. */
 export function pairFactoryAddress(): `0x${string}` | undefined {
   const value = USE_TESTNET
     ? testnetDeployment().contracts.pairFactory
-    : (process.env.PAIR_FACTORY_ADDRESS ?? process.env.NEXT_PUBLIC_PAIR_FACTORY_ADDRESS);
+    : mainnetAddress(
+        process.env.PAIR_FACTORY_ADDRESS,
+        process.env.NEXT_PUBLIC_PAIR_FACTORY_ADDRESS,
+        mainnetDeployment().contracts.pairFactory,
+      );
   return isHexAddress(value) ? value : undefined;
 }
 
 export function oracleAddress(): `0x${string}` | undefined {
   const value = USE_TESTNET
     ? testnetDeployment().contracts.oracle
-    : (process.env.ORACLE_ADAPTER_ADDRESS ?? process.env.NEXT_PUBLIC_ORACLE_ADAPTER_ADDRESS);
+    : mainnetAddress(
+        process.env.ORACLE_ADAPTER_ADDRESS,
+        process.env.NEXT_PUBLIC_ORACLE_ADAPTER_ADDRESS,
+        mainnetDeployment().contracts.oracle,
+      );
   return isHexAddress(value) ? value : undefined;
 }
 
-/** NovexCurve (creator tokens); the synced deployment file on testnet, env on mainnet. */
-export function novexCurveAddress(): `0x${string}` | undefined {
+/** ComposeCurve (creator tokens); the synced deployment file, env override on mainnet. */
+export function composeCurveAddress(): `0x${string}` | undefined {
   const value = USE_TESTNET
-    ? testnetDeployment().contracts.novexCurve
-    : (process.env.NOVEX_CURVE_ADDRESS ?? process.env.NEXT_PUBLIC_NOVEX_CURVE_ADDRESS);
+    ? testnetDeployment().contracts.composeCurve
+    : mainnetAddress(
+        process.env.COMPOSE_CURVE_ADDRESS,
+        process.env.NEXT_PUBLIC_COMPOSE_CURVE_ADDRESS,
+        mainnetDeployment().contracts.composeCurve,
+      );
   return isHexAddress(value) ? value : undefined;
+}
+
+/**
+ * VaultFactory (managed baskets). Baskets are mainnet-only, so this is
+ * undefined on testnet; on mainnet env overrides the synced deployment file.
+ */
+export function vaultFactoryAddress(): `0x${string}` | undefined {
+  if (USE_TESTNET) return undefined;
+  const value = mainnetAddress(
+    process.env.VAULT_FACTORY_ADDRESS,
+    process.env.NEXT_PUBLIC_FACTORY_ADDRESS,
+    mainnetDeployment().contracts.vaultFactory,
+  );
+  return isHexAddress(value) ? value : undefined;
+}
+
+/** Canonical Multicall3 deployment (same address on every EVM chain that has it). */
+const CANONICAL_MULTICALL3 = "0xcA11bde05977b3631167028862bE2a173976CA11" as const;
+
+/** Multicall3 used to batch vault reads; env override, else the canonical address. */
+export function multicall3Address(): `0x${string}` {
+  const value = process.env.MULTICALL3_ADDRESS;
+  return isHexAddress(value) ? value : CANONICAL_MULTICALL3;
 }
 
 /** Blockscout (Etherscan-compatible) API base for source verification. */
@@ -76,7 +118,7 @@ export const AUTO_VERIFY_CONTRACTS = process.env.AUTO_VERIFY_CONTRACTS !== "fals
 export function launchpadStartBlock(): bigint {
   const raw =
     process.env.INDEXER_START_BLOCK ||
-    (USE_TESTNET ? String(testnetDeployment().startBlock ?? 0) : "0");
+    String((USE_TESTNET ? testnetDeployment() : mainnetDeployment()).startBlock ?? 0);
   try {
     return BigInt(raw);
   } catch {

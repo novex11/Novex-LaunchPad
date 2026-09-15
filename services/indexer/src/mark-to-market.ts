@@ -1,24 +1,20 @@
-import { createPublicClient, http, parseAbi } from "viem";
-import { robinhoodTestnet, robinhoodChain, receiptTokenName } from "@novex/config";
+import { createPublicClient, http, parseAbi, type PublicClient } from "viem";
+import { robinhoodTestnet, robinhoodChain } from "@compose/config";
 import { createDb } from "./db.js";
-import { positions, tvlSnapshots } from "./schema.js";
+import { positions, tvlSnapshots, vaults as vaultsTable } from "./schema.js";
 import { eq } from "drizzle-orm";
-import * as jsonStore from "./store.js";
 import * as launchpadStore from "./launchpad-store.js";
 import { recordAndPublishSnapshot } from "./pair-live.js";
 import { pairFactoryAddress } from "./chain-client.js";
-
-const DEFAULT_VAULT_ID = receiptTokenName(
-  process.env.DEFAULT_DEPOSIT_TICKER ?? "NVDA",
-  (process.env.DEFAULT_STRATEGY ?? "balanced") as "defensive" | "balanced" | "aggressive",
-);
+import {
+  findVaultById,
+  getVaults,
+  readContracts,
+  type RegisteredVault,
+} from "./vault-registry.js";
 
 const USE_TESTNET = process.env.NEXT_PUBLIC_USE_TESTNET === "true";
 const chain = USE_TESTNET ? robinhoodTestnet : robinhoodChain;
-const VAULT_ADDRESS = (process.env.VAULT_CONTRACT_ADDRESS ??
-  process.env.NEXT_PUBLIC_VAULT_ADDRESS) as `0x${string}` | undefined;
-const RECEIPT_TOKEN_ADDRESS = (process.env.RECEIPT_TOKEN_CONTRACT_ADDRESS ??
-  process.env.NEXT_PUBLIC_RECEIPT_TOKEN_ADDRESS) as `0x${string}` | undefined;
 
 const vaultAbi = parseAbi([
   "function navUsd8() view returns (uint256)",
@@ -58,65 +54,132 @@ function getClient() {
   });
 }
 
-async function updatePortfolioValues(): Promise<void> {
-  if (!VAULT_ADDRESS || !RECEIPT_TOKEN_ADDRESS) return;
+interface VaultStats {
+  vault: RegisteredVault;
+  navUsd: number;
+  sharePrice: number;
+  totalShares: string;
+}
 
-  const client = getClient();
+/** navUsd8 / sharePrice / totalShares for every registered vault in one multicall. */
+async function readVaultStats(
+  client: PublicClient,
+  list: RegisteredVault[],
+): Promise<VaultStats[]> {
+  const calls = list.flatMap((v) =>
+    (["navUsd8", "sharePrice", "totalShares"] as const).map((functionName) => ({
+      address: v.vault,
+      abi: vaultAbi,
+      functionName,
+    })),
+  );
+  const results = await readContracts(client, calls);
+
+  const out: VaultStats[] = [];
+  list.forEach((vault, i) => {
+    const navUsd8Raw = results[i * 3];
+    const sharePriceRaw = results[i * 3 + 1];
+    const totalSharesRaw = results[i * 3 + 2];
+    if (
+      typeof navUsd8Raw !== "bigint" ||
+      typeof sharePriceRaw !== "bigint" ||
+      typeof totalSharesRaw !== "bigint"
+    ) {
+      console.warn(`[mark-to-market] Could not read ${vault.vaultId} at ${vault.vault}, skipping`);
+      return;
+    }
+    out.push({
+      vault,
+      navUsd: Number(navUsd8Raw) / 1e8,
+      sharePrice: Number(sharePriceRaw) / 1e18,
+      totalShares: totalSharesRaw.toString(),
+    });
+  });
+  return out;
+}
+
+/** Receipt-token balances for wallet positions, batched per tick. */
+const POSITION_BATCH = 100;
+
+async function updatePortfolioValues(): Promise<void> {
+  const list = getVaults();
+  if (list.length === 0) return;
+
+  const client = getClient() as PublicClient | null;
   if (!client) return;
 
   const db = createDb();
 
   try {
-    const [navUsd8Raw, sharePriceRaw, totalSharesRaw] = await Promise.all([
-      client.readContract({
-        address: VAULT_ADDRESS,
-        abi: vaultAbi,
-        functionName: "navUsd8",
-      }),
-      client.readContract({
-        address: VAULT_ADDRESS,
-        abi: vaultAbi,
-        functionName: "sharePrice",
-      }),
-      client.readContract({
-        address: VAULT_ADDRESS,
-        abi: vaultAbi,
-        functionName: "totalShares",
-      }),
-    ]);
+    const stats = await readVaultStats(client, list);
+    if (stats.length === 0) return;
 
-    const navUsd = Number(navUsd8Raw) / 1e8;
-    const sharePrice = Number(sharePriceRaw) / 1e18;
-    const totalShares = totalSharesRaw.toString();
+    for (const s of stats) {
+      console.log(
+        `[mark-to-market] ${s.vault.vaultId} NAV: $${s.navUsd.toFixed(2)}, Share Price: ${s.sharePrice.toFixed(6)}, Total Shares: ${s.totalShares}`,
+      );
+    }
 
-    console.log(
-      `[mark-to-market] Vault NAV: $${navUsd.toFixed(2)}, Share Price: ${sharePrice.toFixed(6)}, Total Shares: ${totalShares}`,
+    if (!db) return;
+
+    await db.insert(tvlSnapshots).values(
+      stats.map((s) => ({
+        vaultId: s.vault.vaultId,
+        vaultAddress: s.vault.vault.toLowerCase(),
+        navUsd: String(s.navUsd.toFixed(4)),
+        sharePrice: String(s.sharePrice.toFixed(8)),
+        totalShares: s.totalShares,
+      })),
     );
 
-    if (db) {
-      await db.insert(tvlSnapshots).values({
-        vaultId: DEFAULT_VAULT_ID,
-        vaultAddress: VAULT_ADDRESS.toLowerCase(),
-        navUsd: String(navUsd.toFixed(4)),
-        sharePrice: String(sharePrice.toFixed(8)),
-        totalShares,
-      });
+    // Keep the vault summary rows (served by /vault/:id) marked to market.
+    for (const s of stats) {
+      await db
+        .update(vaultsTable)
+        .set({
+          tvlUsd: String(s.navUsd.toFixed(4)),
+          sharePrice: String(s.sharePrice.toFixed(8)),
+          receiptSupply: (Number(s.totalShares) / 1e18).toFixed(3),
+          contractAddress: s.vault.vault,
+        })
+        .where(eq(vaultsTable.id, s.vault.vaultId));
+    }
 
-      // Update all wallet positions
-      const allPositions = await db.select().from(positions);
+    const sharePriceById = new Map(stats.map((s) => [s.vault.vaultId, s.sharePrice]));
 
-      for (const pos of allPositions) {
+    // Update all wallet positions using each vault's own receipt token.
+    const allPositions = await db.select().from(positions);
+    const targets = allPositions.flatMap((pos) => {
+      const vault =
+        findVaultById(pos.vaultId) ??
+        // Legacy rows predate per-vault ids; with a single vault they belong to it.
+        (list.length === 1 ? list[0] : undefined);
+      const sharePrice = vault ? sharePriceById.get(vault.vaultId) : undefined;
+      if (!vault || sharePrice === undefined || vault.receiptToken === "0x0000000000000000000000000000000000000000") {
+        return [];
+      }
+      return [{ pos, vault, sharePrice }];
+    });
+
+    for (let i = 0; i < targets.length; i += POSITION_BATCH) {
+      const slice = targets.slice(i, i + POSITION_BATCH);
+      const balances = await readContracts(
+        client,
+        slice.map(({ pos, vault }) => ({
+          address: vault.receiptToken,
+          abi: receiptAbi,
+          functionName: "balanceOf",
+          args: [pos.wallet as `0x${string}`],
+        })),
+      );
+
+      for (let j = 0; j < slice.length; j++) {
+        const balance = balances[j];
+        if (typeof balance !== "bigint") continue; // skip individual wallet errors
+        const { pos, sharePrice } = slice[j];
         try {
-          const balance = await client.readContract({
-            address: RECEIPT_TOKEN_ADDRESS,
-            abi: receiptAbi,
-            functionName: "balanceOf",
-            args: [pos.wallet as `0x${string}`],
-          });
-
           const receiptBalNum = Number(balance) / 1e18;
           const currentValue = receiptBalNum * sharePrice;
-
           await db
             .update(positions)
             .set({
@@ -225,11 +288,13 @@ export function startMarkToMarket(): NodeJS.Timeout | null {
     return null;
   }
 
-  const hasMainVault = Boolean(VAULT_ADDRESS && RECEIPT_TOKEN_ADDRESS);
-  if (!hasMainVault) {
+  const vaultCount = getVaults().length;
+  if (vaultCount === 0) {
     console.log(
-      "[mark-to-market] Main vault not configured — pair snapshots only",
+      "[mark-to-market] No basket vaults registered — pair snapshots only",
     );
+  } else {
+    console.log(`[mark-to-market] Marking ${vaultCount} basket vault(s) to market`);
   }
 
   console.log(

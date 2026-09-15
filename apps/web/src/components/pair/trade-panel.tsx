@@ -12,7 +12,7 @@ import {
   Wallet,
   WarningCircle,
 } from "@phosphor-icons/react";
-import { TESTNET_FAUCET_URL, depositAmountError, isTestnetMode } from "@novex/config";
+import { TESTNET_FAUCET_URL, depositAmountError, isTestnetMode } from "@compose/config";
 import { Button } from "@/components/ui/button";
 import { cn, explorerUrl, formatUsd } from "@/lib/utils";
 import {

@@ -8,12 +8,12 @@
  *   OWNER_PRIVATE_KEY  — wallet private key that will own the integrator profile
  *
  * Optional env vars:
- *   RIALTO_DISPLAY_NAME            — display name (default: "Novex")
- *   RIALTO_SLUG                    — unique slug (default: "novex-<timestamp>")
+ *   RIALTO_DISPLAY_NAME            — display name (default: "Compose")
+ *   RIALTO_SLUG                    — unique slug (default: "compose-<timestamp>")
  *   RIALTO_MAX_FEE_BPS             — max integrator fee cap in bps (default: 50)
- *   RIALTO_CONTACT_EMAIL           — contact email (default: "dev@novex.xyz")
- *   RIALTO_TELEGRAM                — Telegram handle (default: "@novex_dev")
- *   RIALTO_APP_URL                 — public URL (default: "https://novex.xyz")
+ *   RIALTO_CONTACT_EMAIL           — contact email (default: "dev@compose.xyz")
+ *   RIALTO_TELEGRAM                — Telegram handle (default: "@compose_dev")
+ *   RIALTO_APP_URL                 — public URL (default: "https://compose.xyz")
  *   RIALTO_APPLICATION_DESCRIPTION — description (default: auto)
  *   RIALTO_INTEGRATOR_ID           — if already approved, skip application & create key directly
  */
@@ -70,13 +70,13 @@ async function main() {
   );
   const owner = account.address.toLowerCase();
 
-  const displayName = process.env.RIALTO_DISPLAY_NAME ?? "Novex";
-  const slug = process.env.RIALTO_SLUG ?? `novex-${Math.floor(Date.now() / 1000)}`;
+  const displayName = process.env.RIALTO_DISPLAY_NAME ?? "Compose";
+  const slug = process.env.RIALTO_SLUG ?? `compose-${Math.floor(Date.now() / 1000)}`;
   const maxFeeBps = Number(process.env.RIALTO_MAX_FEE_BPS ?? "50");
-  const contactEmail = process.env.RIALTO_CONTACT_EMAIL ?? "dev@novex.xyz";
-  const telegramHandle = process.env.RIALTO_TELEGRAM ?? "@novex_dev";
-  const appUrl = process.env.RIALTO_APP_URL ?? "https://novex.xyz";
-  const appDesc = process.env.RIALTO_APPLICATION_DESCRIPTION ?? "Novex stock-pair launchpad on Robinhood Chain";
+  const contactEmail = process.env.RIALTO_CONTACT_EMAIL ?? "dev@compose.xyz";
+  const telegramHandle = process.env.RIALTO_TELEGRAM ?? "@compose_dev";
+  const appUrl = process.env.RIALTO_APP_URL ?? "https://compose.xyz";
+  const appDesc = process.env.RIALTO_APPLICATION_DESCRIPTION ?? "Compose stock-pair launchpad on Robinhood Chain";
   const existingIntegratorId = process.env.RIALTO_INTEGRATOR_ID;
 
   console.log("╔════════════════════════════════════════════════╗");

@@ -4,9 +4,9 @@ import { LegalDocument, type LegalSection } from "@/components/legal/legal-docum
 import { LEGAL } from "@/lib/legal";
 
 export const metadata: Metadata = {
-  title: "Terms of Service — Novex",
+  title: "Terms of Service — Compose",
   description:
-    "The terms that govern your use of the Novex interface, strategy vaults, pair launchpad and Stockback rewards.",
+    "The terms that govern your use of the Compose interface, strategy vaults, pair launchpad and Stockback rewards.",
 };
 
 const sections: LegalSection[] = [

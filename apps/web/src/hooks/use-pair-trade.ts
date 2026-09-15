@@ -4,13 +4,13 @@ import { useCallback, useState } from "react";
 import { encodePacked, type Abi, type Address, type Hash } from "viem";
 import { useReadContract, useReadContracts } from "wagmi";
 import {
-  oracleSwapRouterAbi,
   pairRouterAbi,
   pairRouterReady,
   pairVaultAbi,
   testUsdgAbi,
   PAIR_ROUTER_ADDRESS,
-  SWAP_ROUTER_ADDRESS,
+  SWAP_QUOTER_ADDRESS,
+  swapQuoterAbi,
   USDG_ADDRESS,
   WETH_ADDRESS,
   swapQuotesReady,
@@ -57,8 +57,8 @@ interface QuoteCall {
 
 function quoteCall(from: Address, to: Address, amount: bigint): QuoteCall {
   return {
-    address: SWAP_ROUTER_ADDRESS,
-    abi: oracleSwapRouterAbi,
+    address: SWAP_QUOTER_ADDRESS,
+    abi: swapQuoterAbi,
     functionName: "quoteExactInput",
     args: [swapPath(from, to), amount],
   };
@@ -80,7 +80,10 @@ function useLegQuotes(
   const outs = legs?.map((leg, i) => {
     if (!swapLegs[i]) return leg.amount;
     const item = query.data?.[k++];
-    return item?.status === "success" ? (item.result as bigint) : undefined;
+    if (item?.status !== "success") return undefined;
+    // QuoterV2 returns (amountOut, ...); the testnet router returns amountOut alone.
+    const r = item.result as bigint | readonly [bigint, ...unknown[]];
+    return Array.isArray(r) ? (r[0] as bigint) : (r as bigint);
   });
   const failed = query.data?.find((d) => d.status === "failure");
   return {

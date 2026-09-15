@@ -1,4 +1,4 @@
-# Novex
+# Compose
 
 Onchain managed-stock basket protocol on Robinhood Chain.
 
@@ -9,7 +9,7 @@ Deposit one tokenized stock, choose a strategy, receive a diversified basket plu
 - **Contracts:** Foundry + Solidity (Robinhood Chain)
 - **Frontend:** Next.js 15, Privy, wagmi, shadcn/ui
 - **Backend:** TypeScript (Hono APIs, Ponder indexer)
-- **Shared:** `@novex/sdk`, `@novex/config`, `@novex/ui`
+- **Shared:** `@compose/sdk`, `@compose/config`, `@compose/ui`
 
 ## Getting started
 
@@ -30,7 +30,7 @@ Copy `.env.example` to `.env` and set at minimum:
 
 ```bash
 pnpm docker:up
-pnpm --filter @novex/web --filter @novex/admin dev
+pnpm --filter @compose/web --filter @compose/admin dev
 ```
 
 | Service | URL |
@@ -63,12 +63,20 @@ the CLI with secrets read from your local `.env`:
 brew install render && render login
 scripts/render-create.sh all        # or: indexer | allocator | quote | web
 render services                     # watch the first deploys
-render logs -r novex-indexer --tail # follow a service
+render logs -r compose-indexer --tail # follow a service
 ```
 
 Postgres stays on Neon (`DATABASE_URL`) and images on Redis Cloud (`REDIS_*`).
 `NEXT_PUBLIC_*` values are inlined at build time, so changing one on the web
 service requires a redeploy.
+
+The mainnet price keeper runs as a Render background worker (`compose-keeper`,
+`SERVICE=keeper`, `scripts/render-create.sh keeper`). It reads the feeds and
+`PriceFeedUpdater` from `packages/config/src/mainnet-deployments.json`, so it
+only starts once `pnpm deploy:mainnet` + `pnpm sync:mainnet` have landed, and
+needs `ROBINHOOD_RPC_URL` plus a `KEEPER_PRIVATE_KEY` that is on the updater's
+keeper allowlist. Before funding that key, `pnpm keeper:mainnet:dry` runs one
+full pass (prices, on-chain reads, chunking) without sending anything.
 
 ## Packages
 

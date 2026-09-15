@@ -18,7 +18,7 @@ Before adding a new Stock Token:
 ## Sync with RHJ API
 
 ```typescript
-import { fetchRhjAssets, mergeRhjAssetsWithConfig } from "@novex/config";
+import { fetchRhjAssets, mergeRhjAssetsWithConfig } from "@compose/config";
 ```
 
 Run periodically to update contract addresses from `https://api.robinhood.com/rhj/assets`.

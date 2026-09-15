@@ -3,7 +3,7 @@ import { LandingAccordion } from "./landing-accordion";
 
 const FAQ = [
   {
-    q: "Who can use Novex?",
+    q: "Who can use Compose?",
     a: "Any wallet that can connect via Privy or the demo wallet. Deposits and trades are recorded against your address on the indexer.",
   },
   {

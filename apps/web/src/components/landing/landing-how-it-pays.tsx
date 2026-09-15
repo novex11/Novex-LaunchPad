@@ -1,7 +1,7 @@
 "use client";
 
 import { Wallet, Stack, Scales, Gift, ChartLineUp, ArrowCounterClockwise } from "@phosphor-icons/react";
-import { CASHBACK_CONFIG } from "@novex/config";
+import { CASHBACK_CONFIG } from "@compose/config";
 import { useRewardPreview } from "@/hooks/use-reward-preview";
 import { formatUsd } from "@/lib/utils";
 import { SectionFrame } from "./section-frame";

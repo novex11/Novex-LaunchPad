@@ -3,8 +3,8 @@
 import { useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { ArrowRight, Wallet, WarningCircle, Sparkle, CaretDown } from "@phosphor-icons/react";
-import { CASHBACK_CONFIG, STRATEGIES, receiptTokenName, type StrategyId } from "@novex/config";
-import type { PreviewResponse } from "@novex/sdk";
+import { CASHBACK_CONFIG, STRATEGIES, receiptTokenName, type StrategyId } from "@compose/config";
+import type { PreviewResponse } from "@compose/sdk";
 import type { DepositCosts } from "@/lib/api";
 import { cn, formatUsd } from "@/lib/utils";
 import { Button } from "@/components/ui/button";

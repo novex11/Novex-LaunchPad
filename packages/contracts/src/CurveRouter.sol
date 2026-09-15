@@ -4,18 +4,18 @@ pragma solidity ^0.8.24;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import {NovexCurve} from "./NovexCurve.sol";
+import {ComposeCurve} from "./ComposeCurve.sol";
 import {PairRouter} from "./PairRouter.sol";
 import {PairVault} from "./PairVault.sol";
 
 /// @title CurveRouter — buy and sell creator tokens with ETH or USDG
 /// @notice Buy: ETH/USDG → PairRouter (swap into both stocks, mint pair shares)
-///         → NovexCurve. Sell: NovexCurve → pair shares → PairRouter (redeem,
+///         → ComposeCurve. Sell: ComposeCurve → pair shares → PairRouter (redeem,
 ///         swap back) → ETH/USDG. Holds nothing between transactions.
 contract CurveRouter is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
-    NovexCurve public immutable curve;
+    ComposeCurve public immutable curve;
     PairRouter public immutable pairRouter;
     address public immutable weth;
     address public immutable usdg;
@@ -50,7 +50,7 @@ contract CurveRouter is ReentrancyGuard {
 
     constructor(address curve_, address pairRouter_) {
         require(curve_ != address(0) && pairRouter_ != address(0), "CurveRouter: zero address");
-        curve = NovexCurve(curve_);
+        curve = ComposeCurve(curve_);
         pairRouter = PairRouter(payable(pairRouter_));
         weth = PairRouter(payable(pairRouter_)).weth();
         usdg = PairRouter(payable(pairRouter_)).usdg();

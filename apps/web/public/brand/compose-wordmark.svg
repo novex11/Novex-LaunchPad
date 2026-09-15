@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 56" width="220" height="56" role="img" aria-label="Compose">
+  <rect x="2" y="4" width="48" height="48" rx="11" fill="#8FA683"/>
+  <path d="M14 39V17l24 22V17" fill="none" stroke="#141416" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="62" y="39" font-family="Geist, Inter, system-ui, -apple-system, sans-serif" font-size="30" font-weight="600" letter-spacing="-0.02em" fill="currentColor">Compose</text>
+</svg>

@@ -1,12 +1,15 @@
 import { computeAllocation } from "./allocation.js";
 import { computeStockbackPreview } from "./cashback.js";
 import type { PreviewRequestInput, PreviewResponse } from "./schemas.js";
+import type { StockToken } from "@compose/config";
 
 export function buildPreview(
   req: PreviewRequestInput,
   walletLifetimeStockbackUsd = 0,
+  tokens?: StockToken[],
 ): PreviewResponse {
   const allocation = computeAllocation({
+    tokens,
     depositTicker: req.depositTicker,
     depositUsd: req.depositUsd,
     strategy: req.strategy ?? "balanced",

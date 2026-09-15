@@ -1,4 +1,5 @@
 import { isTestnetMode, testnetDeployments } from "./testnet.js";
+import { mainnetDeployment, mainnetManifest } from "./mainnet.js";
 
 /** Tradable token metadata — verify addresses against Robinhood Chain token registry */
 export interface StockToken {
@@ -57,7 +58,7 @@ export function launchpadEligibleTokens(): StockToken[] {
 /**
  * Tokens suitable as a numeraire (quote / anchor asset) in a pair.
  * Inspired by Long.xyz where every pool trades COMMUNITY_TOKEN/STOCK_TOKEN —
- * the stock is the quote side. For Novex stock-stock pairs the numeraire is
+ * the stock is the quote side. For Compose stock-stock pairs the numeraire is
  * the larger, deeper-liquidity leg that anchors the pair's value narrative.
  */
 export function numeraireTokens(): StockToken[] {
@@ -98,297 +99,103 @@ export function isUSMarketHours(): boolean {
   return minutesSinceMidnight >= 570 && minutesSinceMidnight < 960; // 9:30–16:00
 }
 
-/** Initial MVP whitelist — deepest liquidity tokens */
-export const APPROVED_STOCK_TOKENS: StockToken[] = [
-  // ──── Equities ────────────────────────────────────────
-  {
-    ticker: "NVDA",
-    name: "NVIDIA",
-    address: "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC",
-    priceFeed: "0x0000000000000000000000000000000000000101",
-    category: "growth",
-    decimals: 18,
-    numeraire: true,
-    tradingHours: { market: true, extended: true, overnight: true },
-    logoUrl: "https://cdn.robinhood.com/ncw_assets/logos/0xd0601ce157db5bdc3162bbac2a2c8af5320d9eec.png",
-  },
-  {
-    ticker: "AAPL",
-    name: "Apple",
-    address: "0xaF3D76f1834A1d425780943C99Ea8A608f8a93f9",
-    priceFeed: "0x0000000000000000000000000000000000000102",
-    category: "large-cap",
-    decimals: 18,
-    numeraire: true,
-    tradingHours: { market: true, extended: true, overnight: true },
-    logoUrl: "https://cdn.robinhood.com/ncw_assets/logos/0xaf3d76f1834a1d425780943c99ea8a608f8a93f9.png",
-  },
-  {
-    ticker: "MSFT",
-    name: "Microsoft",
-    address: "0xe93237c50d904957cf27e7b1133b510c669c2e74",
-    priceFeed: "0x0000000000000000000000000000000000000103",
-    category: "large-cap",
-    decimals: 18,
-    numeraire: true,
-    tradingHours: { market: true, extended: true, overnight: true },
-    logoUrl: "https://cdn.robinhood.com/ncw_assets/logos/0xe93237c50d904957cf27e7b1133b510c669c2e74.png",
-  },
-  {
-    ticker: "SPY",
-    name: "SPDR S&P 500 ETF Trust",
-    address: "0x117cc2133c37b721f49de2a7a74833232b3b4c0c",
-    priceFeed: "0x0000000000000000000000000000000000000104",
-    category: "broad-market",
-    decimals: 18,
-    numeraire: true,
-    tradingHours: { market: true, extended: true, overnight: true },
-    logoUrl: "https://cdn.robinhood.com/ncw_assets/logos/0x117cc2133c37b721f49de2a7a74833232b3b4c0c.png",
-  },
-  {
-    ticker: "QQQ",
-    name: "Invesco QQQ Trust",
-    address: "0xd5f3879160bc7c32ebb4dc785f8a4f505888de68",
-    priceFeed: "0x0000000000000000000000000000000000000105",
-    category: "broad-market",
-    decimals: 18,
-    numeraire: true,
-    tradingHours: { market: true, extended: true, overnight: true },
-    logoUrl: "https://cdn.robinhood.com/ncw_assets/logos/0xd5f3879160bc7c32ebb4dc785f8a4f505888de68.png",
-  },
-  {
-    ticker: "GOOGL",
-    name: "Alphabet Class A",
-    address: "0x2e0847e8910a9732eb3fb1bb4b70a580adad4fe3",
-    priceFeed: "0x0000000000000000000000000000000000000106",
-    category: "large-cap",
-    decimals: 18,
-    numeraire: true,
-    tradingHours: { market: true, extended: true, overnight: true },
-    logoUrl: "https://cdn.robinhood.com/ncw_assets/logos/0x2e0847e8910a9732eb3fb1bb4b70a580adad4fe3.png",
-  },
-  {
-    ticker: "AMZN",
-    name: "Amazon",
-    address: "0x12f190a9f9d7d37a250758b26824b97ce941bf54",
-    priceFeed: "0x0000000000000000000000000000000000000107",
-    category: "large-cap",
-    decimals: 18,
-    numeraire: true,
-    tradingHours: { market: true, extended: true, overnight: true },
-    logoUrl: "https://cdn.robinhood.com/ncw_assets/logos/0x12f190a9f9d7d37a250758b26824b97ce941bf54.png",
-  },
-  {
-    ticker: "TSLA",
-    name: "Tesla",
-    address: "0x322f0929c4625ed5bad873c95208d54e1c003b2d",
-    priceFeed: "0x0000000000000000000000000000000000000108",
-    category: "growth",
-    decimals: 18,
-    numeraire: true,
-    tradingHours: { market: true, extended: true, overnight: true },
-    logoUrl: "https://cdn.robinhood.com/ncw_assets/logos/0x322f0929c4625ed5bad873c95208d54e1c003b2d.png",
-  },
-  {
-    ticker: "SNDK",
-    name: "SanDisk Corporation",
-    address: "0xb90a19ff0af67f7779aff50a882a9cff42446400",
-    priceFeed: "0x0000000000000000000000000000000000000109",
-    category: "growth",
-    decimals: 18,
-    tradingHours: { market: true, extended: true, overnight: true },
-    logoUrl: "https://cdn.robinhood.com/ncw_assets/logos/0xb90a19ff0af67f7779aff50a882a9cff42446400.png",
-  },
+/**
+ * Hand-written adjustments layered on top of the RHJ manifest: numeraire
+ * flags for deep-liquidity names, category corrections, launchpad opt-outs.
+ * Everything else (address, decimals, logo, trading hours) comes from
+ * `mainnet-manifest.json` (regenerate with `pnpm manifest:mainnet`).
+ */
+export const TOKEN_OVERRIDES: Record<string, Partial<Omit<StockToken, "ticker" | "address">>> = {
+  NVDA: { name: "NVIDIA", category: "growth", numeraire: true },
+  AAPL: { name: "Apple", category: "large-cap", numeraire: true },
+  MSFT: { name: "Microsoft", category: "large-cap", numeraire: true },
+  SPY: { name: "SPDR S&P 500 ETF Trust", category: "broad-market", numeraire: true },
+  QQQ: { name: "Invesco QQQ Trust", category: "broad-market", numeraire: true },
+  GOOGL: { name: "Alphabet Class A", category: "large-cap", numeraire: true },
+  AMZN: { name: "Amazon", category: "large-cap", numeraire: true },
+  TSLA: { name: "Tesla", category: "growth", numeraire: true },
+  META: { name: "Meta Platforms", category: "large-cap", numeraire: true },
+  SNDK: { name: "SanDisk Corporation", category: "growth" },
+  AMD: { name: "AMD", category: "growth" },
+  PLTR: { name: "Palantir Technologies", category: "growth" },
+  COIN: { name: "Coinbase", category: "growth" },
+  SPCX: { name: "Space Exploration Technologies", category: "thematic" },
+  INTC: { name: "Intel", category: "large-cap" },
+  MU: { name: "Micron Technology", category: "growth" },
+  ORCL: { name: "Oracle Corporation", category: "large-cap" },
+  NFLX: { name: "Netflix", category: "large-cap" },
+};
+
+const NO_FEED = "0x0000000000000000000000000000000000000000" as const;
+const ALL_SESSIONS = { market: true, extended: true, overnight: true };
+
+/** Canonical non-stock assets on Robinhood Chain (not part of the RHJ registry). */
+const MAINNET_BASE_TOKENS: StockToken[] = [
   {
     ticker: "USDG",
     name: "Global Dollar",
     address: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
-    priceFeed: "0x0000000000000000000000000000000000000110",
+    priceFeed: NO_FEED,
     category: "stable",
     decimals: 6,
-    // No USDG price feed is registered for the launchpad yet.
+    // USDG is the quote asset for pools and routers, not a launchable leg.
     launchpadEligible: false,
-  },
-
-  // ──── Additional Rialto-listed equities ───────────────
-  {
-    ticker: "META",
-    name: "Meta Platforms",
-    address: "0xc0d6457c16cc70d6790dd43521c899c87ce02f35",
-    priceFeed: "0x0000000000000000000000000000000000000120",
-    category: "large-cap",
-    decimals: 18,
-    numeraire: true,
-    tradingHours: { market: true, extended: true, overnight: true },
-    logoUrl: "https://cdn.robinhood.com/ncw_assets/logos/0xc0d6457c16cc70d6790dd43521c899c87ce02f35.png",
-  },
-  {
-    ticker: "AMD",
-    name: "AMD",
-    address: "0x86923f96303d656e4aa86d9d42d1e57ad2023fdc",
-    priceFeed: "0x0000000000000000000000000000000000000121",
-    category: "growth",
-    decimals: 18,
-    tradingHours: { market: true, extended: true, overnight: true },
-    logoUrl: "https://cdn.robinhood.com/ncw_assets/logos/0x86923f96303d656e4aa86d9d42d1e57ad2023fdc.png",
-  },
-  {
-    ticker: "PLTR",
-    name: "Palantir Technologies",
-    address: "0x894e1ec2d74ffe5aef8dc8a9e84686accb964f2a",
-    priceFeed: "0x0000000000000000000000000000000000000122",
-    category: "growth",
-    decimals: 18,
-    tradingHours: { market: true, extended: true, overnight: true },
-    logoUrl: "https://cdn.robinhood.com/ncw_assets/logos/0x894e1ec2d74ffe5aef8dc8a9e84686accb964f2a.png",
-  },
-  {
-    ticker: "COIN",
-    name: "Coinbase",
-    address: "0x6330d8c3178a418788df01a47479c0ce7ccf450b",
-    priceFeed: "0x0000000000000000000000000000000000000123",
-    category: "growth",
-    decimals: 18,
-    tradingHours: { market: true, extended: true, overnight: true },
-    logoUrl: "https://cdn.robinhood.com/ncw_assets/logos/0x6330d8c3178a418788df01a47479c0ce7ccf450b.png",
-  },
-  {
-    ticker: "SPCX",
-    name: "Space Exploration Technologies",
-    address: "0x4a0e65a3eccec6dbe60ae065f2e7bb85fae35eea",
-    priceFeed: "0x0000000000000000000000000000000000000124",
-    category: "thematic",
-    decimals: 18,
-    tradingHours: { market: true, extended: false, overnight: false },
-    logoUrl: "https://cdn.robinhood.com/ncw_assets/logos/0x4a0e65a3eccec6dbe60ae065f2e7bb85fae35eea.png",
-  },
-  {
-    ticker: "INTC",
-    name: "Intel",
-    address: "0xc72b96e0e48ecd4dc75e1e45396e26300bc39681",
-    priceFeed: "0x0000000000000000000000000000000000000125",
-    category: "large-cap",
-    decimals: 18,
-    tradingHours: { market: true, extended: true, overnight: true },
-    logoUrl: "https://cdn.robinhood.com/ncw_assets/logos/0xc72b96e0e48ecd4dc75e1e45396e26300bc39681.png",
-  },
-  {
-    ticker: "MU",
-    name: "Micron Technology",
-    address: "0xff080c8ce2e5feadaca0da81314ae59d232d4afd",
-    priceFeed: "0x0000000000000000000000000000000000000126",
-    category: "growth",
-    decimals: 18,
-    tradingHours: { market: true, extended: true, overnight: true },
-    logoUrl: "https://cdn.robinhood.com/ncw_assets/logos/0xff080c8ce2e5feadaca0da81314ae59d232d4afd.png",
-  },
-  {
-    ticker: "ORCL",
-    name: "Oracle Corporation",
-    address: "0xb0992820e760d836549ba69bc7598b4af75dee03",
-    priceFeed: "0x0000000000000000000000000000000000000127",
-    category: "large-cap",
-    decimals: 18,
-    tradingHours: { market: true, extended: true, overnight: true },
-    logoUrl: "https://cdn.robinhood.com/ncw_assets/logos/0xb0992820e760d836549ba69bc7598b4af75dee03.png",
-  },
-
-  {
-    ticker: "NFLX",
-    name: "Netflix",
-    address: "0xE0444EF8BF4eD74f74FD73686e2ddF4C1c5591E8",
-    priceFeed: "0x0000000000000000000000000000000000000128",
-    category: "large-cap",
-    decimals: 18,
-    tradingHours: { market: true, extended: true, overnight: true },
-    logoUrl: "https://cdn.robinhood.com/ncw_assets/logos/0xe0444ef8bf4ed74f74fd73686e2ddf4c1c5591e8.png",
   },
   {
     ticker: "WETH",
     name: "Wrapped ETH",
     address: "0x0Bd7D308f8E1639FAb988df18A8011f41EAcAD73",
-    priceFeed: "0x0000000000000000000000000000000000000129",
+    priceFeed: NO_FEED,
     category: "crypto",
     decimals: 18,
   },
-
-  // ──── Forex — placeholder addresses, not yet deployed on Robinhood Chain ──
-  // These tokens are included in the config for future use once ERC-8056 forex
-  // tokenization goes live. Set launchpadEligible=false to prevent them from
-  // appearing in the pair launch wizard until real contracts exist.
-  {
-    ticker: "EURUSD",
-    name: "Euro / US Dollar",
-    address: "0x0000000000000000000000000000000000000011",
-    priceFeed: "0x0000000000000000000000000000000000000111",
-    category: "forex",
-    decimals: 18,
-    launchpadEligible: false,
-  },
-  {
-    ticker: "GBPUSD",
-    name: "British Pound / US Dollar",
-    address: "0x0000000000000000000000000000000000000012",
-    priceFeed: "0x0000000000000000000000000000000000000112",
-    category: "forex",
-    decimals: 18,
-    launchpadEligible: false,
-  },
-  {
-    ticker: "AUDUSD",
-    name: "Australian Dollar / US Dollar",
-    address: "0x0000000000000000000000000000000000000013",
-    priceFeed: "0x0000000000000000000000000000000000000113",
-    category: "forex",
-    decimals: 18,
-    launchpadEligible: false,
-  },
-  {
-    ticker: "NZDUSD",
-    name: "New Zealand Dollar / US Dollar",
-    address: "0x0000000000000000000000000000000000000014",
-    priceFeed: "0x0000000000000000000000000000000000000114",
-    category: "forex",
-    decimals: 18,
-    launchpadEligible: false,
-  },
-  {
-    ticker: "USDCAD",
-    name: "US Dollar / Canadian Dollar",
-    address: "0x0000000000000000000000000000000000000015",
-    priceFeed: "0x0000000000000000000000000000000000000115",
-    category: "forex",
-    decimals: 18,
-    launchpadEligible: false,
-  },
-  {
-    ticker: "USDCHF",
-    name: "US Dollar / Swiss Franc",
-    address: "0x0000000000000000000000000000000000000016",
-    priceFeed: "0x0000000000000000000000000000000000000116",
-    category: "forex",
-    decimals: 18,
-    launchpadEligible: false,
-  },
 ];
 
-/** Tokens available as deposit asset (excludes stable + forex) */
-export const DEPOSIT_ASSETS = APPROVED_STOCK_TOKENS.filter(
-  (t) => t.category !== "stable" && t.category !== "forex",
+function mainnetFeed(ticker: string): `0x${string}` {
+  const feed = mainnetDeployment().feeds?.[ticker];
+  return feed && /^0x[0-9a-fA-F]{40}$/.test(feed) ? (feed as `0x${string}`) : NO_FEED;
+}
+
+function buildMainnetTokens(): StockToken[] {
+  const stocks: StockToken[] = mainnetManifest().tokens.map((m) => {
+    const o = TOKEN_OVERRIDES[m.ticker] ?? {};
+    return {
+      ticker: m.ticker,
+      name: o.name ?? m.name,
+      address: m.address,
+      priceFeed: mainnetFeed(m.ticker),
+      category: o.category ?? m.category,
+      decimals: m.decimals,
+      numeraire: o.numeraire,
+      launchpadEligible: o.launchpadEligible,
+      tradingHours: m.tradingHours ?? ALL_SESSIONS,
+      logoUrl: m.logoUrl,
+    };
+  });
+  const base = MAINNET_BASE_TOKENS.map((t) => ({ ...t, priceFeed: mainnetFeed(t.ticker) }));
+  return [...stocks, ...base];
+}
+
+/**
+ * Every tokenized stock on Robinhood Chain mainnet (from the RHJ manifest)
+ * plus USDG and WETH. Price feeds are filled in from `mainnet-deployments.json`
+ * once the launchpad is deployed and synced.
+ */
+export const MAINNET_TOKENS: StockToken[] = buildMainnetTokens();
+
+/** @deprecated alias kept for older imports — use MAINNET_TOKENS / getActiveStockTokens(). */
+export const APPROVED_STOCK_TOKENS: StockToken[] = MAINNET_TOKENS;
+
+/** Tokens that can be deposited into a managed basket (equities and ETFs only). */
+export const DEPOSIT_ASSETS = MAINNET_TOKENS.filter(
+  (t) => t.category !== "stable" && t.category !== "forex" && t.category !== "crypto",
 );
 
-/** All forex tokens */
-export const FOREX_TOKENS = APPROVED_STOCK_TOKENS.filter(
-  (t) => t.category === "forex",
-);
+/** All forex tokens (none on Robinhood Chain yet). */
+export const FOREX_TOKENS = MAINNET_TOKENS.filter((t) => t.category === "forex");
 
-/** All equity tokens (non-stable, non-forex) */
-export const EQUITY_TOKENS = APPROVED_STOCK_TOKENS.filter(
-  (t) => t.category !== "stable" && t.category !== "forex",
-);
-
-const NO_FEED = "0x0000000000000000000000000000000000000000" as const;
-const ALL_SESSIONS = { market: true, extended: true, overnight: true };
+/** All equity tokens (non-stable, non-forex, non-crypto). */
+export const EQUITY_TOKENS = DEPOSIT_ASSETS;
 
 /**
  * Robinhood Chain Testnet (46630): the real faucet Stock Tokens and canonical
@@ -413,7 +220,7 @@ function withTestnetFeed(token: StockToken): StockToken {
 
 /** Network-aware token list: testnet faucet tokens or the mainnet registry. */
 export function getActiveStockTokens(): StockToken[] {
-  return isTestnetMode() ? TESTNET_TOKENS.map(withTestnetFeed) : APPROVED_STOCK_TOKENS;
+  return isTestnetMode() ? TESTNET_TOKENS.map(withTestnetFeed) : MAINNET_TOKENS;
 }
 
 export function getTokenByTicker(ticker: string): StockToken | undefined {
@@ -425,7 +232,7 @@ export function getTokenByAddress(address: string): StockToken | undefined {
   const wanted = address.toLowerCase();
   return (
     getActiveStockTokens().find((t) => t.address.toLowerCase() === wanted) ??
-    APPROVED_STOCK_TOKENS.find((t) => t.address.toLowerCase() === wanted) ??
+    MAINNET_TOKENS.find((t) => t.address.toLowerCase() === wanted) ??
     TESTNET_TOKENS.find((t) => t.address.toLowerCase() === wanted)
   );
 }

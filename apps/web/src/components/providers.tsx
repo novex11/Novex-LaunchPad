@@ -56,7 +56,7 @@ export function Providers({
           theme: "light",
           accentColor: "#C5D4C0",
           showWalletLoginFirst: true,
-          logo: "/novex-logo.svg",
+          logo: "/compose-logo.svg",
           walletList: [
             "detected_ethereum_wallets",
             "metamask",

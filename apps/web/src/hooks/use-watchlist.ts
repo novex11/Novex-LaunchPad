@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-const KEY = "novex.watchlist.v1";
+const KEY = "compose.watchlist.v1";
 
 /** localStorage-backed watchlist of tickers. */
 export function useWatchlist() {
