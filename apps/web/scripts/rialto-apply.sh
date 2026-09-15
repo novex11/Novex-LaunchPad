@@ -17,8 +17,8 @@ OWNER_PRIVATE_KEY=$(grep -E "^DEPLOYER_PRIVATE_KEY=" "$ENV_FILE" | head -1 | cut
 [ -n "$OWNER_PRIVATE_KEY" ] || { echo "DEPLOYER_PRIVATE_KEY not set in $ENV_FILE"; exit 1; }
 export OWNER_PRIVATE_KEY
 
-export DISPLAY_NAME="${DISPLAY_NAME:-Saurabh Sharma (Novex)}"
-export SLUG="${SLUG:-novex-saurabh-sharma}"
+export DISPLAY_NAME="${DISPLAY_NAME:-Novex}"
+export SLUG="${SLUG:-novex}"
 export CONTACT_EMAIL="${CONTACT_EMAIL:-saurabh.sharma9827@gmail.com}"
 export APP_URL="${APP_URL:-https://github.com/novex11/contract-v2}"
 export MAX_FEE_BPS="${MAX_FEE_BPS:-50}"
