@@ -29,7 +29,8 @@ QUOTE_URL="https://${PREFIX}-quote.${DOMAIN}"
 
 # Value of KEY from .env (empty if unset).
 from_env() {
-  grep -E "^${1}=" .env | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//"
+  # `|| true`: a missing key must yield "" rather than abort under set -e/pipefail.
+  { grep -E "^${1}=" .env || true; } | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//"
 }
 
 # create <name> <health-path|-> [ENV=value | @ENV_FROM_DOTENV]...
