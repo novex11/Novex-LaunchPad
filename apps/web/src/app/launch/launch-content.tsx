@@ -41,7 +41,7 @@ import {
   testnetContractsReady,
   USDG_DECIMALS,
   type StockToken,
-} from "@novex/config";
+} from "@compose/config";
 import { saveLaunchpadMetadata } from "@/lib/api";
 import { rpcDisplayLabel } from "@/lib/chain-config";
 import { useChainConfig } from "@/components/chain-config-context";
@@ -62,6 +62,7 @@ import {
   usePairUniquenessPending,
   useTokenBalances,
   type TxStage,
+  useListedTokens,
 } from "@/hooks/use-pair-launchpad";
 import { useWallet } from "@/hooks/use-wallet";
 import { useQuotes } from "@/hooks/use-quotes";
@@ -256,7 +257,14 @@ export default function LaunchContent() {
   const { rpcUrl } = useChainConfig();
   const router = useRouter();
   const { signMessageAsync } = useSignMessage();
-  const eligibleTokens = useMemo<StockToken[]>(() => launchpadEligibleTokens(), []);
+  const listing = useListedTokens();
+  const eligibleTokens = useMemo<StockToken[]>(() => {
+    const all = launchpadEligibleTokens();
+    // Until the factory reports its list, show everything; afterwards only
+    // tokens with a registered feed can be a leg (launch reverts otherwise).
+    if (!listing.loaded || listing.listed.size === 0) return all;
+    return all.filter((t) => listing.listed.has(t.address.toLowerCase()));
+  }, [listing.loaded, listing.listed]);
 
   const [tickerA, setTickerA] = useState<string>(() => eligibleTokens[0]?.ticker ?? "TSLA");
   const [tickerB, setTickerB] = useState<string>(() => eligibleTokens[1]?.ticker ?? "AMZN");

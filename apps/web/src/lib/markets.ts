@@ -1,13 +1,17 @@
+import { getActiveStockTokens } from "@compose/config";
+
 /** Extended catalog for markets UI — maps to TradingView symbols */
 export interface MarketStock {
   ticker: string;
   name: string;
-  exchange: "NASDAQ" | "NYSE" | "AMEX" | "FX";
+  /** "US" when the listing venue is not hand-curated (TradingView resolves bare US tickers). */
+  exchange: "NASDAQ" | "NYSE" | "AMEX" | "FX" | "US";
   category: string;
   tradable: boolean;
 }
 
-export const MARKET_STOCKS: MarketStock[] = [
+/** Hand-curated names shown in the ticker strip and landing panels. */
+export const FEATURED_MARKET_STOCKS: MarketStock[] = [
   { ticker: "NVDA", name: "NVIDIA", exchange: "NASDAQ", category: "Semiconductors", tradable: true },
   { ticker: "AAPL", name: "Apple", exchange: "NASDAQ", category: "Technology", tradable: true },
   { ticker: "MSFT", name: "Microsoft", exchange: "NASDAQ", category: "Technology", tradable: true },
@@ -38,6 +42,37 @@ export const FOREX_PAIRS: MarketStock[] = [
   { ticker: "USDCAD", name: "US Dollar / Canadian Dollar", exchange: "FX", category: "Major", tradable: false },
   { ticker: "USDCHF", name: "US Dollar / Swiss Franc", exchange: "FX", category: "Major", tradable: false },
 ];
+
+const CATEGORY_LABEL: Record<string, string> = {
+  "large-cap": "Large cap",
+  growth: "Growth",
+  "broad-market": "ETF",
+  thematic: "Thematic",
+  stable: "Stablecoin",
+  crypto: "Crypto",
+  forex: "Major",
+};
+
+/**
+ * Every tokenized stock on the active network: the featured list first (with
+ * its curated sector labels), then the rest of the on-chain universe.
+ */
+export const MARKET_STOCKS: MarketStock[] = (() => {
+  const featured = new Set(FEATURED_MARKET_STOCKS.map((s) => s.ticker));
+  const rest: MarketStock[] = getActiveStockTokens()
+    .filter((t) => !featured.has(t.ticker) && t.category !== "stable" && t.category !== "crypto")
+    .map((t) => ({
+      ticker: t.ticker,
+      name: t.name,
+      exchange: "US" as const,
+      category: CATEGORY_LABEL[t.category] ?? "Growth",
+      tradable: true,
+    }));
+  // On testnet only the faucet tokens exist; keep the catalog honest there.
+  const active = new Set(getActiveStockTokens().map((t) => t.ticker));
+  const curated = FEATURED_MARKET_STOCKS.filter((s) => active.has(s.ticker));
+  return [...(curated.length ? curated : FEATURED_MARKET_STOCKS), ...rest];
+})();
 
 /** All tradable assets */
 export const ALL_MARKET_ASSETS = [...MARKET_STOCKS, ...FOREX_PAIRS];

@@ -31,3 +31,5 @@ docs/AUDIT_CHECKLIST.md
 .cursor/
 docs/BONDING_CURVE_PLAN.md
 .claude/
+docs/MAINNET_ALL_STOCKS_PLAN.md
+packages/contracts/mainnet-onboard.json

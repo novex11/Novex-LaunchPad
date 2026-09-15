@@ -7,12 +7,23 @@ export type { QuoteData };
 
 export const QUOTE_REFRESH_MS = 15_000;
 
-async function fetchQuotes(tickers: string[]): Promise<QuoteData[]> {
+/** The quotes route serves at most this many tickers per request. */
+const BATCH = 40;
+
+async function fetchQuoteBatch(tickers: string[]): Promise<QuoteData[]> {
   const params = tickers.length ? `?tickers=${tickers.join(",")}` : "";
   const res = await fetch(`/api/quotes${params}`, { cache: "no-store" });
   if (!res.ok) throw new Error(`Quotes failed (${res.status})`);
   const json = (await res.json()) as { quotes?: QuoteData[] };
   return json.quotes ?? [];
+}
+
+/** Fetch any number of tickers, in parallel batches the route accepts. */
+async function fetchQuotes(tickers: string[]): Promise<QuoteData[]> {
+  const batches: string[][] = [];
+  for (let i = 0; i < tickers.length; i += BATCH) batches.push(tickers.slice(i, i + BATCH));
+  const results = await Promise.all(batches.map(fetchQuoteBatch));
+  return results.flat();
 }
 
 /**

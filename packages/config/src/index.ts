@@ -8,3 +8,5 @@ export * from "./launch.js";
 export * from "./launchpad.js";
 export * from "./rhj-api.js";
 export * from "./cors.js";
+export * from "./categories.js";
+export * from "./mainnet.js";

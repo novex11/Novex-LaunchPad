@@ -13,7 +13,7 @@ import {StrategyVault} from "../src/StrategyVault.sol";
 import {PairFactory} from "../src/PairFactory.sol";
 import {PairDeployer} from "../src/PairDeployer.sol";
 
-/// @title DeployMainnet — deploys Novex protocol against real Robinhood Chain tokens
+/// @title DeployMainnet — deploys Compose protocol against real Robinhood Chain tokens
 /// @notice No mocks. All token addresses are the real ERC-8056 contracts on
 ///         chainId 4663 fetched from the RHJ /assets API. USDG is the Paxos
 ///         Global Dollar at 6 decimals. WETH and Uniswap V3 SwapRouter02 are
@@ -105,7 +105,7 @@ contract DeployMainnet is Script {
 
             for (uint256 i; i < depositTokens.length; ++i) {
                 string memory symbol = string.concat("t", tickers[i], "-B");
-                string memory name = string.concat("Novex ", tickers[i], " Balanced");
+                string memory name = string.concat("Compose ", tickers[i], " Balanced");
                 (address v, ) = factory.createVault(
                     depositTokens[i],
                     AllocationController.Strategy.Balanced,

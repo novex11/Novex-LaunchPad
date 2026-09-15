@@ -1,11 +1,11 @@
-# Render Blueprint for the Novex platform.
+# Render Blueprint for the Compose platform.
 # One Dockerfile builds every service; SERVICE selects the target stage.
 # Secrets (sync: false) are entered once in the Render dashboard or via the CLI.
 # Docs: https://render.com/docs/blueprint-spec
 
 services:
   - type: web
-    name: novex-indexer
+    name: compose-indexer
     runtime: docker
     repo: https://github.com/novex11/contract-v2
     branch: main
@@ -29,7 +29,7 @@ services:
       - key: AUTO_VERIFY_CONTRACTS
         value: "true"
       - key: PUBLIC_INDEXER_URL
-        value: https://novex-indexer.onrender.com
+        value: https://compose-indexer.onrender.com
       - key: DATABASE_URL
         sync: false
       - key: ROBINHOOD_TESTNET_RPC_URL
@@ -56,7 +56,7 @@ services:
         sync: false
 
   - type: web
-    name: novex-allocator
+    name: compose-allocator
     runtime: docker
     repo: https://github.com/novex11/contract-v2
     branch: main
@@ -76,7 +76,7 @@ services:
       - key: NEXT_PUBLIC_USE_TESTNET
         value: "true"
       - key: INDEXER_URL
-        value: https://novex-indexer.onrender.com
+        value: https://compose-indexer.onrender.com
       - key: ROBINHOOD_TESTNET_RPC_URL
         sync: false
       - key: ROBINHOOD_RPC_URL
@@ -85,7 +85,7 @@ services:
         sync: false
 
   - type: web
-    name: novex-quote
+    name: compose-quote
     runtime: docker
     repo: https://github.com/novex11/contract-v2
     branch: main
@@ -115,8 +115,32 @@ services:
       - key: ALCHEMY_API_KEY
         sync: false
 
+  - type: worker
+    name: compose-keeper
+    runtime: docker
+    repo: https://github.com/novex11/contract-v2
+    branch: main
+    region: oregon
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    autoDeploy: true
+    envVars:
+      - key: SERVICE
+        value: keeper
+      - key: NEXT_PUBLIC_USE_TESTNET
+        value: "false"
+      - key: KEEPER_NETWORK
+        value: mainnet
+      - key: KEEPER_INTERVAL_MS
+        value: "300000"
+      - key: ROBINHOOD_RPC_URL
+        sync: false
+      - key: KEEPER_PRIVATE_KEY
+        sync: false
+
   - type: web
-    name: novex-web
+    name: compose-web
     runtime: docker
     repo: https://github.com/novex11/contract-v2
     branch: main
@@ -136,11 +160,11 @@ services:
       - key: NEXT_PUBLIC_EXPLORER_URL
         value: https://explorer.testnet.chain.robinhood.com
       - key: NEXT_PUBLIC_ALLOCATOR_URL
-        value: https://novex-allocator.onrender.com
+        value: https://compose-allocator.onrender.com
       - key: NEXT_PUBLIC_QUOTE_URL
-        value: https://novex-quote.onrender.com
+        value: https://compose-quote.onrender.com
       - key: NEXT_PUBLIC_INDEXER_URL
-        value: https://novex-indexer.onrender.com
+        value: https://compose-indexer.onrender.com
       - key: NEXT_PUBLIC_PRIVY_APP_ID
         sync: false
       - key: NEXT_PUBLIC_ROBINHOOD_TESTNET_RPC_URL

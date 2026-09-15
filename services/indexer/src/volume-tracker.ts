@@ -6,7 +6,7 @@ import {
   redeemEvents,
   dailyVolume,
 } from "./schema.js";
-import { receiptTokenName } from "@novex/config";
+import { receiptTokenName } from "@compose/config";
 
 const DEFAULT_VAULT_ID = receiptTokenName(
   process.env.DEFAULT_DEPOSIT_TICKER ?? "NVDA",
@@ -26,6 +26,8 @@ export async function recordSwap(
     blockNumber: bigint | number;
     logIndex?: number;
     vaultAddress: string;
+    /** Basket id (e.g. "tNVDA-B"); defaults to the env default vault. */
+    vaultId?: string;
     tokenIn: string;
     tokenOut: string;
     amountIn: bigint;
@@ -50,7 +52,7 @@ export async function recordSwap(
     })
     .onConflictDoNothing();
 
-  await upsertDailyVolume(db, "swap", valueUsd);
+  await upsertDailyVolume(db, "swap", valueUsd, undefined, data.vaultId);
 }
 
 // ─── Record a Deposited event ───────────────────────────
@@ -64,6 +66,7 @@ export async function recordDeposit(
     amountIn: bigint;
     sharesMinted: bigint;
     valueUsd: number;
+    vaultId?: string;
   },
 ): Promise<void> {
   await db
@@ -78,7 +81,7 @@ export async function recordDeposit(
     })
     .onConflictDoNothing();
 
-  await upsertDailyVolume(db, "deposit", data.valueUsd, data.userAddress);
+  await upsertDailyVolume(db, "deposit", data.valueUsd, data.userAddress, data.vaultId);
 }
 
 // ─── Record a Redeemed event ────────────────────────────
@@ -92,6 +95,7 @@ export async function recordRedeem(
     sharesBurned: bigint;
     redeemMode: number;
     valueUsd: number;
+    vaultId?: string;
   },
 ): Promise<void> {
   await db
@@ -106,7 +110,7 @@ export async function recordRedeem(
     })
     .onConflictDoNothing();
 
-  await upsertDailyVolume(db, "redeem", data.valueUsd, data.userAddress);
+  await upsertDailyVolume(db, "redeem", data.valueUsd, data.userAddress, data.vaultId);
 }
 
 // ─── Upsert daily_volume aggregate ──────────────────────
@@ -116,9 +120,10 @@ async function upsertDailyVolume(
   type: "swap" | "deposit" | "redeem",
   valueUsd: number,
   walletAddress?: string,
+  vaultIdOverride?: string,
 ): Promise<void> {
   const today = todayDateStr();
-  const vaultId = DEFAULT_VAULT_ID;
+  const vaultId = vaultIdOverride ?? DEFAULT_VAULT_ID;
 
   const existing = await db
     .select()

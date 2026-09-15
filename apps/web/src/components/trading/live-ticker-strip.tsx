@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { MARKET_STOCKS } from "@/lib/markets";
+import { FEATURED_MARKET_STOCKS } from "@/lib/markets";
 import { useQuotes } from "@/hooks/use-quotes";
 import { formatUsd } from "@/lib/utils";
 import { Marquee } from "@/components/motion/marquee";
@@ -10,7 +10,7 @@ import { PriceFlash } from "@/components/ui/price-flash";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
-const TICKERS = MARKET_STOCKS.map((s) => s.ticker);
+const TICKERS = FEATURED_MARKET_STOCKS.map((s) => s.ticker);
 
 export function LiveTickerStrip({ className }: { className?: string }) {
   const { quotes, isLoading } = useQuotes(TICKERS);

@@ -1,5 +1,6 @@
 import { RHJ_ASSETS_API, RHJ_CORPORATE_ACTIONS_API } from "./chain.js";
 import type { StockToken } from "./tokens.js";
+import { categorizeTicker } from "./categories.js";
 
 export interface RhjAsset {
   id?: string;
@@ -60,10 +61,35 @@ export async function fetchRhjCorporateActions(
   return data.actions ?? [];
 }
 
+const NO_FEED = "0x0000000000000000000000000000000000000000" as const;
+
+/** Convert a registry asset into a StockToken (no feed until the launchpad lists it). */
+export function rhjAssetToToken(asset: RhjAsset): StockToken | undefined {
+  const deploy = asset.deployments?.find((d) => d.chainId === 4663);
+  const address = deploy?.contractAddress;
+  if (!address || !/^0x[0-9a-fA-F]{40}$/.test(address)) return undefined;
+  if (asset.status && asset.status !== "ASSET_STATUS_ACTIVE") return undefined;
+  const tc = asset.tradingCapabilities;
+  const tradable = (s?: { whole?: string }) => s?.whole === "TRADING_STATUS_TRADABLE";
+  return {
+    ticker: asset.tokenSymbol.toUpperCase(),
+    name: asset.tokenName.replace(/\s*[•·-]\s*Robinhood Token\s*$/i, "").trim(),
+    address: address as `0x${string}`,
+    priceFeed: NO_FEED,
+    category: categorizeTicker(asset.tokenSymbol),
+    decimals: asset.tokenDecimals ?? 18,
+    tradingHours: { market: tradable(tc?.market), extended: tradable(tc?.extended), overnight: tradable(tc?.overnight) },
+    logoUrl: `https://cdn.robinhood.com/ncw_assets/logos/${address.toLowerCase()}.png`,
+  };
+}
+
 /**
- * Merge live Robinhood RHJ asset data into local token config.
- * Updates contract addresses, logo URLs, and trading capabilities
- * so the app stays in sync with the on-chain registry.
+ * Merge live Robinhood RHJ asset data into the token list.
+ *
+ * Tokens already in `configTokens` are enriched (address, logo, decimals,
+ * trading capabilities). Registry assets missing from the list are appended
+ * so a stock Robinhood tokenizes tomorrow is usable without a release; the
+ * indexer/launchpad then decide whether it is listed on-chain.
  *
  * The RHJ API returns `tokenSymbol` (not `symbol`) and addresses
  * under `deployments[].contractAddress` for chainId 4663.
@@ -72,7 +98,12 @@ export function mergeRhjAssetsWithConfig(
   rhjAssets: RhjAsset[],
   configTokens: StockToken[],
 ): StockToken[] {
-  return configTokens.map((token) => {
+  const known = new Set(configTokens.map((t) => t.ticker.toUpperCase()));
+  const appended = rhjAssets
+    .filter((a) => !known.has((a.tokenSymbol ?? "").toUpperCase()))
+    .map(rhjAssetToToken)
+    .filter((t): t is StockToken => t !== undefined);
+  const enriched = configTokens.map((token) => {
     const rhj = rhjAssets.find(
       (a) =>
         (a.tokenSymbol ?? "").toUpperCase() === token.ticker.toUpperCase(),
@@ -108,4 +139,5 @@ export function mergeRhjAssetsWithConfig(
     }
     return merged;
   });
+  return [...enriched, ...appended];
 }

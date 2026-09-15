@@ -13,11 +13,17 @@ import * as launchpadStore from "./launchpad-store.js";
 import { createDb, type Db } from "./db.js";
 import { ensureSchema } from "./migrate.js";
 import { parseAbi } from "viem";
-import { pairMetadataMessage, corsOrigins } from "@novex/config";
+import { pairMetadataMessage, corsOrigins } from "@compose/config";
 import { startChainListener } from "./chain-listener.js";
 import { ensurePairIndexed, startLaunchpadIndexer } from "./launchpad-indexer.js";
-import { getPublicClient, pairFactoryAddress } from "./chain-client.js";
+import { getPublicClient, pairFactoryAddress, vaultFactoryAddress } from "./chain-client.js";
 import { startMarkToMarket } from "./mark-to-market.js";
+import {
+  getVaults,
+  initVaultRegistry,
+  startVaultDiscovery,
+  vaultRegistrySource,
+} from "./vault-registry.js";
 import { subscribePairSnapshots } from "./pair-live.js";
 import { getPairCandles, isCandleInterval } from "./pair-candles.js";
 import { ClaimError, getClaimedShares, recordCreatorClaim } from "./creator-claims.js";
@@ -196,6 +202,24 @@ app.get("/health", (c) =>
     version: "3.0.0",
     storage: useDb ? "postgresql" : "json",
     imageStorage: redisConfigured() ? "redis" : "disabled",
+    vaults: getVaults().length,
+  }),
+);
+
+// Managed-basket vaults discovered from the VaultFactory (or the legacy env
+// vault) so the web app can find them without per-vault env configuration.
+app.get("/vaults", (c) =>
+  c.json({
+    source: vaultRegistrySource(),
+    factory: vaultFactoryAddress() ?? null,
+    vaults: getVaults().map((v) => ({
+      vaultId: v.vaultId,
+      vault: v.vault,
+      receiptToken: v.receiptToken,
+      depositAsset: v.depositAsset,
+      depositTicker: v.depositTicker,
+      strategy: v.strategy,
+    })),
   }),
 );
 
@@ -779,6 +803,13 @@ app.get("/launchpad/pair/:address/token", async (c) => {
   return c.json({ token: row ? await tokenJson(row) : null }, 200, { "Cache-Control": "no-store" });
 });
 
+/** Every token launched on a pair, newest first. */
+app.get("/launchpad/pair/:address/tokens", async (c) => {
+  if (!useDb) return c.json({ tokens: [] });
+  const rows = await curveStore.listTokensByPair(db!, c.req.param("address"));
+  return c.json({ tokens: await Promise.all(rows.map((r) => tokenJson(r))) }, 200, { "Cache-Control": "no-store" });
+});
+
 /** Market-cap candles from real trades. */
 app.get("/launchpad/token/:address/candles", async (c) => {
   const interval = c.req.query("interval") ?? "1m";
@@ -928,6 +959,7 @@ let server: ServerType;
 let chainListenerCleanup: (() => void) | null = null;
 let launchpadIndexerCleanup: (() => void) | null = null;
 let curveIndexerCleanup: (() => void) | null = null;
+let vaultDiscoveryCleanup: (() => void) | null = null;
 let markToMarketTimer: NodeJS.Timeout | null = null;
 
 server = serve({ fetch: app.fetch, port, hostname: "0.0.0.0" }, async () => {
@@ -937,6 +969,10 @@ server = serve({ fetch: app.fetch, port, hostname: "0.0.0.0" }, async () => {
   } else {
     console.log("[indexer] Redis not configured — image upload disabled");
   }
+  // Discover basket vaults before the listener / mark-to-market start so
+  // they watch the full set from the first tick.
+  await initVaultRegistry();
+  vaultDiscoveryCleanup = startVaultDiscovery();
   chainListenerCleanup = startChainListener();
   launchpadIndexerCleanup = startLaunchpadIndexer();
   curveIndexerCleanup = startCurveIndexer();
@@ -954,6 +990,9 @@ function gracefulShutdown(signal: string) {
   }
   if (curveIndexerCleanup) {
     curveIndexerCleanup();
+  }
+  if (vaultDiscoveryCleanup) {
+    vaultDiscoveryCleanup();
   }
   if (markToMarketTimer) {
     clearInterval(markToMarketTimer);
