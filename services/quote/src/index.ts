@@ -142,13 +142,30 @@ async function fetchRialtoQuote(
   try {
     const res = await fetch(`${RIALTO_API_URL}/quote?${params}`, {
       headers: { Authorization: `Bearer ${RIALTO_API_KEY}` },
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(8000),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const body = (await res.text().catch(() => "")).slice(0, 200);
+      console.warn(`[quote] Rialto ${res.status} for ${sellToken}->${buyToken} ${sellAmountHuman}: ${body}`);
+      return null;
+    }
     return (await res.json()) as RialtoQuote;
-  } catch {
+  } catch (err) {
+    console.warn("[quote] Rialto request failed:", err instanceof Error ? err.message : err);
     return null;
   }
+}
+
+/**
+ * Rialto builds a settlement tx for the taker and rejects the zero address, so
+ * pricing-only requests without a connected wallet use a burn address. The
+ * price is identical; only the unused tx payload differs.
+ */
+const PRICING_TAKER = "0x000000000000000000000000000000000000dEaD";
+function takerFor(header: string | undefined): string {
+  return header && /^0x[0-9a-fA-F]{40}$/.test(header) && !/^0x0{40}$/.test(header)
+    ? header
+    : PRICING_TAKER;
 }
 
 // ─── App ────────────────────────────────────────────────
@@ -214,9 +231,7 @@ app.post("/quote", async (c) => {
       return c.json({ error: "Amount must be positive" }, 400);
     }
 
-    const taker =
-      c.req.header("x-wallet-address") ??
-      "0x0000000000000000000000000000000000000000";
+    const taker = takerFor(c.req.header("x-wallet-address"));
 
     const rialtoQuote = await fetchRialtoQuote(
       from.address,
@@ -285,9 +300,7 @@ app.post("/estimate-deposit-costs", async (c) => {
         ? Math.max(1, allocation.filter((a) => a.usd > 0).length - 1)
         : 3);
 
-    const taker =
-      c.req.header("x-wallet-address") ??
-      "0x0000000000000000000000000000000000000000";
+    const taker = takerFor(c.req.header("x-wallet-address"));
 
     if (RIALTO_API_KEY && allocation && allocation.length > 0) {
       let totalMarketCost = 0;
