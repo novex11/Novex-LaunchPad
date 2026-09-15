@@ -372,9 +372,27 @@ export const APPROVED_STOCK_TOKENS: StockToken[] = [
   },
 ];
 
+/**
+ * Placeholder addresses (`0x…0011`, `0x…0128`) mark tokens or feeds that are in
+ * the registry for future use but have no contract on-chain yet. Anything with a
+ * placeholder address must never reach a transaction.
+ */
+export function isPlaceholderAddress(address: string | undefined | null): boolean {
+  if (!address || !/^0x[0-9a-fA-F]{40}$/.test(address)) return true;
+  return /^0x0{32}[0-9a-fA-F]{8}$/.test(address);
+}
+
+/** Whether a token has a real contract and can be a line in an on-chain basket. */
+export function isBasketEligible(token: StockToken): boolean {
+  return !isPlaceholderAddress(token.address) && token.category !== "crypto";
+}
+
+/** Tokens with real contracts that the allocator may put in a basket. */
+export const BASKET_TOKENS = APPROVED_STOCK_TOKENS.filter(isBasketEligible);
+
 /** Tokens available as deposit asset (excludes stable + forex) */
 export const DEPOSIT_ASSETS = APPROVED_STOCK_TOKENS.filter(
-  (t) => t.category !== "stable" && t.category !== "forex",
+  (t) => t.category !== "stable" && t.category !== "forex" && isBasketEligible(t),
 );
 
 /** All forex tokens */

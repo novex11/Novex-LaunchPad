@@ -15,6 +15,7 @@ import { ensureSchema } from "./migrate.js";
 import { parseAbi } from "viem";
 import { pairMetadataMessage, corsOrigins } from "@novex/config";
 import { startChainListener } from "./chain-listener.js";
+import { VerifyError, verifyDeposit, verifyRedeem } from "./basket-verify.js";
 import { ensurePairIndexed, startLaunchpadIndexer } from "./launchpad-indexer.js";
 import { getPublicClient, pairFactoryAddress } from "./chain-client.js";
 import { startMarkToMarket } from "./mark-to-market.js";
@@ -53,29 +54,41 @@ if (useDb) {
 
 const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY ?? "";
 
+/*
+ * Browser-submitted ledger writes. Only `wallet` + `txHash` (+ the cosmetic
+ * allocation breakdown) are trusted from the client; every amount, the vault and
+ * the Stockback paid are read back from the on-chain receipt in basket-verify.ts.
+ */
+const HexHash = z.string().regex(/^0x[0-9a-fA-F]{64}$/, "txHash must be a transaction hash");
+const HexAddress = z.string().regex(/^0x[0-9a-fA-F]{40}$/, "wallet must be an address");
+
 const DepositSchema = z.object({
-  wallet: z.string().min(1),
-  txHash: z.string().optional(),
-  depositTicker: z.string().min(1),
-  depositUsd: z.number().positive(),
-  strategy: z.string(),
-  openingNetUsd: z.number().positive(),
-  stockbackUsd: z.number().min(0),
-  allocation: z.array(
-    z.object({
-      ticker: z.string(),
-      weight: z.number(),
-      usd: z.number(),
-    }),
-  ),
+  wallet: HexAddress,
+  txHash: HexHash,
+  allocation: z
+    .array(
+      z.object({
+        ticker: z.string().max(16),
+        weight: z.number().min(0).max(1),
+        usd: z.number().min(0),
+      }),
+    )
+    .max(32)
+    .default([]),
+  // Accepted for backwards compatibility; ignored in favour of on-chain values.
+  depositTicker: z.string().optional(),
+  depositUsd: z.number().optional(),
+  strategy: z.string().optional(),
+  openingNetUsd: z.number().optional(),
+  stockbackUsd: z.number().optional(),
   vaultId: z.string().optional(),
 });
 
 const RedeemSchema = z.object({
-  wallet: z.string().min(1),
-  valueUsd: z.number().positive(),
-  vaultId: z.string(),
-  txHash: z.string().optional(),
+  wallet: HexAddress,
+  txHash: HexHash,
+  valueUsd: z.number().optional(),
+  vaultId: z.string().optional(),
 });
 
 const TradeSchema = z.object({
@@ -284,15 +297,38 @@ app.post("/deposits", async (c) => {
     if (!parsed.success) {
       return c.json({ error: parsed.error.flatten() }, 400);
     }
+    const { wallet, txHash, allocation } = parsed.data;
+
+    const verified = await verifyDeposit(txHash, wallet);
+    const duplicate = useDb
+      ? await dbStore.hasActivityTx(db!, txHash)
+      : jsonStore.hasActivityTx(txHash);
+    if (duplicate) {
+      return c.json({ ok: true, duplicate: true, txHash });
+    }
+
+    const input = {
+      wallet: verified.wallet,
+      txHash: verified.txHash,
+      depositTicker: verified.vault.depositTicker,
+      depositUsd: verified.valueUsd,
+      strategy: verified.vault.strategy,
+      openingNetUsd: verified.valueUsd + verified.stockbackUsd,
+      stockbackUsd: verified.stockbackUsd,
+      allocation,
+      vaultId: verified.vault.vaultId,
+      sharesMinted: verified.sharesMinted,
+    };
     const result = useDb
-      ? await dbStore.recordDeposit(db!, parsed.data)
-      : jsonStore.recordDeposit(parsed.data);
+      ? await dbStore.recordDeposit(db!, input)
+      : jsonStore.recordDeposit(input);
     return c.json({
       ok: true,
       position: result.position,
       activity: result.activity,
     });
   } catch (err) {
+    if (err instanceof VerifyError) return c.json({ error: err.message }, err.status);
     const message = err instanceof Error ? err.message : "Deposit failed";
     return c.json({ error: message }, 500);
   }
@@ -305,13 +341,31 @@ app.post("/redeems", async (c) => {
     if (!parsed.success) {
       return c.json({ error: parsed.error.flatten() }, 400);
     }
+    const { wallet, txHash } = parsed.data;
+
+    const verified = await verifyRedeem(txHash, wallet);
+    const duplicate = useDb
+      ? await dbStore.hasActivityTx(db!, txHash)
+      : jsonStore.hasActivityTx(txHash);
+    if (duplicate) {
+      return c.json({ ok: true, duplicate: true, txHash });
+    }
+
+    const input = {
+      wallet: verified.wallet,
+      valueUsd: verified.valueUsd,
+      txHash: verified.txHash,
+      vaultId: verified.vault.vaultId,
+      remainingShares: verified.remainingShares,
+    };
     const act = useDb
-      ? await dbStore.recordRedeem(db!, parsed.data)
-      : jsonStore.recordRedeem(parsed.data);
+      ? await dbStore.recordRedeem(db!, input)
+      : jsonStore.recordRedeem(input);
     return c.json({ ok: true, activity: act });
   } catch (err) {
+    if (err instanceof VerifyError) return c.json({ error: err.message }, err.status);
     const message = err instanceof Error ? err.message : "Redeem failed";
-    return c.json({ error: message }, 404);
+    return c.json({ error: message }, 500);
   }
 });
 

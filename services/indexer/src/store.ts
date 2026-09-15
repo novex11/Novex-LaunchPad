@@ -293,7 +293,8 @@ export function getMultiplierEvents() {
 
 export interface RecordDepositInput {
   wallet: string;
-  txHash?: string;
+  /** On-chain transaction hash. Required: the ledger only records verified deposits. */
+  txHash: string;
   depositTicker: string;
   depositUsd: number;
   strategy: string;
@@ -301,6 +302,20 @@ export interface RecordDepositInput {
   stockbackUsd: number;
   allocation: PositionAllocation[];
   vaultId?: string;
+  /** Receipt shares minted on-chain (1e8 = one share). */
+  sharesMinted?: bigint;
+}
+
+/** Whether an activity row already exists for this transaction (idempotent writes). */
+export function hasActivityTx(txHash: string): boolean {
+  const wanted = txHash.toLowerCase();
+  return state.activity.some((a) => a.txHash.toLowerCase() === wanted);
+}
+
+/** Receipt shares as a display string: on-chain shares when known, else USD at $1/share. */
+function receiptString(sharesMinted: bigint | undefined, fallbackUsd: number): string {
+  if (sharesMinted != null) return (Number(sharesMinted) / 1e8).toFixed(3);
+  return fallbackUsd.toFixed(3);
 }
 
 export function recordDeposit(input: RecordDepositInput): {
@@ -322,9 +337,10 @@ export function recordDeposit(input: RecordDepositInput): {
     depositAsset: input.depositTicker.toUpperCase(),
   };
 
+  if (!input.txHash) throw new Error("txHash is required");
   const sharePrice = vault.sharePrice || 1;
-  const receiptMinted = input.openingNetUsd / sharePrice;
-  const receiptStr = receiptMinted.toFixed(3);
+  const receiptStr = receiptString(input.sharesMinted, input.openingNetUsd / sharePrice);
+  const receiptMinted = Number(receiptStr);
 
   const position: WalletPosition = {
     vaultId,
@@ -350,8 +366,7 @@ export function recordDeposit(input: RecordDepositInput): {
   );
   state.walletStockbackTotals[wallet] = prevStockback + cappedStockback;
 
-  const txHash =
-    input.txHash ?? `0xsim${Date.now().toString(16)}${wallet.slice(2, 10)}`;
+  const txHash = input.txHash;
 
   const activity: ActivityRecord = {
     id: crypto.randomUUID(),
@@ -403,42 +418,52 @@ function mergeHoldings(
     .sort((a, b) => b.usd - a.usd);
 }
 
-export function recordRedeem(input: {
+export interface RecordRedeemInput {
   wallet: string;
   valueUsd: number;
-  txHash?: string;
+  /** On-chain transaction hash. Required. */
+  txHash: string;
   vaultId: string;
-}) {
-  const wallet = input.wallet.toLowerCase();
-  const position = state.positions[wallet];
-  if (!position) {
-    throw new Error("No position found for wallet");
-  }
+  /** Receipt shares still held after the redeem (1e8 = one share). Undefined = full exit. */
+  remainingShares?: bigint;
+}
 
-  const txHash =
-    input.txHash ?? `0xredeem${Date.now().toString(16)}${wallet.slice(2, 8)}`;
+export function recordRedeem(input: RecordRedeemInput) {
+  const wallet = input.wallet.toLowerCase();
+  if (!input.txHash) throw new Error("txHash is required");
+  const position = state.positions[wallet];
+  const partial = input.remainingShares != null && input.remainingShares > 0n;
 
   const activity: ActivityRecord = {
     id: crypto.randomUUID(),
     type: "redeem",
     wallet,
-    txHash,
-    assets: position.allocation.map((a) => a.ticker),
+    txHash: input.txHash,
+    assets: position?.allocation.map((a) => a.ticker) ?? [],
     valueUsd: input.valueUsd,
     stockbackUsd: 0,
-    receiptTokens: position.receiptBalance,
+    receiptTokens: position?.receiptBalance ?? "0",
     vaultId: input.vaultId,
     status: "confirmed",
     timestamp: new Date().toISOString(),
   };
 
   state.activity.unshift(activity);
-  delete state.positions[wallet];
+  if (position) {
+    if (partial) {
+      const remaining = Number(input.remainingShares) / 1e8;
+      position.receiptBalance = remaining.toFixed(3);
+      position.currentValueUsd = Math.max(0, position.currentValueUsd - input.valueUsd);
+      position.updatedAt = new Date().toISOString();
+    } else {
+      delete state.positions[wallet];
+    }
+  }
 
   const vault = state.vaults[input.vaultId];
   if (vault) {
     vault.tvlUsd = Math.max(0, vault.tvlUsd - input.valueUsd);
-    vault.receiptSupply = "0";
+    if (!partial) vault.receiptSupply = "0";
   }
 
   persist();

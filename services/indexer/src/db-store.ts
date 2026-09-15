@@ -14,6 +14,7 @@ import type {
   VaultState,
   PositionAllocation,
   RecordDepositInput,
+  RecordRedeemInput,
   RecordTradeInput,
   DirectHolding,
 } from "./store.js";
@@ -255,9 +256,14 @@ export async function recordDeposit(
       input.strategy as "defensive" | "balanced" | "aggressive",
     );
 
-  const sharePrice = 1;
-  const receiptMinted = input.openingNetUsd / sharePrice;
-  const receiptStr = receiptMinted.toFixed(3);
+  if (!input.txHash) throw new Error("txHash is required");
+  const receiptStr =
+    input.sharesMinted != null
+      ? (Number(input.sharesMinted) / 1e8).toFixed(3)
+      : input.openingNetUsd.toFixed(3);
+  // USD per share implied by this deposit (mark-to-market refreshes it from chain)
+  const receiptNum = Number(receiptStr);
+  const sharePrice = receiptNum > 0 ? input.openingNetUsd / receiptNum : 1;
   const now = new Date();
 
   // Upsert position
@@ -309,8 +315,7 @@ export async function recordDeposit(
       },
     });
 
-  const txHash =
-    input.txHash ?? `0xsim${Date.now().toString(16)}${wallet.slice(2, 10)}`;
+  const txHash = input.txHash.toLowerCase();
 
   // Record activity
   const [actRow] = await db
@@ -380,15 +385,25 @@ export async function recordDeposit(
   return { position, activity: actRecord };
 }
 
+/** Whether an activity row already exists for this transaction (idempotent writes). */
+export async function hasActivityTx(db: Db, txHash: string): Promise<boolean> {
+  const rows = await db
+    .select({ id: activity.id })
+    .from(activity)
+    .where(eq(activity.txHash, txHash.toLowerCase()))
+    .limit(1);
+  return rows.length > 0;
+}
+
 export async function recordRedeem(
   db: Db,
-  input: { wallet: string; valueUsd: number; txHash?: string; vaultId: string },
+  input: RecordRedeemInput,
 ): Promise<ActivityRecord> {
   const wallet = input.wallet.toLowerCase();
   const now = new Date();
-
-  const txHash =
-    input.txHash ?? `0xredeem${Date.now().toString(16)}${wallet.slice(2, 8)}`;
+  if (!input.txHash) throw new Error("txHash is required");
+  const txHash = input.txHash.toLowerCase();
+  const partial = input.remainingShares != null && input.remainingShares > 0n;
 
   const [actRow] = await db
     .insert(activity)
@@ -404,8 +419,19 @@ export async function recordRedeem(
     })
     .returning();
 
-  // Delete position
-  await db.delete(positions).where(eq(positions.wallet, wallet));
+  if (partial) {
+    const remaining = Number(input.remainingShares) / 1e8;
+    await db
+      .update(positions)
+      .set({
+        receiptBalance: remaining.toFixed(3),
+        currentValueUsd: sql`GREATEST(0, CAST(${positions.currentValueUsd} AS numeric) - ${String(input.valueUsd.toFixed(4))})`,
+        updatedAt: now,
+      })
+      .where(eq(positions.wallet, wallet));
+  } else {
+    await db.delete(positions).where(eq(positions.wallet, wallet));
+  }
 
   return {
     id: actRow!.id,

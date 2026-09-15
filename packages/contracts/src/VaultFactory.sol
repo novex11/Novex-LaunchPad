@@ -55,6 +55,11 @@ contract VaultFactory is Ownable {
         usdStableAsset = token;
     }
 
+    /// @notice Update the TVL cap of a vault this factory owns.
+    function setVaultTvlCap(address vault, uint256 tvlCapUsd8) external onlyOwner {
+        StrategyVault(vault).setTvlCapUsd8(tvlCapUsd8);
+    }
+
     function getVault(
         address depositAsset,
         AllocationController.Strategy strategy
