@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -56,6 +57,9 @@ contract ComposeCurve is Ownable, ReentrancyGuard {
     }
 
     PairFactory public immutable factory;
+    /// @notice Verified CreatorToken every launched token delegates to (EIP-1167 clones),
+    ///         so the explorer shows each new token as verified the moment it is created.
+    address public immutable creatorTokenImplementation;
     address public treasury;
     /// @notice Starting market cap for new tokens, USD with 8 decimals.
     uint256 public startMarketCapUsd8;
@@ -101,6 +105,7 @@ contract ComposeCurve is Ownable, ReentrancyGuard {
         factory = PairFactory(factory_);
         treasury = treasury_;
         startMarketCapUsd8 = startMarketCapUsd8_;
+        creatorTokenImplementation = address(new CreatorToken());
     }
 
     // ─── Admin ──────────────────────────────────────────────
@@ -156,7 +161,8 @@ contract ComposeCurve is Ownable, ReentrancyGuard {
         _checkMetadata(name, symbol);
         uint256 q0 = _startQuote(vault);
 
-        token = address(new CreatorToken(name, symbol, TOTAL_SUPPLY, address(this)));
+        token = Clones.clone(creatorTokenImplementation);
+        CreatorToken(token).initialize(name, symbol, TOTAL_SUPPLY, address(this));
         Curve storage c = curves[token];
         c.pair = pair;
         c.share = address(receipt);

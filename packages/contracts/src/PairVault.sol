@@ -52,17 +52,24 @@ contract PairVault is ERC20, ReentrancyGuard {
         address factory;
     }
 
-    address public immutable factory;
-    address public immutable creator;
-    address public immutable tokenA;
-    address public immutable tokenB;
-    address public immutable weth;
-    uint16 public immutable weightABps;
-    uint16 public immutable creatorFeeBps;
-    uint8 public immutable decimalsA;
-    uint8 public immutable decimalsB;
-    OracleAdapter public immutable oracle;
-    EmergencyRegistry public immutable emergency;
+    /// @dev Every vault is an EIP-1167 clone of one verified implementation (see
+    ///      PairDeployer), so its configuration lives in storage and is set once by
+    ///      `initialize` instead of a constructor. The explorer resolves the clone to
+    ///      the implementation, so each launched vault shows up verified instantly.
+    bool private _initialized;
+    string private _shareName;
+    string private _shareSymbol;
+    address public factory;
+    address public creator;
+    address public tokenA;
+    address public tokenB;
+    address public weth;
+    uint16 public weightABps;
+    uint16 public creatorFeeBps;
+    uint8 public decimalsA;
+    uint8 public decimalsB;
+    OracleAdapter public oracle;
+    EmergencyRegistry public emergency;
 
     /// @notice Total shares ever minted to the creator as deposit fees.
     uint256 public creatorFeeShares;
@@ -82,7 +89,20 @@ contract PairVault is ERC20, ReentrancyGuard {
         uint256 amountB,
         uint256 valueUsd8
     );
-    constructor(Config memory c, string memory name_, string memory symbol_) ERC20(name_, symbol_) {
+
+    /// @dev The implementation itself is locked: only clones can be initialized.
+    constructor() ERC20("", "") {
+        _initialized = true;
+    }
+
+    /// @notice One-time setup of a clone, called by PairDeployer in the launch transaction.
+    function initialize(Config memory c, string calldata name_, string calldata symbol_) external {
+        require(!_initialized, "PairVault: initialized");
+        _initialized = true;
+        require(c.tokenA != address(0) && c.tokenB != address(0), "PairVault: zero token");
+        require(c.oracle != address(0), "PairVault: zero address");
+        _shareName = name_;
+        _shareSymbol = symbol_;
         factory = c.factory == address(0) ? msg.sender : c.factory;
         creator = c.creator;
         tokenA = c.tokenA;
@@ -106,6 +126,14 @@ contract PairVault is ERC20, ReentrancyGuard {
     ///         historically read a separate receipt-token address.
     function receiptToken() external view returns (address) {
         return address(this);
+    }
+
+    function name() public view override returns (string memory) {
+        return _shareName;
+    }
+
+    function symbol() public view override returns (string memory) {
+        return _shareSymbol;
     }
 
     function totalShares() public view returns (uint256) {

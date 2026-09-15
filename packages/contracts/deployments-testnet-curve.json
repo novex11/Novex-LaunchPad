@@ -1,6 +1,6 @@
 {
-  "curveRouter": "0x7f496625A872460C42cD5d3d7613fc958aFe8d20",
-  "composeCurve": "0xf7Dca870aF46e5c215366cf003733C769D258e4b",
-  "pairFactory": "0x3DfbA5c3f7248C0314e397b10b41EB31bd34B53B",
-  "pairRouter": "0x38fEb239ff5c95a414Ab8A3Df9a6a6e1def45153"
+  "curveRouter": "0x6f642Bfc6Ffb7C2968e0aB3B226383B662839278",
+  "composeCurve": "0x93022717CF9E550183924c7ae409ccbcAE1132CB",
+  "pairFactory": "0x620c97dF1dD7db6261Ac89c9f892aE7999C950B1",
+  "pairRouter": "0x09EEeb1ec66f06eBd1Bf1A0bD3ca48889D6693c4"
 }

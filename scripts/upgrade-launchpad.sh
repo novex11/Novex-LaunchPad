@@ -113,4 +113,45 @@ if [[ "$NETWORK" == "mainnet" ]]; then
   node scripts/sync-mainnet-deployments.mjs --launchpad-broadcast "$BROADCAST"
 fi
 pnpm --filter @compose/config build >/dev/null 2>&1 || true
+
+# Explorer verification. Every launched vault (= share token) and curve token is an
+# EIP-1167 clone of an implementation held by PairDeployer / ComposeCurve, so once
+# the implementations (and the stack) are verified, every future launch shows up
+# verified instantly. The testnet explorer API accepts CLI submissions; mainnet's
+# sits behind bot protection and only takes submissions from a browser page.
+read_out() { node -p "require('./$OUT').$1"; }
+PAIR_DEPLOYER="$(read_out pairDeployer)"
+COMPOSE_CURVE="$(read_out composeCurve)"
+VAULT_IMPL="$(cast call "$PAIR_DEPLOYER" 'vaultImplementation()(address)' --rpc-url "$RPC")"
+TOKEN_IMPL="$(cast call "$COMPOSE_CURVE" 'creatorTokenImplementation()(address)' --rpc-url "$RPC")"
+if [[ "$NETWORK" == "testnet" ]]; then
+  VERIFIER_URL="https://explorer.testnet.chain.robinhood.com/api/"
+  export ETHERSCAN_API_KEY="${ETHERSCAN_API_KEY:-blockscout}"
+  # $3: how to obtain constructor args. The stack is created by the deployer EOA, so
+  # forge can read them from the creation tx; the implementations are created inside
+  # constructors (no creation tx to read) and take no constructor args at all.
+  verify_one() {
+    (cd packages/contracts && forge verify-contract "$1" "$2" --chain-id "$CHAIN_ID" --rpc-url "$RPC" \
+      --verifier blockscout --verifier-url "$VERIFIER_URL" "$3" --watch) \
+      || echo "⚠️   $2 at $1 not verified (retry: pnpm verify:implementations)"
+  }
+  verify_one "$PAIR_DEPLOYER" src/PairDeployer.sol:PairDeployer --guess-constructor-args
+  verify_one "$(read_out pairFactory)" src/PairFactory.sol:PairFactory --guess-constructor-args
+  verify_one "$(read_out pairRouter)" src/PairRouter.sol:PairRouter --guess-constructor-args
+  verify_one "$COMPOSE_CURVE" src/ComposeCurve.sol:ComposeCurve --guess-constructor-args
+  verify_one "$(read_out curveRouter)" src/CurveRouter.sol:CurveRouter --guess-constructor-args
+  verify_one "$VAULT_IMPL" src/PairVault.sol:PairVault --constructor-args=0x
+  verify_one "$TOKEN_IMPL" src/CreatorToken.sol:CreatorToken --constructor-args=0x
+else
+  cat <<EOM
+ℹ️   Mainnet explorer verification must be submitted from a browser (Standard JSON input,
+    compiler v0.8.24+commit.e11b9ed9, optimizer 200, EVM cancun; inputs from
+    services/indexer/verification/*.input.json or forge --show-standard-json-input).
+    The two implementations make every launched pair and token verified instantly:
+      PairVault       $VAULT_IMPL
+      CreatorToken    $TOKEN_IMPL
+    Then the stack: PairDeployer $PAIR_DEPLOYER, PairFactory $(read_out pairFactory),
+    PairRouter $(read_out pairRouter), ComposeCurve $COMPOSE_CURVE, CurveRouter $(read_out curveRouter).
+EOM
+fi
 echo "ℹ️   Old pairs stay on the old factory. Redeploy the indexer + web (and the keeper on mainnet)."
