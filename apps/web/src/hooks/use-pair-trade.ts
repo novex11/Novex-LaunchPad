@@ -109,6 +109,8 @@ export interface BuyQuoteInput {
   amountIn: bigint;
   feeBps: number;
   isCreator: boolean;
+  /** Recipient is fee-exempt on the pair (e.g. the CurveRouter): no creator deposit fee. */
+  feeExempt?: boolean;
 }
 
 /** Mirrors PairRouter.buy: split by reserve value, swap each leg, previewDeposit. */
@@ -147,7 +149,7 @@ export function useBuyQuote(i: BuyQuoteInput) {
   });
   const pv = preview.data as readonly [bigint, bigint, bigint] | undefined;
   const gross = pv?.[0];
-  const feeShares = gross !== undefined && !i.isCreator ? (gross * BigInt(i.feeBps)) / 10_000n : 0n;
+  const feeShares = gross !== undefined && !i.isCreator && !i.feeExempt ? (gross * BigInt(i.feeBps)) / 10_000n : 0n;
 
   return {
     shares: gross !== undefined ? gross - feeShares : undefined,

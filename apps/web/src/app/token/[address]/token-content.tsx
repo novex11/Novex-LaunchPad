@@ -352,8 +352,7 @@ export default function TokenDetailContent({ address }: { address: string }) {
             )}
             <p className="mt-3 px-1 text-[11px] leading-relaxed text-muted-foreground">
               1B fixed supply, all of it on the curve at launch. Price follows a constant-product bonding curve quoted in{" "}
-              {tickerA}+{tickerB} pair shares, so the reserve is real stocks. 1% trade fee: 60% token creator, 10% pair
-              creator, 30% protocol.
+              {tickerA}+{tickerB} pair shares, so the reserve is real stocks. 1% trade fee: 70% creator, 30% protocol.
             </p>
           </div>
         </aside>

@@ -89,6 +89,7 @@ contract DeployMainnetLaunchpad is Script {
         pairRouter = new PairRouter(address(factory), UNISWAP_SWAP_ROUTER02, USDG);
         curve = new ComposeCurve(deployer, address(factory), deployer, startMcapUsd8);
         curveRouter = new CurveRouter(address(curve), address(pairRouter));
+        factory.setFeeExempt(address(curveRouter), true); // token buys skip the pair creator fee
 
         vm.stopBroadcast();
 

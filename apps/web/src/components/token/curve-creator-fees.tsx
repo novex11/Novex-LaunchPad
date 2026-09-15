@@ -20,7 +20,7 @@ export interface CurveCreatorFeesProps {
 }
 
 /**
- * Token creator's share (60%) of the 1% bonding-curve trading fee. Fees accrue
+ * Token creator's share (70%) of the 1% bonding-curve trading fee. Fees accrue
  * in the pair's stock-backed shares; claiming sends them to the creator wallet,
  * where they can be sold for ETH/USDG or redeemed for stocks on the pair page.
  */
@@ -59,7 +59,7 @@ export function CurveCreatorFees({
         {owedUsd != null ? formatUsd(owedUsd) : "—"}
       </p>
       <p className="mt-0.5 font-mono text-xs text-muted-foreground">
-        {owed.toLocaleString(undefined, { maximumFractionDigits: 6 })} pair shares · 60% of the 1% trade fee
+        {owed.toLocaleString(undefined, { maximumFractionDigits: 6 })} pair shares · 70% of the 1% trade fee
       </p>
 
       {owedShares === 0n && claimer.stage !== "done" && (

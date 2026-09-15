@@ -356,15 +356,14 @@ export const creatorTokens: DocPage = {
     {
       id: "fees",
       title: "Fees and claims",
-      keywords: ["trade fee", "creator fee", "pair creator", "treasury", "claim"],
+      keywords: ["trade fee", "creator fee", "treasury", "claim"],
       body: (
         <>
-          <p>Every curve buy or sell pays a <strong>1% fee in pair shares</strong>, split three ways:</p>
+          <p>Every curve buy or sell pays a <strong>1% fee in pair shares</strong>, split two ways:</p>
           <Table
             head={["Recipient", "Share", "Claim"]}
             rows={[
-              ["Token creator", "60%", <C key="1">ComposeCurve.claimCreatorFees(token)</C>],
-              ["Pair creator", "10% from every token on their pair", <C key="2">ComposeCurve.claimPairCreatorFees(pair)</C>],
+              ["Token creator", "70%", <C key="1">ComposeCurve.claimCreatorFees(token)</C>],
               ["Protocol treasury", "30%", "—"],
             ]}
           />

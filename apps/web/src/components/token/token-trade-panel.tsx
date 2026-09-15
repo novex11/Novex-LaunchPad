@@ -177,8 +177,8 @@ export function TokenTradePanel(props: TokenTradePanelProps) {
     query: { enabled: stocksIn, refetchInterval: 15_000 },
   });
   const pv = stockPreview.data as readonly [bigint, bigint, bigint] | undefined;
-  // The router deposits as a non-creator, so the pair's creator fee applies.
-  const stockShares = pv ? pv[0] - (pv[0] * BigInt(chain.creatorFeeBps)) / 10_000n : undefined;
+  // The CurveRouter is fee-exempt on the pair, so no creator deposit fee comes off.
+  const stockShares = pv?.[0];
   const usedA = pv?.[1];
   const usedB = pv?.[2];
   const stockUsd =
@@ -202,6 +202,7 @@ export function TokenTradePanel(props: TokenTradePanelProps) {
     amountIn: mode === "buy" ? amountIn : 0n,
     feeBps: chain.creatorFeeBps,
     isCreator: false,
+    feeExempt: true,
   });
   const buyQuote = useCurveQuoteBuy(token, mode === "buy" ? sharesQuote.shares : undefined);
 
@@ -509,7 +510,10 @@ export function TokenTradePanel(props: TokenTradePanelProps) {
               <Row label="Route" value={`${symbol} → ${tickerA} + ${tickerB} → ${asset}`} />
             </>
           )}
-          <Row label="Fees" value={stocks ? "1% curve · no swap" : "1% curve · 0.3% Uniswap swap per leg"} />
+          <Row
+            label="Fees"
+            value={stocks ? "1% curve · no swap · no pair deposit fee" : "1% curve · 0.3% Uniswap swap per leg · no pair deposit fee"}
+          />
           <div className="flex items-center justify-between gap-3 pt-1">
             <dt className="text-muted-foreground">Max slippage</dt>
             <dd className="flex gap-1">

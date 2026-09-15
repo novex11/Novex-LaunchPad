@@ -228,8 +228,11 @@ contract PairVault is ReentrancyGuard {
             require(ok, "PairVault: refund failed");
         }
 
-        // No fee on the creator's own deposits, including the launch seed the factory places.
-        uint256 fee = (recipient == creator || msg.sender == factory) ? 0 : (gross * creatorFeeBps) / 10_000;
+        // No fee on the creator's own deposits, the launch seed the factory places,
+        // or shares minted to a factory-approved fee-exempt recipient (e.g. CurveRouter).
+        uint256 fee = (recipient == creator || msg.sender == factory || _feeExempt(recipient))
+            ? 0
+            : (gross * creatorFeeBps) / 10_000;
         shares = gross - fee;
         require(shares >= minShares, "PairVault: slippage");
 
@@ -240,6 +243,14 @@ contract PairVault is ReentrancyGuard {
         }
 
         emit Deposited(recipient, usedA, usedB, shares, fee, navUsd8());
+    }
+
+    /// @dev Asks the factory whether `recipient` is fee-exempt; false when the factory
+    ///      is an EOA or predates the feature (no revert, no assumptions).
+    function _feeExempt(address recipient) internal view returns (bool) {
+        (bool ok, bytes memory data) =
+            factory.staticcall(abi.encodeWithSignature("feeExemptRecipients(address)", recipient));
+        return ok && data.length == 32 && abi.decode(data, (bool));
     }
 
     /// @dev First deposit: value split must match the target weight at fresh prices.

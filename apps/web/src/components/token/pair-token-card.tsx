@@ -4,17 +4,15 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { formatUnits, type Address } from "viem";
 import { useReadContract } from "wagmi";
-import { ArrowRight, CheckCircle, CircleNotch, Coins, RocketLaunch, WarningCircle } from "@phosphor-icons/react";
+import { ArrowRight, CheckCircle, CircleNotch, RocketLaunch, WarningCircle } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
-import { cn, explorerUrl, formatUsd } from "@/lib/utils";
+import { cn, formatUsd } from "@/lib/utils";
 import { composeCurveReady, receiptTokenAbi } from "@/lib/contracts";
 import { useWallet } from "@/hooks/use-wallet";
 import {
-  useClaimCurveCreatorFees,
   useCreateCurveToken,
   useCurveOnchain,
   useCurveStartMarketCap,
-  usePairCreatorCurveFees,
   usePairCurveToken,
 } from "@/hooks/use-curve-token";
 
@@ -53,7 +51,6 @@ export function PairTokenCard(props: PairTokenCardProps) {
 
   return (
     <div className={cn("space-y-4", className)}>
-      {isCreator && <PairCreatorCurveFees pair={pair} sharePriceUsd={sharePriceUsd} />}
 
       {token ? (
         <section className="rounded-[1.75rem] border border-accent/50 bg-accent-subtle/40 p-4">
@@ -124,68 +121,6 @@ function TokenLinkRow({ token, logoUrl }: { token: Address; logoUrl?: string }) 
   );
 }
 
-function PairCreatorCurveFees({ pair, sharePriceUsd }: { pair: Address; sharePriceUsd?: number }) {
-  const { owed, refetch } = usePairCreatorCurveFees(pair);
-  const claimer = useClaimCurveCreatorFees();
-  const busy = claimer.stage === "submit";
-  const owedUsd = sharePriceUsd != null ? Number(formatUnits(owed, 18)) * sharePriceUsd : undefined;
-
-  async function claim() {
-    claimer.reset();
-    try {
-      await claimer.claimPair(pair);
-      void refetch();
-    } catch {
-      /* shown below */
-    }
-  }
-
-  return (
-    <section className="rounded-[1.75rem] border border-accent/60 bg-accent-subtle/50 p-5 shadow-float">
-      <div className="flex items-center gap-2 text-sm font-semibold text-accent-strong">
-        <Coins size={16} weight="fill" />
-        Token trading fees
-      </div>
-      <p className="mt-2 text-xs text-muted-foreground">
-        As pair creator you earn 10% of the 1% trade fee on this pair&apos;s token, on top of the 60% you earn as its
-        creator.
-      </p>
-      <p className="mt-3 font-mono text-2xl font-semibold tabular-nums">{owedUsd != null ? formatUsd(owedUsd) : "—"}</p>
-      <p className="mt-0.5 font-mono text-xs text-muted-foreground">
-        {Number(formatUnits(owed, 18)).toLocaleString(undefined, { maximumFractionDigits: 6 })} pair shares unclaimed
-      </p>
-      {claimer.error && (
-        <p className="mt-3 flex items-start gap-1.5 text-xs text-destructive">
-          <WarningCircle size={14} weight="fill" className="mt-0.5 shrink-0" />
-          {claimer.error}
-        </p>
-      )}
-      {claimer.stage === "done" && claimer.hash && (
-        <p className="mt-3 flex items-start gap-1.5 text-xs text-success">
-          <CheckCircle size={14} weight="fill" className="mt-0.5 shrink-0" />
-          <span>
-            Claimed to your wallet as pair shares.{" "}
-            <a href={explorerUrl("tx", claimer.hash)} target="_blank" rel="noopener noreferrer" className="underline">
-              View transaction ↗
-            </a>
-          </span>
-        </p>
-      )}
-      <Button className="mt-4 w-full" disabled={owed === 0n || busy} onClick={claim}>
-        {busy ? (
-          <>
-            <CircleNotch size={16} className="animate-spin" />
-            Claiming…
-          </>
-        ) : owed === 0n ? (
-          "Nothing to claim yet"
-        ) : (
-          `Claim ${owedUsd != null ? formatUsd(owedUsd) : "fees"}`
-        )}
-      </Button>
-    </section>
-  );
-}
 
 function ceilDiv(a: bigint, b: bigint): bigint {
   return (a + b - 1n) / b;
@@ -317,7 +252,7 @@ function CreateTokenCard({
         <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
           1B fixed supply, all of it on the curve — you receive nothing at launch except what your dev buy purchases.
           {startMcapUsd !== undefined && ` Starts at a ${formatUsd(startMcapUsd)} market cap and graduates around 16.8× higher.`}{" "}
-          You earn 60% of the 1% trading fee, plus 10% as the pair creator.
+          You earn 70% of the 1% trading fee.
         </p>
 
         {created && (

@@ -1,0 +1,9 @@
+{
+  "chainId": 46630,
+  "composeCurve": "0x5b269cF9dCA5624E3a14dAca1f9E1771696360A3",
+  "curveRouter": "0x5585652C793Afd3Aaf836527bf48D845aeD42521",
+  "pairDeployer": "0xf7e11177e8CEd2c711A54CB96f0B9dF54739e25B",
+  "pairFactory": "0x9b25B8D25D84D83c1985C33c14325fB1684411A4",
+  "pairRouter": "0xd9b55397081f0A061e8239A1cB5c396736CF37E4",
+  "startBlock": 11711543
+}

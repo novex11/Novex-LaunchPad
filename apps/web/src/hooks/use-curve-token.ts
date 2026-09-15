@@ -247,18 +247,6 @@ export function useCurveStartMarketCap() {
   return query.data as bigint | undefined;
 }
 
-/** Pair creator's unclaimed cut (pair shares) of trade fees from every token on the pair. */
-export function usePairCreatorCurveFees(pair: Address | undefined) {
-  const query = useReadContract({
-    address: COMPOSE_CURVE_ADDRESS,
-    abi: composeCurveAbi,
-    functionName: "pairCreatorFees",
-    args: pair ? [pair] : undefined,
-    query: { enabled: !!pair && composeCurveReady, refetchInterval: REFRESH_MS },
-  });
-  return { owed: (query.data as bigint | undefined) ?? 0n, refetch: query.refetch };
-}
-
 export function useCurveQuoteBuy(token: Address | undefined, shares: bigint | undefined) {
   const query = useReadContract({
     address: COMPOSE_CURVE_ADDRESS,
@@ -493,8 +481,7 @@ export function useCurveTrade() {
 }
 
 /**
- * Pay accrued curve trading fees (in pair shares): `claim(token)` to the token's
- * creator, `claimPair(pair)` to the pair's creator.
+ * Pay the token creator's accrued curve trading fees (in pair shares): `claim(token)`.
  */
 export function useClaimCurveCreatorFees() {
   const { send } = useContractTx();
@@ -502,7 +489,7 @@ export function useClaimCurveCreatorFees() {
   const { setStage, setError, setHash, fail } = s;
 
   const run = useCallback(
-    async (functionName: "claimCreatorFees" | "claimPairCreatorFees", target: Address): Promise<Hash> => {
+    async (functionName: "claimCreatorFees", target: Address): Promise<Hash> => {
       setError(null);
       setHash(undefined);
       try {
@@ -521,9 +508,8 @@ export function useClaimCurveCreatorFees() {
     [send, setStage, setError, setHash, fail],
   );
   const claim = useCallback((token: Address) => run("claimCreatorFees", token), [run]);
-  const claimPair = useCallback((pair: Address) => run("claimPairCreatorFees", pair), [run]);
 
-  return { claim, claimPair, stage: s.stage, error: s.error, hash: s.hash, reset: s.reset };
+  return { claim, stage: s.stage, error: s.error, hash: s.hash, reset: s.reset };
 }
 
 const TokenCreatedEvent = parseAbiItem(

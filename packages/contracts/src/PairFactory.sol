@@ -102,6 +102,9 @@ contract PairFactory is Ownable, ReentrancyGuard {
     mapping(bytes32 => address) public pairByKey;
     mapping(address => uint256) public pairsCreatedBy;
     mapping(address => bool) public isPair;
+    /// @notice Share recipients whose deposits skip the creator fee on every pair
+    ///         (e.g. CurveRouter, so token buys are not charged twice).
+    mapping(address => bool) public feeExemptRecipients;
 
     event PairLaunched(
         address indexed pair,
@@ -113,6 +116,7 @@ contract PairFactory is Ownable, ReentrancyGuard {
         uint16 creatorFeeBps
     );
     event TokenListed(address indexed token, bool listed);
+    event FeeExemptSet(address indexed recipient, bool exempt);
     event PoolConfigSet(address indexed positionManager, address indexed permit2, address indexed quoteToken);
     event PoolSeeded(
         address indexed pair,
@@ -166,6 +170,13 @@ contract PairFactory is Ownable, ReentrancyGuard {
 
     function poolEnabled() public view returns (bool) {
         return address(positionManager) != address(0);
+    }
+
+    /// @notice Waive the pair creator fee for deposits whose shares go to `recipient`.
+    function setFeeExempt(address recipient, bool exempt) external onlyOwner {
+        require(recipient != address(0), "PairFactory: zero recipient");
+        feeExemptRecipients[recipient] = exempt;
+        emit FeeExemptSet(recipient, exempt);
     }
 
     function listedTokens() external view returns (address[] memory out) {

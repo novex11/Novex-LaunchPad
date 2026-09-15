@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {Script, console2} from "forge-std/Script.sol";
 import {ComposeCurve} from "../src/ComposeCurve.sol";
 import {CurveRouter} from "../src/CurveRouter.sol";
+import {PairFactory} from "../src/PairFactory.sol";
 
 /// @title DeployCurve — redeploy ComposeCurve + CurveRouter against an existing launchpad
 /// @notice Reuses the live PairFactory and PairRouter; works on testnet and mainnet.
@@ -24,6 +25,13 @@ contract DeployCurve is Script {
         vm.startBroadcast(pk);
         ComposeCurve curve = new ComposeCurve(deployer, factory, treasury, startMcapUsd8);
         CurveRouter curveRouter = new CurveRouter(address(curve), pairRouter);
+        // Token buys deposit through CurveRouter; waive the pair creator fee on those shares.
+        if (PairFactory(factory).owner() == deployer) {
+            PairFactory(factory).setFeeExempt(address(curveRouter), true);
+            console2.log("Fee exemption set on PairFactory for CurveRouter");
+        } else {
+            console2.log("SKIPPED setFeeExempt: deployer does not own the PairFactory; run it from the owner");
+        }
         vm.stopBroadcast();
 
         vm.serializeUint("curve", "chainId", block.chainid);

@@ -278,9 +278,8 @@ contract ComposeCurveTest is Test {
         assertEq(out, expected);
         assertEq(quoted, out);
         assertEq(quotedFee, 0.1e18);
-        assertEq(curve.creatorFees(token), 0.06e18);
-        assertEq(curve.pairCreatorFees(address(pair)), 0.01e18);
-        assertEq(curve.protocolFees(address(share)), 0.03e18);
+        assertEq(curve.creatorFees(token), 0.07e18, "70% creator");
+        assertEq(curve.protocolFees(address(share)), 0.03e18, "30% protocol");
         (, , uint256 realQuote, , ) = _state(token);
         assertEq(realQuote, 9.9e18);
         assertEq(share.balanceOf(address(curve)), 10e18, "curve holds reserve + fees");
@@ -304,7 +303,7 @@ contract ComposeCurveTest is Test {
     }
 
     function _fees(address token) internal view returns (uint256) {
-        return curve.creatorFees(token) + curve.pairCreatorFees(address(pair)) + curve.protocolFees(address(share));
+        return curve.creatorFees(token) + curve.protocolFees(address(share));
     }
 
     function testFuzz_BuySellNeverProfits(uint256 sharesIn) public {
@@ -422,8 +421,8 @@ contract ComposeCurveTest is Test {
         uint256 aliceBefore = share.balanceOf(alice);
 
         uint256 claimed = curve.claimCreatorFees(token); // anyone may trigger; pays the creator
-        assertEq(claimed, 0.6e18);
-        assertEq(share.balanceOf(alice) - aliceBefore, 0.6e18);
+        assertEq(claimed, 0.7e18);
+        assertEq(share.balanceOf(alice) - aliceBefore, 0.7e18);
 
         curve.withdrawProtocolFees(address(share));
         assertEq(share.balanceOf(treasury), 0.3e18);
@@ -432,7 +431,7 @@ contract ComposeCurveTest is Test {
         curve.claimCreatorFees(token);
     }
 
-    function test_PairCreatorFeeAccruesPerPair() public {
+    function test_FeesAccrueSeparatelyPerToken() public {
         address aliceToken = _create(0);
         (PairVault p2, IERC20 share2) = _secondPair(carol);
         vm.prank(carol);
@@ -445,24 +444,100 @@ contract ComposeCurveTest is Test {
         curve.buy(carolToken, 50e18, 0, carol);
         vm.stopPrank();
 
-        assertEq(curve.creatorFees(aliceToken), 0.3e18);
-        assertEq(curve.creatorFees(carolToken), 0.3e18);
-        assertEq(curve.pairCreatorFees(address(pair)), 0.05e18, "10% of the pair's token fees");
-        assertEq(curve.pairCreatorFees(address(p2)), 0.05e18);
+        assertEq(curve.creatorFees(aliceToken), 0.35e18, "70% of the 1% fee");
+        assertEq(curve.creatorFees(carolToken), 0.35e18);
         assertEq(curve.protocolFees(address(share)), 0.15e18);
         assertEq(curve.protocolFees(address(share2)), 0.15e18);
 
-        uint256 aliceBefore = share.balanceOf(alice);
         uint256 carolBefore = share2.balanceOf(carol);
         vm.prank(bob); // anyone may trigger
-        assertEq(curve.claimPairCreatorFees(address(pair)), 0.05e18);
-        assertEq(share.balanceOf(alice) - aliceBefore, 0.05e18, "paid to the pair creator");
         curve.claimCreatorFees(carolToken);
-        curve.claimPairCreatorFees(address(p2));
-        assertEq(share2.balanceOf(carol) - carolBefore, 0.35e18, "token creator + pair creator cuts");
+        assertEq(share2.balanceOf(carol) - carolBefore, 0.35e18, "paid in that pair's shares");
+    }
 
-        vm.expectRevert("ComposeCurve: no fees");
-        curve.claimPairCreatorFees(address(pair));
+    // ─── Pair deposit fee exemption ─────────────────────────
+
+    function test_SetFeeExemptIsOwnerOnlyAndEmits() public {
+        vm.prank(bob);
+        vm.expectRevert();
+        factory.setFeeExempt(address(curveRouter), true);
+
+        vm.expectRevert("PairFactory: zero recipient");
+        factory.setFeeExempt(address(0), true);
+
+        vm.expectEmit(true, false, false, true, address(factory));
+        emit PairFactory.FeeExemptSet(address(curveRouter), true);
+        factory.setFeeExempt(address(curveRouter), true);
+        assertTrue(factory.feeExemptRecipients(address(curveRouter)));
+        factory.setFeeExempt(address(curveRouter), false);
+        assertFalse(factory.feeExemptRecipients(address(curveRouter)));
+    }
+
+    function test_RouterBuysPayPairFeeWithoutExemption() public {
+        address token = _create(0);
+        _pastLaunch();
+        uint256 feeBefore = pair.creatorFeeShares();
+        _buyWithStocks(token);
+        assertGt(pair.creatorFeeShares(), feeBefore, "2% pair fee charged on the router's deposit");
+    }
+
+    function test_ExemptRouterSkipsPairFeeButUsersStillPay() public {
+        factory.setFeeExempt(address(curveRouter), true);
+        address token = _create(0);
+        _pastLaunch();
+        uint256 feeBefore = pair.creatorFeeShares();
+        uint256 supplyBefore = share.totalSupply();
+
+        // Stocks path: recipient of the deposit is CurveRouter -> no pair fee.
+        tsla.mint(bob, 10 ether);
+        amd.mint(bob, 10 ether);
+        (uint256 balA, uint256 balB) = pair.reserves();
+        (uint256 grossShares, , ) = pair.previewDeposit(balA / 10, balB / 5);
+        (uint256 quoted, ) = curve.quoteBuy(token, grossShares);
+        vm.startPrank(bob);
+        IERC20(pair.tokenA()).approve(address(curveRouter), balA / 10);
+        IERC20(pair.tokenB()).approve(address(curveRouter), balB / 5);
+        uint256 tokensOut = curveRouter.buyWithStocks(token, balA / 10, balB / 5, quoted);
+        vm.stopPrank();
+        assertEq(tokensOut, quoted, "the full gross shares reach the curve");
+        assertEq(pair.creatorFeeShares(), feeBefore, "no pair fee");
+        assertEq(share.totalSupply() - supplyBefore, grossShares, "only the curve's shares were minted");
+        (, , uint256 realQuote, , ) = _state(token);
+        assertEq(realQuote, grossShares - grossShares / 100, "only the 1% curve fee");
+
+        // ETH path: PairRouter deposits with CurveRouter as recipient -> still no pair fee.
+        supplyBefore = share.totalSupply();
+        uint256 curveShares = share.balanceOf(address(curve));
+        CurveRouter.BuyParams memory buyParams = CurveRouter.BuyParams({
+            token: token,
+            payToken: address(weth),
+            amountIn: 0.008 ether,
+            pathA: _path(address(weth), pair.tokenA()),
+            pathB: _path(address(weth), pair.tokenB()),
+            minTokensOut: 0,
+            maxSlippageBps: 100,
+            deadline: block.timestamp + 1 hours
+        });
+        vm.prank(bob);
+        curveRouter.buy{value: 0.008 ether}(buyParams);
+        assertEq(pair.creatorFeeShares(), feeBefore, "no pair fee on the ETH path either");
+        assertEq(share.totalSupply() - supplyBefore, share.balanceOf(address(curve)) - curveShares, "every minted share went to the curve");
+
+        // A plain pair buy by a normal wallet still pays the creator fee.
+        PairRouter.BuyParams memory pairBuy = PairRouter.BuyParams({
+            pair: address(pair),
+            payToken: address(weth),
+            amountIn: 0.008 ether,
+            pathA: _path(address(weth), pair.tokenA()),
+            pathB: _path(address(weth), pair.tokenB()),
+            minShares: 0,
+            maxSlippageBps: 100,
+            deadline: block.timestamp + 1 hours
+        });
+        vm.prank(bob);
+        router.buy{value: 0.008 ether}(pairBuy);
+        assertGt(pair.creatorFeeShares(), feeBefore, "regular depositors still pay the pair fee");
+        _assertRoutersEmpty(token);
     }
 
     // ─── CurveRouter (ETH / USDG) ───────────────────────────

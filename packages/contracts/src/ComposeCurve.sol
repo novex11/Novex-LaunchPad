@@ -17,7 +17,8 @@ import {PairVault} from "./PairVault.sol";
 ///         is minted to the curve (the creator receives nothing at launch; a dev buy is
 ///         an ordinary curve purchase capped at 5% of supply). Each token trades on a
 ///         constant-product curve quoted in the pair's share token, so every buy is
-///         backed by real stocks in the vault. The shape mirrors Pons: the
+///         backed by real stocks in the vault. Every trade pays a 1% fee in shares,
+///         70% to the creator and 30% to the protocol. The shape mirrors Pons: the
 ///         full supply sits on the curve against a virtual quote reserve worth
 ///         `startMarketCapUsd8`, and the token graduates once real shares paired
 ///         reach 3.0976x that reserve (Pons: 4.2 ETH over 1.3559 ETH), i.e. ~16.8x
@@ -27,8 +28,8 @@ contract ComposeCurve is Ownable, ReentrancyGuard {
 
     uint256 public constant TOTAL_SUPPLY = 1_000_000_000e18;
     uint16 public constant FEE_BPS = 100; // 1% of every trade, in shares
-    uint16 public constant CREATOR_FEE_SHARE_BPS = 6_000; // 60% token creator
-    uint16 public constant PAIR_CREATOR_FEE_SHARE_BPS = 1_000; // 10% pair creator, 30% protocol
+    /// @dev The pair creator is always the token creator, so one bucket: 70% creator, 30% protocol.
+    uint16 public constant CREATOR_FEE_SHARE_BPS = 7_000;
     uint16 public constant GRADUATION_MULTIPLE_BPS = 30_976;
     uint16 public constant MAX_DEV_BUY_BPS = 500; // 5% of supply
     /// @dev Launch window: creator-only in the launch second, then capped buys.
@@ -65,8 +66,6 @@ contract ComposeCurve is Ownable, ReentrancyGuard {
     address[] public allTokens;
     /// @notice token => shares owed to its creator
     mapping(address => uint256) public creatorFees;
-    /// @notice pair => shares owed to the pair's creator from all its tokens' trades
-    mapping(address => uint256) public pairCreatorFees;
     /// @notice share token => shares owed to the protocol
     mapping(address => uint256) public protocolFees;
 
@@ -92,7 +91,6 @@ contract ComposeCurve is Ownable, ReentrancyGuard {
     );
     event Graduated(address indexed token, uint256 realQuote, uint256 marketCapShares);
     event CreatorFeesClaimed(address indexed token, address indexed creator, uint256 shares);
-    event PairCreatorFeesClaimed(address indexed pair, address indexed creator, uint256 shares);
     event ProtocolFeesWithdrawn(address indexed share, address indexed treasury, uint256 shares);
     event TreasurySet(address indexed treasury);
     event StartMarketCapSet(uint256 startMarketCapUsd8);
@@ -233,17 +231,6 @@ contract ComposeCurve is Ownable, ReentrancyGuard {
         emit CreatorFeesClaimed(token, c.creator, amount);
     }
 
-    /// @notice Pay a pair creator's cut of its tokens' trade fees. Anyone may trigger.
-    function claimPairCreatorFees(address pair) external nonReentrant returns (uint256 amount) {
-        amount = pairCreatorFees[pair];
-        require(amount > 0, "ComposeCurve: no fees");
-        pairCreatorFees[pair] = 0;
-        PairVault vault = PairVault(pair);
-        address creator = vault.creator();
-        IERC20(address(vault.receiptToken())).safeTransfer(creator, amount);
-        emit PairCreatorFeesClaimed(pair, creator, amount);
-    }
-
     // ─── Views ──────────────────────────────────────────────
 
     function tokenCount() external view returns (uint256) {
@@ -380,9 +367,7 @@ contract ComposeCurve is Ownable, ReentrancyGuard {
     function _accrueFees(address token, Curve storage c, uint256 fee) internal {
         if (fee == 0) return;
         uint256 toCreator = (fee * CREATOR_FEE_SHARE_BPS) / 10_000;
-        uint256 toPairCreator = (fee * PAIR_CREATOR_FEE_SHARE_BPS) / 10_000;
         creatorFees[token] += toCreator;
-        pairCreatorFees[c.pair] += toPairCreator;
-        protocolFees[c.share] += fee - toCreator - toPairCreator;
+        protocolFees[c.share] += fee - toCreator;
     }
 }
