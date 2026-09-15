@@ -99,7 +99,7 @@ export const quickstart: DocPage = {
     {
       id: "install",
       title: "Install and configure",
-      keywords: ["env", "install", "privy", "rpc"],
+      keywords: ["install", "privy", "rpc"],
       body: (
         <>
           <Steps>
@@ -109,18 +109,8 @@ cd Basket-protocol
 pnpm install`} />
             </Step>
             <Step title="Create your environment file">
-              <p>Copy the example and fill in the values you have. Testnet works with just a Privy app id and an RPC URL.</p>
+              <p>Copy the example file and fill in your own values. Keep it local; it is never committed.</p>
               <Code code={`cp .env.example .env`} />
-              <Table
-                head={["Variable", "Purpose"]}
-                rows={[
-                  [<C key="1">NEXT_PUBLIC_PRIVY_APP_ID</C>, "Wallet login (required by the web app)"],
-                  [<C key="2">NEXT_PUBLIC_USE_TESTNET</C>, <>Set to <C>true</C> for Robinhood Chain testnet (chain id 46630)</>],
-                  [<C key="3">ROBINHOOD_TESTNET_RPC_URL</C>, "RPC endpoint; a public one is used when empty"],
-                  [<C key="4">DATABASE_URL</C>, "Postgres for the indexer (local container or Neon)"],
-                  [<C key="5">DEPLOYER_PRIVATE_KEY</C>, "Only for deploy and keeper scripts"],
-                ]}
-              />
             </Step>
             <Step title="Build the shared packages">
               <p>The web app and services import the config and SDK packages from their build output.</p>
@@ -144,10 +134,6 @@ pnpm --filter @compose/web dev   # web on http://localhost:3000`}
           />
           <p>Or run every process with the turbo dev pipeline, plus the testnet price keeper:</p>
           <Code code={`pnpm dev:testnet`} />
-          <Callout type="tip" title="Root env file">
-            The web app reads the root <C>.env</C>. If you start Next.js from <C>apps/web</C> directly, export the root file
-            first: <C>set -a; source ../../.env; set +a</C>.
-          </Callout>
           <Table
             head={["Service", "URL"]}
             rows={[

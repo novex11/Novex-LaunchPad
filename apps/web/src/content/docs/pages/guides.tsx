@@ -128,8 +128,7 @@ export const runLocally: DocPage = {
       body: (
         <p>
           The indexer creates and migrates its own tables on boot (<C>ensureSchema</C>), so a fresh Postgres works
-          immediately. Point <C>DATABASE_URL</C> at Neon for a hosted setup. Inside Docker the indexer defaults to the local
-          container unless <C>INDEXER_DATABASE_URL</C> overrides it.
+          immediately. Point it at a hosted Postgres for production; inside Docker it defaults to the local container.
         </p>
       ),
     },
@@ -169,7 +168,7 @@ export const deployTestnet: DocPage = {
       body: (
         <>
           <Steps>
-            <Step title="Set the deployer key">Put <C>DEPLOYER_PRIVATE_KEY</C> in the root <C>.env</C>. The wallet needs testnet ETH and faucet stock tokens.</Step>
+            <Step title="Fund the deployer wallet">The deployer wallet configured in your local environment needs testnet ETH and faucet stock tokens.</Step>
             <Step title="Run the deploy script">
               <Code code={`pnpm deploy:testnet`} />
               <p>The script fetches opening prices, deploys the oracle, push feeds, updater and PairFactory, lists the faucet tokens and writes <C>deployments-testnet.json</C>.</p>

@@ -278,31 +278,8 @@ export const config: DocPage = {
   slug: "reference/config",
   href: "/docs/reference/config",
   title: "Configuration",
-  description: "Environment variables and the shared config package.",
+  description: "The shared config package.",
   sections: [
-    {
-      id: "environment",
-      title: "Environment variables",
-      keywords: ["env", "NEXT_PUBLIC", "database", "redis", "keeper"],
-      body: (
-        <Table
-          head={["Variable", "Used by", "Purpose"]}
-          mono={[0]}
-          rows={[
-            ["NEXT_PUBLIC_USE_TESTNET", "web, services", "true selects Robinhood Chain testnet"],
-            ["NEXT_PUBLIC_PRIVY_APP_ID", "web", "Privy application id for wallet login"],
-            ["NEXT_PUBLIC_ROBINHOOD_TESTNET_RPC_URL / NEXT_PUBLIC_ROBINHOOD_RPC_URL", "web", "RPC endpoints (browser)"],
-            ["ROBINHOOD_TESTNET_RPC_URL / ROBINHOOD_RPC_URL", "services, scripts", "RPC endpoints (server)"],
-            ["NEXT_PUBLIC_ALLOCATOR_URL / QUOTE_URL / INDEXER_URL", "web", "Service base URLs"],
-            ["DATABASE_URL", "indexer", "Postgres connection string"],
-            ["REDIS_HOST / REDIS_PORT / REDIS_PASSWORD", "indexer", "Live snapshot fan-out and image cache"],
-            ["DEPLOYER_PRIVATE_KEY", "scripts", "Deploys, listing, keeper"],
-            ["KEEPER_INTERVAL_MS / KEEPER_HEARTBEAT_SECONDS / KEEPER_DEVIATION_BPS", "keeper", "Push cadence"],
-            ["RIALTO_API_KEY", "quote", "Enables real execution quotes"],
-          ]}
-        />
-      ),
-    },
     {
       id: "config-package",
       title: "The config package",
