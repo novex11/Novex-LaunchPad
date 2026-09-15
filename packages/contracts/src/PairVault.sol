@@ -48,18 +48,22 @@ contract PairVault is ReentrancyGuard {
         address factory;
     }
 
-    address public immutable factory;
-    address public immutable creator;
-    address public immutable tokenA;
-    address public immutable tokenB;
-    address public immutable weth;
-    uint16 public immutable weightABps;
-    uint16 public immutable creatorFeeBps;
-    uint8 public immutable decimalsA;
-    uint8 public immutable decimalsB;
-    ReceiptToken public immutable receiptToken;
-    OracleAdapter public immutable oracle;
-    EmergencyRegistry public immutable emergency;
+    /// @dev Every vault is an EIP-1167 clone of one verified implementation (see
+    ///      PairDeployer), so its configuration lives in storage and is set once by
+    ///      `initialize` instead of a constructor.
+    bool private _initialized;
+    address public factory;
+    address public creator;
+    address public tokenA;
+    address public tokenB;
+    address public weth;
+    uint16 public weightABps;
+    uint16 public creatorFeeBps;
+    uint8 public decimalsA;
+    uint8 public decimalsB;
+    ReceiptToken public receiptToken;
+    OracleAdapter public oracle;
+    EmergencyRegistry public emergency;
 
     /// @notice Total shares ever minted to the creator as deposit fees.
     uint256 public creatorFeeShares;
@@ -84,7 +88,17 @@ contract PairVault is ReentrancyGuard {
     );
     event OperatorSet(address indexed owner, address indexed operator, bool approved);
 
-    constructor(Config memory c) {
+    /// @dev The implementation itself is locked: only clones can be initialized.
+    constructor() {
+        _initialized = true;
+    }
+
+    /// @notice One-time setup of a clone, called by PairDeployer in the launch transaction.
+    function initialize(Config memory c) external {
+        require(!_initialized, "PairVault: initialized");
+        _initialized = true;
+        require(c.tokenA != address(0) && c.tokenB != address(0), "PairVault: zero token");
+        require(c.receiptToken != address(0) && c.oracle != address(0), "PairVault: zero address");
         factory = c.factory == address(0) ? msg.sender : c.factory;
         creator = c.creator;
         tokenA = c.tokenA;

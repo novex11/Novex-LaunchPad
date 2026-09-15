@@ -9,9 +9,10 @@ import {
 import { getTokenByAddress } from "@compose/config";
 import { fileURLToPath } from "node:url";
 import { createDb, type Db } from "./db.js";
-import { createVerificationQueue, verifyPairContracts } from "./contract-verifier.js";
+import { verifyLaunchImplementations } from "./contract-verifier.js";
 import {
   AUTO_VERIFY_CONTRACTS,
+  composeCurveAddress,
   explorerApiUrl,
   getPublicClient,
   launchpadStartBlock,
@@ -56,11 +57,15 @@ const vaultAbi = parseAbi([
   "function totalShares() view returns (uint256)",
 ]);
 const factoryAbi = parseAbi(["function isPair(address) view returns (bool)"]);
-const oracleAbi = parseAbi(["function getPriceUnchecked(address) view returns (uint256)"]);
+const oracleAbi = parseAbi([
+  "function getPriceUnchecked(address) view returns (uint256)",
+]);
 
 const CHUNK = BigInt(process.env.INDEXER_LOG_CHUNK ?? 5_000);
 const POLL_MS = Number(process.env.INDEXER_POLL_MS ?? 1_500);
-const VERIFICATION_INPUTS_DIR = fileURLToPath(new URL("../verification", import.meta.url));
+const VERIFICATION_INPUTS_DIR = fileURLToPath(
+  new URL("../verification", import.meta.url),
+);
 
 /** Without a configured start block, only look back this far on first sync. */
 const DEFAULT_LOOKBACK = 100_000n;
@@ -82,8 +87,16 @@ function pairKeyOf(a: string, b: string): string {
 async function readReceiptMeta(client: PublicClient, receipt: Address) {
   try {
     const [name, symbol] = await Promise.all([
-      client.readContract({ address: receipt, abi: erc20MetaAbi, functionName: "name" }),
-      client.readContract({ address: receipt, abi: erc20MetaAbi, functionName: "symbol" }),
+      client.readContract({
+        address: receipt,
+        abi: erc20MetaAbi,
+        functionName: "name",
+      }),
+      client.readContract({
+        address: receipt,
+        abi: erc20MetaAbi,
+        functionName: "symbol",
+      }),
     ]);
     return { name: String(name).trim(), symbol: String(symbol).trim() };
   } catch {
@@ -91,18 +104,30 @@ async function readReceiptMeta(client: PublicClient, receipt: Address) {
   }
 }
 
-async function tokenDecimals(client: PublicClient, token: Address): Promise<number> {
+async function tokenDecimals(
+  client: PublicClient,
+  token: Address,
+): Promise<number> {
   const known = getTokenByAddress(token);
   if (known) return known.decimals;
   try {
-    return Number(await client.readContract({ address: token, abi: erc20MetaAbi, functionName: "decimals" }));
+    return Number(
+      await client.readContract({
+        address: token,
+        abi: erc20MetaAbi,
+        functionName: "decimals",
+      }),
+    );
   } catch {
     return 18;
   }
 }
 
 const blockTimes = new Map<bigint, Date>();
-async function blockTime(client: PublicClient, blockNumber: bigint): Promise<Date> {
+async function blockTime(
+  client: PublicClient,
+  blockNumber: bigint,
+): Promise<Date> {
   const cached = blockTimes.get(blockNumber);
   if (cached) return cached;
   const block = await client.getBlock({ blockNumber });
@@ -113,7 +138,11 @@ async function blockTime(client: PublicClient, blockNumber: bigint): Promise<Dat
 }
 
 /** Oracle price at the event's block, falling back to the latest price. */
-async function priceAt(client: PublicClient, token: Address, blockNumber: bigint): Promise<bigint> {
+async function priceAt(
+  client: PublicClient,
+  token: Address,
+  blockNumber: bigint,
+): Promise<bigint> {
   const oracle = oracleAddress();
   if (!oracle) return 0n;
   const read = (atBlock?: bigint) =>
@@ -147,14 +176,39 @@ async function indexPairFromChain(
   factory: Address,
   extra: { txHash?: string; createdAt?: Date } = {},
 ): Promise<PairInfo> {
-  const [creator, tokenA, tokenB, weightABps, creatorFeeBps, receiptToken] = await Promise.all([
-    client.readContract({ address: pair, abi: vaultAbi, functionName: "creator" }),
-    client.readContract({ address: pair, abi: vaultAbi, functionName: "tokenA" }),
-    client.readContract({ address: pair, abi: vaultAbi, functionName: "tokenB" }),
-    client.readContract({ address: pair, abi: vaultAbi, functionName: "weightABps" }),
-    client.readContract({ address: pair, abi: vaultAbi, functionName: "creatorFeeBps" }),
-    client.readContract({ address: pair, abi: vaultAbi, functionName: "receiptToken" }),
-  ]);
+  const [creator, tokenA, tokenB, weightABps, creatorFeeBps, receiptToken] =
+    await Promise.all([
+      client.readContract({
+        address: pair,
+        abi: vaultAbi,
+        functionName: "creator",
+      }),
+      client.readContract({
+        address: pair,
+        abi: vaultAbi,
+        functionName: "tokenA",
+      }),
+      client.readContract({
+        address: pair,
+        abi: vaultAbi,
+        functionName: "tokenB",
+      }),
+      client.readContract({
+        address: pair,
+        abi: vaultAbi,
+        functionName: "weightABps",
+      }),
+      client.readContract({
+        address: pair,
+        abi: vaultAbi,
+        functionName: "creatorFeeBps",
+      }),
+      client.readContract({
+        address: pair,
+        abi: vaultAbi,
+        functionName: "receiptToken",
+      }),
+    ]);
   const [meta, decimalsA, decimalsB] = await Promise.all([
     readReceiptMeta(client, receiptToken),
     tokenDecimals(client, tokenA),
@@ -167,7 +221,8 @@ async function indexPairFromChain(
     pairKey: pairKeyOf(tokenA, tokenB),
     pairAddress: pair,
     receiptAddress: receiptToken,
-    receiptSymbol: meta.symbol || `p${tokA?.ticker ?? "?"}-${tokB?.ticker ?? "?"}`,
+    receiptSymbol:
+      meta.symbol || `p${tokA?.ticker ?? "?"}-${tokB?.ticker ?? "?"}`,
     displayName: meta.name,
     creatorWallet: creator,
     tokenA,
@@ -217,7 +272,9 @@ export function startLaunchpadIndexer(): (() => void) | null {
   const factory = pairFactoryAddress();
   const db = createDb();
   if (!client || !factory) {
-    console.log("[launchpad-indexer] No RPC or PairFactory configured, skipping");
+    console.log(
+      "[launchpad-indexer] No RPC or PairFactory configured, skipping",
+    );
     return null;
   }
   if (!db) {
@@ -227,20 +284,35 @@ export function startLaunchpadIndexer(): (() => void) | null {
 
   const cursorId = `launchpad:${factory.toLowerCase()}`;
   const log = (m: string) => console.log(`[verifier] ${m}`);
-  const queueVerification = AUTO_VERIFY_CONTRACTS
-    ? createVerificationQueue(async (pair) => {
-        try {
-          const result = await verifyPairContracts(
-            client,
-            { explorerApiUrl: explorerApiUrl(), inputsDir: VERIFICATION_INPUTS_DIR, log },
-            pair,
+  // Every launched vault, share token and curve token is an EIP-1167 clone, which the
+  // explorer shows as verified as soon as its implementation is. So there is nothing to
+  // verify per launch: only the three implementations, once per deployment.
+  const verifyImplementations = async () => {
+    if (!AUTO_VERIFY_CONTRACTS) return;
+    try {
+      const { implementations, outcomes } = await verifyLaunchImplementations(
+        client,
+        {
+          explorerApiUrl: explorerApiUrl(),
+          inputsDir: VERIFICATION_INPUTS_DIR,
+          log,
+        },
+        { factory, curve: composeCurveAddress() },
+      );
+      for (const name of [
+        "PairVault",
+        "PairShareToken",
+        "CreatorToken",
+      ] as const) {
+        if (implementations[name])
+          log(
+            `${name} implementation ${implementations[name]}: ${outcomes[name]}`,
           );
-          log(`${pair}: vault ${result.vault}, receipt ${result.receipt}`);
-        } catch (e) {
-          log(`${pair}: ${e instanceof Error ? e.message : e}`);
-        }
-      })
-    : () => undefined;
+      }
+    } catch (e) {
+      log(`implementations: ${e instanceof Error ? e.message : e}`);
+    }
+  };
   const pairs = new Map<string, PairInfo>();
   let stopped = false;
   let timer: NodeJS.Timeout | null = null;
@@ -258,7 +330,6 @@ export function startLaunchpadIndexer(): (() => void) | null {
         decimalsA: getTokenByAddress(row.tokenA)?.decimals ?? 18,
         decimalsB: getTokenByAddress(row.tokenB)?.decimals ?? 18,
       });
-      queueVerification(row.pairAddress as Address);
     }
   }
 
@@ -271,17 +342,37 @@ export function startLaunchpadIndexer(): (() => void) | null {
       createdAt,
     });
     pairs.set(pair.toLowerCase(), info);
-    console.log(`[launchpad-indexer] PairLaunched ${pair} (block ${log.blockNumber})`);
-    queueVerification(pair);
+    console.log(
+      `[launchpad-indexer] PairLaunched ${pair} (block ${log.blockNumber})`,
+    );
   }
 
   /** Chart point right after a buy/sell, read at the event's block. */
-  async function snapshotAtBlock(pair: Address, blockNumber: bigint, createdAt: Date) {
+  async function snapshotAtBlock(
+    pair: Address,
+    blockNumber: bigint,
+    createdAt: Date,
+  ) {
     const readAll = (atBlock?: bigint) =>
       Promise.all([
-        client!.readContract({ address: pair, abi: vaultAbi, functionName: "navUsd8", blockNumber: atBlock }),
-        client!.readContract({ address: pair, abi: vaultAbi, functionName: "sharePrice", blockNumber: atBlock }),
-        client!.readContract({ address: pair, abi: vaultAbi, functionName: "totalShares", blockNumber: atBlock }),
+        client!.readContract({
+          address: pair,
+          abi: vaultAbi,
+          functionName: "navUsd8",
+          blockNumber: atBlock,
+        }),
+        client!.readContract({
+          address: pair,
+          abi: vaultAbi,
+          functionName: "sharePrice",
+          blockNumber: atBlock,
+        }),
+        client!.readContract({
+          address: pair,
+          abi: vaultAbi,
+          functionName: "totalShares",
+          blockNumber: atBlock,
+        }),
       ]);
     try {
       let values: [bigint, bigint, bigint];
@@ -302,23 +393,30 @@ export function startLaunchpadIndexer(): (() => void) | null {
       });
       await launchpadStore.updatePairTvl(db!, pair, navUsd);
     } catch (e) {
-      console.error(`[launchpad-indexer] snapshot ${pair} failed:`, e instanceof Error ? e.message : e);
+      console.error(
+        `[launchpad-indexer] snapshot ${pair} failed:`,
+        e instanceof Error ? e.message : e,
+      );
     }
   }
 
   async function handleDeposit(log: DepositLog) {
     const info = pairs.get(log.address.toLowerCase());
     const { user, amountA, amountB, sharesMinted, feeShares } = log.args;
-    if (!info || !user || log.blockNumber == null || !log.transactionHash) return;
+    if (!info || !user || log.blockNumber == null || !log.transactionHash)
+      return;
     const [priceA, priceB, createdAt] = await Promise.all([
       priceAt(client!, info.tokenA, log.blockNumber),
       priceAt(client!, info.tokenB, log.blockNumber),
       blockTime(client!, log.blockNumber),
     ]);
-    const valueUsd = usd(amountA ?? 0n, priceA, info.decimalsA) + usd(amountB ?? 0n, priceB, info.decimalsB);
+    const valueUsd =
+      usd(amountA ?? 0n, priceA, info.decimalsA) +
+      usd(amountB ?? 0n, priceB, info.decimalsB);
     const minted = sharesMinted ?? 0n;
     const fee = feeShares ?? 0n;
-    const creatorFeeUsd = minted + fee > 0n ? (valueUsd * Number(fee)) / Number(minted + fee) : 0;
+    const creatorFeeUsd =
+      minted + fee > 0n ? (valueUsd * Number(fee)) / Number(minted + fee) : 0;
 
     const row = await launchpadStore.recordPairDeposit(db!, {
       pairAddress: log.address,
@@ -333,14 +431,22 @@ export function startLaunchpadIndexer(): (() => void) | null {
       createdAt,
     });
     if (row) {
-      console.log(`[launchpad-indexer] Deposit ${log.address} $${valueUsd.toFixed(2)} by ${user}`);
+      console.log(
+        `[launchpad-indexer] Deposit ${log.address} $${valueUsd.toFixed(2)} by ${user}`,
+      );
       await snapshotAtBlock(log.address, log.blockNumber, createdAt);
     }
   }
 
   async function handleRedeem(log: RedeemLog) {
     const { user, sharesBurned, amountA, amountB, valueUsd8 } = log.args;
-    if (!pairs.has(log.address.toLowerCase()) || !user || log.blockNumber == null || !log.transactionHash) return;
+    if (
+      !pairs.has(log.address.toLowerCase()) ||
+      !user ||
+      log.blockNumber == null ||
+      !log.transactionHash
+    )
+      return;
     const valueUsd = Number(valueUsd8 ?? 0n) / 1e8;
     const createdAt = await blockTime(client!, log.blockNumber);
     const row = await launchpadStore.recordPairRedeem(db!, {
@@ -355,7 +461,9 @@ export function startLaunchpadIndexer(): (() => void) | null {
       createdAt,
     });
     if (row) {
-      console.log(`[launchpad-indexer] Redeem ${log.address} $${valueUsd.toFixed(2)} by ${user}`);
+      console.log(
+        `[launchpad-indexer] Redeem ${log.address} $${valueUsd.toFixed(2)} by ${user}`,
+      );
       await snapshotAtBlock(log.address, log.blockNumber, createdAt);
     }
   }
@@ -399,8 +507,10 @@ export function startLaunchpadIndexer(): (() => void) | null {
             : 1,
       );
       for (const log of logs) {
-        if (log.eventName === "Deposited") await handleDeposit(log as unknown as DepositLog);
-        else if (log.eventName === "Redeemed") await handleRedeem(log as unknown as RedeemLog);
+        if (log.eventName === "Deposited")
+          await handleDeposit(log as unknown as DepositLog);
+        else if (log.eventName === "Redeemed")
+          await handleRedeem(log as unknown as RedeemLog);
       }
     }
 
@@ -430,7 +540,10 @@ export function startLaunchpadIndexer(): (() => void) | null {
     try {
       await tick();
     } catch (e) {
-      console.error("[launchpad-indexer] sync error:", e instanceof Error ? e.message : e);
+      console.error(
+        "[launchpad-indexer] sync error:",
+        e instanceof Error ? e.message : e,
+      );
     }
     if (!stopped) timer = setTimeout(run, POLL_MS);
   }
@@ -439,6 +552,7 @@ export function startLaunchpadIndexer(): (() => void) | null {
   loadKnownPairs()
     .catch((e) => console.error("[launchpad-indexer] failed to load pairs:", e))
     .finally(() => void run());
+  void verifyImplementations();
 
   return () => {
     stopped = true;
