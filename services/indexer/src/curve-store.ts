@@ -10,6 +10,8 @@ export const curveTokens = pgTable(
   "curve_tokens",
   {
     tokenAddress: text("token_address").primaryKey(),
+    /** ComposeCurve that issued the token; reads are scoped to the configured curve. */
+    curveAddress: text("curve_address").notNull().default(""),
     pairAddress: text("pair_address").notNull(),
     shareAddress: text("share_address").notNull(),
     creatorWallet: text("creator_wallet").notNull(),
@@ -29,7 +31,7 @@ export const curveTokens = pgTable(
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
-  (t) => [index("curve_tokens_pair_idx").on(t.pairAddress)],
+  (t) => [index("curve_tokens_pair_idx").on(t.pairAddress), index("curve_tokens_curve_idx").on(t.curveAddress)],
 );
 
 export const curveTrades = pgTable(
@@ -62,6 +64,8 @@ export type CurveTradeRow = typeof curveTrades.$inferSelect;
 
 export interface CurveTokenInput {
   tokenAddress: string;
+  /** The ComposeCurve contract the TokenCreated event came from. */
+  curveAddress: string;
   pairAddress: string;
   shareAddress: string;
   creatorWallet: string;
@@ -80,6 +84,7 @@ export async function recordToken(db: Db, i: CurveTokenInput) {
     .insert(curveTokens)
     .values({
       tokenAddress: i.tokenAddress.toLowerCase(),
+      curveAddress: i.curveAddress.toLowerCase(),
       pairAddress: i.pairAddress.toLowerCase(),
       shareAddress: i.shareAddress.toLowerCase(),
       creatorWallet: i.creatorWallet.toLowerCase(),
@@ -173,40 +178,162 @@ export async function markGraduated(db: Db, tokenAddress: string) {
 }
 
 // ─── Reads ──────────────────────────────────────────────
+//
+// Every token read is scoped to one ComposeCurve address. Tokens issued by an
+// abandoned curve deployment stay in the table but are invisible, which the
+// web renders as "not a Compose creator token".
 
-export async function getToken(db: Db, tokenAddress: string) {
+function curveFilter(curveAddress: string) {
+  return eq(curveTokens.curveAddress, curveAddress.toLowerCase());
+}
+
+export async function getToken(db: Db, curveAddress: string, tokenAddress: string) {
   const [row] = await db
     .select()
     .from(curveTokens)
-    .where(eq(curveTokens.tokenAddress, tokenAddress.toLowerCase()))
+    .where(and(curveFilter(curveAddress), eq(curveTokens.tokenAddress, tokenAddress.toLowerCase())))
     .limit(1);
   return row ?? null;
 }
 
-export async function getTokenByPair(db: Db, pairAddress: string) {
+export async function getTokenByPair(db: Db, curveAddress: string, pairAddress: string) {
   const [row] = await db
     .select()
     .from(curveTokens)
-    .where(eq(curveTokens.pairAddress, pairAddress.toLowerCase()))
+    .where(and(curveFilter(curveAddress), eq(curveTokens.pairAddress, pairAddress.toLowerCase())))
     .limit(1);
   return row ?? null;
 }
 
-export async function listTokensByPair(db: Db, pairAddress: string) {
+export async function listTokensByPair(db: Db, curveAddress: string, pairAddress: string) {
   return db
     .select()
     .from(curveTokens)
-    .where(eq(curveTokens.pairAddress, pairAddress.toLowerCase()))
+    .where(and(curveFilter(curveAddress), eq(curveTokens.pairAddress, pairAddress.toLowerCase())))
     .orderBy(desc(curveTokens.createdAt))
     .limit(200);
 }
 
-export async function listTokens(db: Db, opts: { sort: "new" | "mcap"; limit: number }) {
-  return db
-    .select()
-    .from(curveTokens)
-    .orderBy(opts.sort === "mcap" ? desc(curveTokens.marketCapUsd) : desc(curveTokens.createdAt))
-    .limit(opts.limit);
+export type TokenListSort = "new" | "mcap" | "volume";
+
+export function isTokenListSort(v: string): v is TokenListSort {
+  return v === "new" || v === "mcap" || v === "volume";
+}
+
+export interface TokenListRow {
+  row: CurveTokenRow;
+  volume24hUsd: number;
+  /** Distinct wallets that have bought the token (see `holderCounts`). */
+  holders: number;
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * 24h volume per token in one grouped query.
+ * Returns a map keyed by lower-cased token address; tokens with no trades are absent.
+ */
+export async function volume24hByToken(db: Db, curveAddress: string): Promise<Map<string, number>> {
+  const cutoff = new Date(Date.now() - DAY_MS);
+  const rows = await db
+    .select({
+      tokenAddress: curveTrades.tokenAddress,
+      total: sql<string>`COALESCE(SUM(${curveTrades.valueUsd}), 0)`,
+    })
+    .from(curveTrades)
+    .innerJoin(curveTokens, eq(curveTokens.tokenAddress, curveTrades.tokenAddress))
+    .where(and(curveFilter(curveAddress), gte(curveTrades.createdAt, cutoff)))
+    .groupBy(curveTrades.tokenAddress);
+  return new Map(rows.map((r) => [r.tokenAddress, Number(r.total)]));
+}
+
+/**
+ * Holder count per token: distinct wallets whose buys minus sells leave a
+ * positive token balance, from the indexed trades alone (no balanceOf calls).
+ * Transfers outside the curve are not seen, so this is "distinct net buyers".
+ */
+export async function holderCounts(db: Db, curveAddress: string): Promise<Map<string, number>> {
+  const balances = db
+    .select({
+      tokenAddress: curveTrades.tokenAddress,
+      trader: curveTrades.trader,
+      net: sql<string>`SUM(CASE WHEN ${curveTrades.isBuy} THEN ${curveTrades.tokens}::numeric ELSE -(${curveTrades.tokens}::numeric) END)`.as(
+        "net",
+      ),
+    })
+    .from(curveTrades)
+    .innerJoin(curveTokens, eq(curveTokens.tokenAddress, curveTrades.tokenAddress))
+    .where(curveFilter(curveAddress))
+    .groupBy(curveTrades.tokenAddress, curveTrades.trader)
+    .as("balances");
+  const rows = await db
+    .select({
+      tokenAddress: balances.tokenAddress,
+      holders: sql<string>`COUNT(*)`,
+    })
+    .from(balances)
+    .where(sql`${balances.net} > 0`)
+    .groupBy(balances.tokenAddress);
+  return new Map(rows.map((r) => [r.tokenAddress, Number(r.holders)]));
+}
+
+/** Tokens of one curve with their 24h volume and holder count, sorted for the launchpad list. */
+export async function listTokens(
+  db: Db,
+  curveAddress: string,
+  opts: { sort: TokenListSort; limit: number },
+): Promise<TokenListRow[]> {
+  const [volumes, holders] = await Promise.all([volume24hByToken(db, curveAddress), holderCounts(db, curveAddress)]);
+  const query = db.select().from(curveTokens).where(curveFilter(curveAddress));
+  let rows: CurveTokenRow[];
+  if (opts.sort === "volume") {
+    // Volume lives in the trades table; rank in memory over the curve's tokens.
+    rows = (await query).sort(
+      (a, b) =>
+        (volumes.get(b.tokenAddress) ?? 0) - (volumes.get(a.tokenAddress) ?? 0) ||
+        Number(b.marketCapUsd) - Number(a.marketCapUsd),
+    );
+    rows = rows.slice(0, opts.limit);
+  } else {
+    rows = await query
+      .orderBy(opts.sort === "mcap" ? desc(curveTokens.marketCapUsd) : desc(curveTokens.createdAt))
+      .limit(opts.limit);
+  }
+  return rows.map((row) => ({
+    row,
+    volume24hUsd: volumes.get(row.tokenAddress) ?? 0,
+    holders: holders.get(row.tokenAddress) ?? 0,
+  }));
+}
+
+export interface TokenStats {
+  tokens: number;
+  totalMarketCapUsd: number;
+  volume24hUsd: number;
+}
+
+/** Launchpad header numbers for one curve. */
+export async function getTokenStats(db: Db, curveAddress: string): Promise<TokenStats> {
+  const cutoff = new Date(Date.now() - DAY_MS);
+  const [[totals], [vol]] = await Promise.all([
+    db
+      .select({
+        tokens: sql<string>`COUNT(*)`,
+        totalMarketCapUsd: sql<string>`COALESCE(SUM(${curveTokens.marketCapUsd}), 0)`,
+      })
+      .from(curveTokens)
+      .where(curveFilter(curveAddress)),
+    db
+      .select({ volume24hUsd: sql<string>`COALESCE(SUM(${curveTrades.valueUsd}), 0)` })
+      .from(curveTrades)
+      .innerJoin(curveTokens, eq(curveTokens.tokenAddress, curveTrades.tokenAddress))
+      .where(and(curveFilter(curveAddress), gte(curveTrades.createdAt, cutoff))),
+  ]);
+  return {
+    tokens: Number(totals?.tokens ?? 0),
+    totalMarketCapUsd: Number(totals?.totalMarketCapUsd ?? 0),
+    volume24hUsd: Number(vol?.volume24hUsd ?? 0),
+  };
 }
 
 export async function getTrades(db: Db, tokenAddress: string, limit = 50) {
@@ -367,6 +494,7 @@ export function toTokenJson(
     imageUrl?: string;
     logoUrl?: string;
     volume24hUsd?: number;
+    holders?: number;
   } = {},
 ) {
   const start = BigInt(row.startQuote);

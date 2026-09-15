@@ -72,6 +72,8 @@ contract ComposeCurveTest is Test {
         router = new PairRouter(address(factory), address(swapRouter), address(usdg));
         curve = new ComposeCurve(address(this), address(factory), treasury, START_MCAP_USD8);
         curveRouter = new CurveRouter(address(curve), address(router));
+        // Vault deposits are creator-only; the CurveRouter deposits for token buyers as a fee-exempt recipient.
+        factory.setFeeExempt(address(curveRouter), true);
 
         tsla.mint(address(swapRouter), 10_000 ether);
         amd.mint(address(swapRouter), 10_000 ether);
@@ -473,16 +475,22 @@ contract ComposeCurveTest is Test {
         assertFalse(factory.feeExemptRecipients(address(curveRouter)));
     }
 
-    function test_RouterBuysPayPairFeeWithoutExemption() public {
+    function test_RouterBuysRevertWithoutExemption() public {
         address token = _create(0);
         _pastLaunch();
-        uint256 feeBefore = pair.creatorFeeShares();
-        _buyWithStocks(token);
-        assertGt(pair.creatorFeeShares(), feeBefore, "2% pair fee charged on the router's deposit");
+        factory.setFeeExempt(address(curveRouter), false);
+        tsla.mint(bob, 10 ether);
+        amd.mint(bob, 10 ether);
+        (uint256 balA, uint256 balB) = pair.reserves();
+        vm.startPrank(bob);
+        IERC20(pair.tokenA()).approve(address(curveRouter), balA / 10);
+        IERC20(pair.tokenB()).approve(address(curveRouter), balB / 5);
+        vm.expectRevert("PairVault: creator only");
+        curveRouter.buyWithStocks(token, balA / 10, balB / 5, 0);
+        vm.stopPrank();
     }
 
-    function test_ExemptRouterSkipsPairFeeButUsersStillPay() public {
-        factory.setFeeExempt(address(curveRouter), true);
+    function test_ExemptRouterSkipsPairFeeAndPublicCannotDeposit() public {
         address token = _create(0);
         _pastLaunch();
         uint256 feeBefore = pair.creatorFeeShares();
@@ -523,7 +531,7 @@ contract ComposeCurveTest is Test {
         assertEq(pair.creatorFeeShares(), feeBefore, "no pair fee on the ETH path either");
         assertEq(share.totalSupply() - supplyBefore, share.balanceOf(address(curve)) - curveShares, "every minted share went to the curve");
 
-        // A plain pair buy by a normal wallet still pays the creator fee.
+        // The public cannot deposit into the pair directly, not even through PairRouter.
         PairRouter.BuyParams memory pairBuy = PairRouter.BuyParams({
             pair: address(pair),
             payToken: address(weth),
@@ -535,8 +543,9 @@ contract ComposeCurveTest is Test {
             deadline: block.timestamp + 1 hours
         });
         vm.prank(bob);
+        vm.expectRevert("PairVault: creator only");
         router.buy{value: 0.008 ether}(pairBuy);
-        assertGt(pair.creatorFeeShares(), feeBefore, "regular depositors still pay the pair fee");
+        assertEq(pair.creatorFeeShares(), feeBefore, "no pair fee was ever charged");
         _assertRoutersEmpty(token);
     }
 
@@ -564,8 +573,8 @@ contract ComposeCurveTest is Test {
         assertGt(tokensOut, 0);
         assertEq(IERC20(token).balanceOf(bob), tokensOut);
         (, , uint256 realQuote, , ) = _state(token);
-        // $20 -> 0.3% swap fee -> 2% pair creator fee -> 1% curve fee
-        assertApproxEqRel(realQuote, 19.34e18, 0.01e18);
+        // $20 -> 0.3% swap fee -> 1% curve fee (no pair fee: CurveRouter is fee-exempt)
+        assertApproxEqRel(realQuote, 19.74e18, 0.01e18);
         _assertRoutersEmpty(token);
 
         CurveRouter.SellParams memory sellParams = CurveRouter.SellParams({
@@ -621,7 +630,7 @@ contract ComposeCurveTest is Test {
         (uint256 grossShares, uint256 usedA, uint256 usedB) = pair.previewDeposit(balA / 10, balB / 5);
         assertEq(usedA, balA / 10);
         assertEq(usedB, balB / 10, "proportional B leg");
-        netShares = grossShares - (grossShares * 200) / 10_000; // 2% pair creator fee
+        netShares = grossShares; // CurveRouter is fee-exempt: every gross share reaches the curve
         (uint256 quoted, ) = curve.quoteBuy(token, netShares);
 
         vm.startPrank(bob);
@@ -642,8 +651,8 @@ contract ComposeCurveTest is Test {
         assertEq(IERC20(pair.tokenA()).balanceOf(bob), 10 ether - balA / 10);
         assertEq(IERC20(pair.tokenB()).balanceOf(bob), 10 ether - balB / 10, "unused B never left the wallet");
         (, , uint256 realQuote, , ) = _state(token);
-        assertEq(realQuote, netShares - netShares / 100, "$100 of stock -> 2% pair fee -> 1% curve fee");
-        assertApproxEqRel(realQuote, 97.02e18, 0.001e18);
+        assertEq(realQuote, netShares - netShares / 100, "$100 of stock -> 1% curve fee, no pair fee");
+        assertApproxEqRel(realQuote, 99e18, 0.001e18);
         _assertRoutersEmpty(token);
     }
 
@@ -668,10 +677,10 @@ contract ComposeCurveTest is Test {
         assertEq(a.balanceOf(bob) - aBefore, outA);
         assertEq(b.balanceOf(bob) - bBefore, outB);
         assertEq(IERC20(token).balanceOf(bob), 0);
-        // Round trip: 2% pair fee in, 1% curve fee each way -> ~96% of the stock comes back.
+        // Round trip: 1% curve fee each way -> ~98% of the stock comes back.
         (uint256 balA, ) = pair.reserves();
         assertLt(outA, balA / 10);
-        assertGt(outA, (balA / 10) * 95 / 100, "round trip loses only fees");
+        assertGt(outA, (balA / 10) * 97 / 100, "round trip loses only the curve fees");
         _assertRoutersEmpty(token);
     }
 

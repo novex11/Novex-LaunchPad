@@ -14,8 +14,12 @@ import {IWETH} from "./interfaces/IWETH.sol";
 
 /// @title PairRouter — buy and sell launchpad pairs with USDG or ETH
 /// @notice Buying swaps the payment into both stock legs and deposits them for
-///         the buyer. Selling redeems the seller's shares (the router must be
-///         their operator on that pair) and swaps both legs back to USDG or ETH.
+///         the buyer. Pair vaults only accept deposits for their creator or a
+///         factory-approved fee-exempt recipient (CurveRouter), so `buy` is a
+///         creator top-up tool and the CurveRouter's inner leg; the public buys
+///         the pair's curve token instead. Selling redeems the seller's shares
+///         (the router must be their operator on that pair) and swaps both legs
+///         back to USDG or ETH — open to any share holder.
 ///         Every swap is floored at the oracle price minus `maxSlippageBps`, so
 ///         a thin or manipulated pool can never fill far from fair value.
 /// @dev No owner, no upgrades, holds nothing between transactions.

@@ -20,6 +20,7 @@
     "keeper:testnet:once": "tsx scripts/price-keeper.ts --once",
     "feeds:refresh:testnet": "tsx scripts/refresh-mock-feeds.ts",
     "smoke:testnet": "tsx scripts/testnet-smoke.ts",
+    "smoke:curve:testnet": "tsx scripts/curve-smoke.ts",
     "verify:testnet-pairs": "tsx scripts/verify-testnet-pairs.ts",
     "verification:export": "bash scripts/export-verification-inputs.sh",
     "lint": "turbo run lint",

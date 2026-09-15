@@ -390,7 +390,11 @@ export interface CurveToken {
   /** Pair logo (square avatar). */
   logoUrl?: string;
   volume24hUsd?: number;
+  /** Distinct wallets holding the token (indexer estimate). */
+  holders?: number;
 }
+
+export type CurveTokenSort = "new" | "mcap" | "volume";
 
 export interface CurveTrade {
   trader: string;
@@ -425,8 +429,19 @@ export interface TokenLiveTrade extends CurveTrade {
   tokenAddress: string;
 }
 
-export async function fetchCurveTokens(sort: "new" | "mcap" = "new"): Promise<{ tokens: CurveToken[] }> {
+export async function fetchCurveTokens(sort: CurveTokenSort = "mcap"): Promise<{ tokens: CurveToken[] }> {
   const res = await fetch(`${INDEXER_URL}/launchpad/tokens?sort=${sort}`, { cache: "no-store" });
+  return parseJson(res);
+}
+
+export interface CurveTokenStats {
+  tokens: number;
+  totalMarketCapUsd: number;
+  volume24hUsd: number;
+}
+
+export async function fetchCurveTokenStats(): Promise<CurveTokenStats> {
+  const res = await fetch(`${INDEXER_URL}/launchpad/tokens/stats`, { cache: "no-store" });
   return parseJson(res);
 }
 

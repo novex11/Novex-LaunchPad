@@ -6,9 +6,11 @@ import { decodeEventLog, parseAbiItem, type Address, type Hash } from "viem";
 import { useReadContract, useReadContracts } from "wagmi";
 import {
   fetchCurveToken,
+  fetchCurveTokens,
   fetchTokenCandles,
   fetchTokenHistory,
   tokenStreamUrl,
+  type CurveTokenSort,
   type CurveTrade,
   type PairCandleInterval,
   type PairHistoryRange,
@@ -33,6 +35,17 @@ const DEADLINE_SECONDS = 20 * 60;
 const deadline = () => BigInt(Math.floor(Date.now() / 1000) + DEADLINE_SECONDS);
 
 // ─── Indexer data ───────────────────────────────────────
+
+/** Every creator token on the current curve, for the public launchpad list. */
+export function useCurveTokens(sort: CurveTokenSort) {
+  return useQuery({
+    queryKey: ["curve-tokens", sort],
+    queryFn: () => fetchCurveTokens(sort),
+    refetchInterval: 15_000,
+    placeholderData: keepPreviousData,
+    retry: 1,
+  });
+}
 
 export function useCurveTokenDetail(address: string | undefined) {
   return useQuery({
@@ -299,6 +312,9 @@ export interface CurveBuyInput {
   tokenB: Address;
   minTokensOut: bigint;
   slippageBps: number;
+  /** Quoted swap routes (from useBuyQuote); defaults to the single 0.3% path. */
+  pathA?: `0x${string}`;
+  pathB?: `0x${string}`;
 }
 
 export interface CurveSellInput {
@@ -309,6 +325,9 @@ export interface CurveSellInput {
   tokenB: Address;
   minAmountOut: bigint;
   slippageBps: number;
+  /** Quoted swap routes (from useSellQuote); defaults to the single 0.3% path. */
+  pathA?: `0x${string}`;
+  pathB?: `0x${string}`;
 }
 
 export interface CurveBuyWithStocksInput {
@@ -417,8 +436,8 @@ export function useCurveTrade() {
                 token: i.token,
                 payToken,
                 amountIn: i.amountIn,
-                pathA: swapPath(payToken, i.tokenA),
-                pathB: swapPath(payToken, i.tokenB),
+                pathA: i.pathA ?? swapPath(payToken, i.tokenA),
+                pathB: i.pathB ?? swapPath(payToken, i.tokenB),
                 minTokensOut: i.minTokensOut,
                 maxSlippageBps: i.slippageBps,
                 deadline: deadline(),
@@ -457,8 +476,8 @@ export function useCurveTrade() {
                 token: i.token,
                 tokensIn: i.tokensIn,
                 receiveToken,
-                pathA: swapPath(i.tokenA, receiveToken),
-                pathB: swapPath(i.tokenB, receiveToken),
+                pathA: i.pathA ?? swapPath(i.tokenA, receiveToken),
+                pathB: i.pathB ?? swapPath(i.tokenB, receiveToken),
                 minAmountOut: i.minAmountOut,
                 maxSlippageBps: i.slippageBps,
                 unwrapEth: i.asset === "ETH",

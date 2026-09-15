@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { encodePacked, type Abi, type Address, type Hash } from "viem";
 import { useReadContract, useReadContracts } from "wagmi";
+import { isTestnetMode } from "@compose/config";
 import {
   pairRouterAbi,
   pairRouterReady,
@@ -40,10 +41,73 @@ export function quoteAssetDecimals(asset: QuoteAsset): number {
 const same = (a: string | undefined, b: string | undefined) =>
   !!a && !!b && a.toLowerCase() === b.toLowerCase();
 
-/** Single-hop Uniswap v3 path; empty when no swap is needed. */
+/** Single-hop Uniswap v3 path at the default tier; empty when no swap is needed. Fallback only. */
 export function swapPath(from: Address, to: Address): `0x${string}` {
   if (same(from, to)) return "0x";
   return encodePacked(["address", "uint24", "address"], [from, TRADE_POOL_FEE, to]);
+}
+
+/** A concrete Uniswap route for one leg: the exact packed bytes the router executes. */
+export interface SwapRoute {
+  path: `0x${string}`;
+  /** Token addresses along the route, from → … → to. */
+  hops: Address[];
+  /** Pool fee tier of each hop, in Uniswap units (500 = 0.05%). */
+  tiers: number[];
+  /** Total pool fees along the route, in basis points (e.g. 35 for 0.05% + 0.3%). */
+  feeBps: number;
+  amountOut: bigint;
+}
+
+/** Fee tiers tried for a direct pool. */
+const DIRECT_TIERS = [500, 3000, 10_000] as const;
+/** Fee tiers tried per hop when routing through USDG. */
+const HOP_TIERS = [500, 3000] as const;
+
+function packPath(hops: Address[], tiers: number[]): `0x${string}` {
+  const types: ("address" | "uint24")[] = ["address"];
+  const values: (Address | number)[] = [hops[0]!];
+  for (let i = 0; i < tiers.length; i++) {
+    types.push("uint24", "address");
+    values.push(tiers[i]!, hops[i + 1]!);
+  }
+  return encodePacked(types, values);
+}
+
+/**
+ * Candidate routes for `from → to`. Mainnet pools sit on different tiers per
+ * stock and some stocks only pool against USDG, so we try every direct tier
+ * plus a two-hop route through USDG and let the quoter decide. The testnet mock
+ * router only knows the single 0.3% direct path.
+ */
+export function candidateRoutes(from: Address, to: Address): Array<Omit<SwapRoute, "amountOut">> {
+  if (same(from, to)) return [];
+  if (isTestnetMode()) {
+    return [{ path: swapPath(from, to), hops: [from, to], tiers: [TRADE_POOL_FEE], feeBps: TRADE_POOL_FEE / 100 }];
+  }
+  const out: Array<Omit<SwapRoute, "amountOut">> = [];
+  for (const t of DIRECT_TIERS) out.push({ path: packPath([from, to], [t]), hops: [from, to], tiers: [t], feeBps: t / 100 });
+  if (!same(from, USDG_ADDRESS) && !same(to, USDG_ADDRESS)) {
+    for (const t1 of HOP_TIERS) {
+      for (const t2 of HOP_TIERS) {
+        out.push({
+          path: packPath([from, USDG_ADDRESS, to], [t1, t2]),
+          hops: [from, USDG_ADDRESS, to],
+          tiers: [t1, t2],
+          feeBps: (t1 + t2) / 100,
+        });
+      }
+    }
+  }
+  return out;
+}
+
+/** Human label for a route, e.g. "ETH → USDG → AAPL · 0.05% + 0.3%" or "0.3% Uniswap swap". */
+export function describeRoute(route: SwapRoute | undefined, fromSymbol: string, toSymbol: string): string {
+  if (!route) return "—";
+  const fees = route.tiers.map((t) => `${(t / 10_000).toLocaleString(undefined, { maximumFractionDigits: 2 })}%`).join(" + ");
+  if (route.hops.length <= 2) return `${fees} Uniswap swap`;
+  return `${fromSymbol} → USDG → ${toSymbol} · ${fees}`;
 }
 
 const deadline = () => BigInt(Math.floor(Date.now() / 1000) + DEADLINE_SECONDS);
@@ -55,21 +119,35 @@ interface QuoteCall {
   args: readonly [`0x${string}`, bigint];
 }
 
-function quoteCall(from: Address, to: Address, amount: bigint): QuoteCall {
-  return {
-    address: SWAP_QUOTER_ADDRESS,
-    abi: swapQuoterAbi,
-    functionName: "quoteExactInput",
-    args: [swapPath(from, to), amount],
-  };
+function quoteCall(path: `0x${string}`, amount: bigint): QuoteCall {
+  return { address: SWAP_QUOTER_ADDRESS, abi: swapQuoterAbi, functionName: "quoteExactInput", args: [path, amount] };
 }
 
-/** Quote two legs; a leg that needs no swap passes its amount through. */
-function useLegQuotes(
-  legs: Array<{ from: Address; to: Address; amount: bigint }> | null,
-) {
-  const swapLegs = legs?.map((leg) => !same(leg.from, leg.to) && leg.amount > 0n) ?? [];
-  const calls = legs ? legs.filter((_, i) => swapLegs[i]).map((l) => quoteCall(l.from, l.to, l.amount)) : [];
+export interface LegQuote {
+  /** Amount of `to` received; equals the input when no swap is needed. */
+  amountOut: bigint;
+  /** Chosen route; undefined when the leg needs no swap. */
+  route?: SwapRoute;
+}
+
+/**
+ * Quote two legs by trying every candidate route in one multicall and keeping
+ * the best output per leg. A reverting candidate means that pool does not
+ * exist and is ignored. A leg that needs no swap passes its amount through.
+ */
+function useLegQuotes(legs: Array<{ from: Address; to: Address; amount: bigint }> | null) {
+  const plan = useMemo(() => {
+    if (!legs) return null;
+    return legs.map((leg) =>
+      !same(leg.from, leg.to) && leg.amount > 0n ? candidateRoutes(leg.from, leg.to) : [],
+    );
+  }, [legs]);
+  const calls = useMemo(() => {
+    if (!plan || !legs) return [];
+    const out: QuoteCall[] = [];
+    plan.forEach((routes, i) => routes.forEach((r) => out.push(quoteCall(r.path, legs[i]!.amount))));
+    return out;
+  }, [plan, legs]);
   const query = useReadContracts({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     contracts: calls as any,
@@ -77,19 +155,35 @@ function useLegQuotes(
   });
 
   let k = 0;
-  const outs = legs?.map((leg, i) => {
-    if (!swapLegs[i]) return leg.amount;
-    const item = query.data?.[k++];
-    if (item?.status !== "success") return undefined;
-    // QuoterV2 returns (amountOut, ...); the testnet router returns amountOut alone.
-    const r = item.result as bigint | readonly [bigint, ...unknown[]];
-    return Array.isArray(r) ? (r[0] as bigint) : (r as bigint);
+  let anyNoRoute = false;
+  const quotes: Array<LegQuote | undefined> | undefined = legs?.map((leg, i) => {
+    const routes = plan?.[i] ?? [];
+    if (routes.length === 0) return { amountOut: leg.amount };
+    if (!query.data) {
+      k += routes.length;
+      return undefined;
+    }
+    let best: SwapRoute | undefined;
+    for (const r of routes) {
+      const item = query.data[k++];
+      if (item?.status !== "success") continue;
+      // QuoterV2 returns (amountOut, ...); the testnet router returns amountOut alone.
+      const res = item.result as bigint | readonly [bigint, ...unknown[]];
+      const amountOut = Array.isArray(res) ? (res[0] as bigint) : (res as bigint);
+      if (!best || amountOut > best.amountOut) best = { ...r, amountOut };
+    }
+    if (!best) {
+      anyNoRoute = true;
+      return undefined;
+    }
+    return { amountOut: best.amountOut, route: best };
   });
-  const failed = query.data?.find((d) => d.status === "failure");
+
   return {
-    outs,
+    outs: quotes?.map((q) => q?.amountOut),
+    routes: quotes?.map((q) => q?.route),
     loading: query.isLoading,
-    error: failed?.status === "failure" ? failed.error.message : query.error?.message,
+    error: query.error?.message ?? (query.data && anyNoRoute ? "No Uniswap pool found for this route." : undefined),
   };
 }
 
@@ -138,6 +232,8 @@ export function useBuyQuote(i: BuyQuoteInput) {
   );
   const outA = legs.outs?.[0];
   const outB = legs.outs?.[1];
+  const routeA = legs.routes?.[0];
+  const routeB = legs.routes?.[1];
   const haveOuts = outA !== undefined && outB !== undefined;
 
   const preview = useReadContract({
@@ -156,6 +252,11 @@ export function useBuyQuote(i: BuyQuoteInput) {
     feeShares,
     outA,
     outB,
+    routeA,
+    routeB,
+    /** Exact swap bytes to send to the router so execution matches the quote. */
+    pathA: routeA?.path ?? (i.tokenA ? swapPath(payToken, i.tokenA) : "0x"),
+    pathB: routeB?.path ?? (i.tokenB ? swapPath(payToken, i.tokenB) : "0x"),
     dustA: pv && outA !== undefined ? outA - pv[1] : 0n,
     dustB: pv && outB !== undefined ? outB - pv[2] : 0n,
     loading: ready && (legs.loading || preview.isLoading),
@@ -195,12 +296,18 @@ export function useSellQuote(i: SellQuoteInput) {
   );
   const outA = legs.outs?.[0];
   const outB = legs.outs?.[1];
+  const routeA = legs.routes?.[0];
+  const routeB = legs.routes?.[1];
 
   return {
     amountOut: outA !== undefined && outB !== undefined ? outA + outB : undefined,
     amountA: r?.[0],
     amountB: r?.[1],
     valueUsd8: r?.[2],
+    routeA,
+    routeB,
+    pathA: routeA?.path ?? (i.tokenA ? swapPath(i.tokenA, receiveToken) : "0x"),
+    pathB: routeB?.path ?? (i.tokenB ? swapPath(i.tokenB, receiveToken) : "0x"),
     loading: ready && (redeem.isLoading || legs.loading),
     error: legs.error ?? redeem.error?.message,
   };
@@ -215,6 +322,9 @@ export interface BuyInput {
   amountIn: bigint;
   minShares: bigint;
   slippageBps: number;
+  /** Quoted swap routes (from useBuyQuote); defaults to the single 0.3% path. */
+  pathA?: `0x${string}`;
+  pathB?: `0x${string}`;
 }
 
 export interface SellInput {
@@ -224,6 +334,9 @@ export interface SellInput {
   shares: bigint;
   minAmountOut: bigint;
   slippageBps: number;
+  /** Quoted swap routes (from useSellQuote); defaults to the single 0.3% path. */
+  pathA?: `0x${string}`;
+  pathB?: `0x${string}`;
 }
 
 export function usePairTrade(pair: Address | undefined) {
@@ -267,8 +380,8 @@ export function usePairTrade(pair: Address | undefined) {
                 pair,
                 payToken,
                 amountIn: input.amountIn,
-                pathA: swapPath(payToken, input.tokenA),
-                pathB: swapPath(payToken, input.tokenB),
+                pathA: input.pathA ?? swapPath(payToken, input.tokenA),
+                pathB: input.pathB ?? swapPath(payToken, input.tokenB),
                 minShares: input.minShares,
                 maxSlippageBps: input.slippageBps,
                 deadline: deadline(),
@@ -320,8 +433,8 @@ export function usePairTrade(pair: Address | undefined) {
                 pair,
                 receiveToken,
                 shares: input.shares,
-                pathA: swapPath(input.tokenA, receiveToken),
-                pathB: swapPath(input.tokenB, receiveToken),
+                pathA: input.pathA ?? swapPath(input.tokenA, receiveToken),
+                pathB: input.pathB ?? swapPath(input.tokenB, receiveToken),
                 minAmountOut: input.minAmountOut,
                 maxSlippageBps: input.slippageBps,
                 unwrapEth: input.asset === "ETH",

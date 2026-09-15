@@ -132,6 +132,8 @@ export function CreatorRewards({
           shares: claimable,
           minAmountOut: applySlippage(sellQuote.amountOut!),
           slippageBps: DEFAULT_SLIPPAGE_BPS,
+          pathA: sellQuote.pathA,
+          pathB: sellQuote.pathB,
         });
       }
     } catch (e) {

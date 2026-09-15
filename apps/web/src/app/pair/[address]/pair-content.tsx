@@ -12,6 +12,7 @@ import {
   Coin,
   Drop,
   Info,
+  LockKey,
   SealCheck,
   Sparkle,
   Wallet,
@@ -66,9 +67,9 @@ import { AddressChip } from "@/components/launchpad/address-chip";
 import { StageProgressList, type ProgressStep } from "@/components/launchpad/stage-progress";
 import { DepositAmountField } from "@/components/launchpad/deposit-amount-field";
 import type { PairChartMetric } from "@/components/pair/pair-chart";
-import { TradeMethodPicker, TradePanel, type TradeMethod } from "@/components/pair/trade-panel";
 import { CreatorRewards } from "@/components/pair/creator-rewards";
 import { PairTokenCard } from "@/components/token/pair-token-card";
+import { usePairCurveToken } from "@/hooks/use-curve-token";
 
 const spring = { type: "spring", stiffness: 100, damping: 20 } as const;
 const LEG_B_ACCENT = "#3D8BFF";
@@ -101,8 +102,7 @@ export default function PairDetailContent({ address }: { address: string }) {
   const [lastStage, setLastStage] = useState<TxStage | null>(null);
   const [chartRange, setChartRange] = useState<PairHistoryRange>("24h");
   const [chartMetric, setChartMetric] = useState<PairChartMetric>("navUsd");
-  const [tradeMethod, setTradeMethod] = useState<TradeMethod>(pairRouterReady ? "ETH" : "STOCKS");
-  // PairRouter only trades pairs from the current factory; older pairs trade in stocks only.
+  // PairRouter only serves pairs from the current factory (creator reward claims need it).
   const routerPairCheck = useReadContract({
     address: PAIR_FACTORY_ADDRESS,
     abi: pairFactoryAbi,
@@ -111,7 +111,8 @@ export default function PairDetailContent({ address }: { address: string }) {
     query: { enabled: !!pairAddress && pairRouterReady && pairFactoryReady },
   });
   const routerSupported = routerPairCheck.data as boolean | undefined;
-  const activeMethod: TradeMethod = routerSupported ? tradeMethod : "STOCKS";
+  // The pair's single public token (strictly one per pair).
+  const pairToken = usePairCurveToken(pairAddress);
 
   // Off-chain profile + activity (optional — the page works from chain data alone)
   const detail = useQuery({
@@ -442,12 +443,38 @@ export default function PairDetailContent({ address }: { address: string }) {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <OnChainVerifiedBadge />
-          <Badge variant="accent">
-            <SealCheck size={12} weight="fill" />
-            {(feeBps / 100).toFixed(1)}% creator fee
-          </Badge>
+          {feeBps > 0 ? (
+            <Badge variant="accent">
+              <SealCheck size={12} weight="fill" />
+              {(feeBps / 100).toFixed(1)}% creator fee
+            </Badge>
+          ) : (
+            <Badge variant="secondary">
+              <LockKey size={12} weight="fill" />
+              Creator-managed vault
+            </Badge>
+          )}
         </div>
       </div>
+
+      {!isCreator && (
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-accent/50 bg-accent-subtle/50 px-4 py-3 text-sm">
+          <span className="flex items-center gap-2">
+            <LockKey size={16} weight="fill" className="shrink-0 text-accent-strong" />
+            This vault is managed by its creator. Trade the pair&apos;s token instead.
+          </span>
+          {pairToken.token ? (
+            <Button asChild size="sm">
+              <Link href={`/token/${pairToken.token}`}>
+                Trade ${symbol}
+                <ArrowRight size={14} weight="bold" />
+              </Link>
+            </Button>
+          ) : (
+            <span className="font-mono text-xs text-muted-foreground">Token not launched yet</span>
+          )}
+        </div>
+      )}
 
       {/* Deployment strip */}
       <div className="mt-5 flex flex-wrap items-center gap-2 rounded-2xl border border-border bg-surface-muted p-3 text-xs">
@@ -496,8 +523,8 @@ export default function PairDetailContent({ address }: { address: string }) {
             stats={[
               { label: "Price", value: sharePriceUsd !== undefined ? `$${sharePriceUsd.toFixed(4)}` : "—" },
               { label: "Market cap", value: formatUsd(navUsd) },
-              { label: "Creator fee", value: `${(feeBps / 100).toFixed(1)}%` },
-              { label: "Market", value: poolAddress ? "Uniswap v3" : "Compose vault" },
+              { label: "Backing", value: `${tickerA} + ${tickerB}` },
+              { label: "Market", value: poolAddress ? "Uniswap v4" : "Compose vault" },
             ]}
             height={340}
           />
@@ -536,9 +563,10 @@ export default function PairDetailContent({ address }: { address: string }) {
                 Creator dashboard
               </div>
               <p className="mt-2 text-xs text-muted-foreground">
-                Your fee is minted to you as {symbol} shares on every deposit made by
-                someone else. They are already in your receipt balance and can be
-                redeemed for {tickerA} + {tickerB} at any time.
+                Only you can add {tickerA} + {tickerB} to this vault. The public trades its token on the
+                bonding curve, and you earn 70% of the 1% curve fee on every trade.
+                {feeBps > 0 &&
+                  ` Deposit fees from older activity were minted to you as ${symbol} shares and can be redeemed at any time.`}
               </p>
               <div className="mt-4 flex flex-wrap gap-6">
                 <div>
@@ -565,7 +593,7 @@ export default function PairDetailContent({ address }: { address: string }) {
               </p>
             )}
             {!detail.isError && allActivity.length === 0 && (
-              <p className="mt-3 text-sm text-muted-foreground">No activity yet. Be the first to deposit.</p>
+              <p className="mt-3 text-sm text-muted-foreground">No activity yet.</p>
             )}
             {allActivity.length > 0 && (
               <ul className="mt-4 space-y-2">
@@ -603,7 +631,7 @@ export default function PairDetailContent({ address }: { address: string }) {
           </section>
         </div>
 
-        {/* Right: deposit / redeem */}
+        {/* Right: creator vault controls (deposit / redeem) or the public token pointer */}
         <aside className="lg:col-span-5">
           <div className="lg:sticky lg:top-24">
             <PairTokenCard
@@ -635,6 +663,7 @@ export default function PairDetailContent({ address }: { address: string }) {
                 onDone={refreshAfterTrade}
               />
             )}
+            {isCreator ? (
             <div className="overflow-hidden rounded-[1.75rem] border border-border bg-surface shadow-float">
               <div className="flex border-b border-border-subtle">
                 {(["deposit", "redeem"] as const).map((t) => (
@@ -647,44 +676,13 @@ export default function PairDetailContent({ address }: { address: string }) {
                       tab === t ? "bg-accent-subtle text-accent-strong" : "text-muted-foreground hover:text-foreground",
                     )}
                   >
-                    {t === "deposit" ? "Buy" : "Sell"}
+                    {t === "deposit" ? "Add stocks" : "Redeem"}
                   </button>
                 ))}
               </div>
 
-              {activeMethod !== "STOCKS" ? (
+              {tab === "deposit" ? (
                 <div className="p-5">
-                  <TradeMethodPicker
-                    mode={tab === "deposit" ? "buy" : "sell"}
-                    value={activeMethod}
-                    onChange={setTradeMethod}
-                    supported={routerSupported}
-                  />
-                  <TradePanel
-                    mode={tab === "deposit" ? "buy" : "sell"}
-                    asset={activeMethod}
-                    pair={pairAddress}
-                    chain={chain}
-                    symbol={symbol}
-                    tickerA={tickerA}
-                    tickerB={tickerB}
-                    decA={decA}
-                    decB={decB}
-                    priceA8={priceA8}
-                    priceB8={priceB8}
-                    isCreator={isCreator}
-                    userShares={userShares}
-                    sharePriceUsd={sharePriceUsd}
-                    account={wallet.address}
-                    authenticated={wallet.authenticated}
-                    walletReady={wallet.ready}
-                    onLogin={wallet.login}
-                    onDone={refreshAfterTrade}
-                  />
-                </div>
-              ) : tab === "deposit" ? (
-                <div className="p-5">
-                  <TradeMethodPicker mode="buy" value={activeMethod} onChange={setTradeMethod} supported={routerSupported} />
                   <DepositAmountField
                     id="pair-usd"
                     label="USD value to deposit"
@@ -723,8 +721,8 @@ export default function PairDetailContent({ address }: { address: string }) {
                         <dd className="tabular-nums">≈ {formatToken(netShares)} {symbol}</dd>
                       </div>
                       <div className="flex justify-between">
-                        <dt className="text-muted-foreground">Creator fee ({(feeBps / 100).toFixed(1)}%)</dt>
-                        <dd className="tabular-nums">{isCreator ? "waived (your pair)" : `${formatUsd(feeUsd)} in shares`}</dd>
+                        <dt className="text-muted-foreground">Deposit fee</dt>
+                        <dd className="tabular-nums">none (your vault)</dd>
                       </div>
                       <div className="flex justify-between border-t border-border pt-1.5 text-sm">
                         <dt className="font-medium">Your position</dt>
@@ -764,7 +762,7 @@ export default function PairDetailContent({ address }: { address: string }) {
                       disabled={depositBlocker !== null || isBusy(depositTx.stage)}
                       onClick={handleDeposit}
                     >
-                      {isBusy(depositTx.stage) ? "Processing…" : `Deposit ${formatUsd(usdAmount || 0)}`}
+                      {isBusy(depositTx.stage) ? "Processing…" : `Add ${formatUsd(usdAmount || 0)} of stocks`}
                       {!isBusy(depositTx.stage) && <ArrowRight size={16} weight="bold" />}
                     </Button>
                   ) : (
@@ -776,7 +774,6 @@ export default function PairDetailContent({ address }: { address: string }) {
                 </div>
               ) : (
                 <div className="p-5">
-                  <TradeMethodPicker mode="sell" value={activeMethod} onChange={setTradeMethod} supported={routerSupported} />
                   <p className="text-sm">
                     Your <span className="font-mono">{symbol}</span> balance
                   </p>
@@ -849,6 +846,93 @@ export default function PairDetailContent({ address }: { address: string }) {
                 </div>
               )}
             </div>
+            ) : userShares > 0n ? (
+              <div className="overflow-hidden rounded-[1.75rem] border border-border bg-surface shadow-float">
+                <div className="border-b border-border-subtle px-5 py-3 text-sm font-semibold">Redeem your shares</div>
+                <div className="p-5">
+                  <p className="text-sm">
+                    Your <span className="font-mono">{symbol}</span> balance
+                  </p>
+                  <p className="mt-2 font-mono text-3xl font-semibold tabular-nums">
+                    {formatToken(userShares)}
+                  </p>
+                  {sharePriceUsd != null && userShares > 0n && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      ≈ {formatUsd(Number(formatUnits(userShares, 18)) * sharePriceUsd)} at{" "}
+                      {formatUsd(sharePriceUsd)} per share
+                    </p>
+                  )}
+
+                  <div className="mt-4 flex gap-2">
+                    {REDEEM_PRESETS.map((p) => (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => setRedeemPct(p)}
+                        className={cn(
+                          "flex-1 rounded-full border px-3 py-1.5 font-mono text-xs transition-all",
+                          redeemPct === p
+                            ? "border-accent bg-accent-subtle text-accent-strong"
+                            : "border-border text-muted-foreground hover:border-accent/40",
+                        )}
+                      >
+                        {p}%
+                      </button>
+                    ))}
+                  </div>
+
+                  <dl className="mt-4 space-y-1.5 rounded-2xl border border-border bg-surface-muted p-4 font-mono text-xs">
+                    <div className="flex justify-between">
+                      <dt className="text-muted-foreground">You receive {tickerA}</dt>
+                      <dd className="tabular-nums">{formatToken(outA, decA)}</dd>
+                    </div>
+                    <div className="flex justify-between">
+                      <dt className="text-muted-foreground">You receive {tickerB}</dt>
+                      <dd className="tabular-nums">{formatToken(outB, decB)}</dd>
+                    </div>
+                    <div className="flex justify-between border-t border-border pt-1.5 text-sm">
+                      <dt className="font-medium">Value</dt>
+                      <dd className="font-medium tabular-nums">{formatUsd(outValueUsd)}</dd>
+                    </div>
+                  </dl>
+
+                  {wallet.authenticated ? (
+                    <Button
+                      className="mt-4 w-full"
+                      size="lg"
+                      variant="inverse"
+                      disabled={redeemShares <= 0n || !outs || isBusy(redeemTx.stage)}
+                      onClick={handleRedeem}
+                    >
+                      {isBusy(redeemTx.stage)
+                        ? "Redeeming…"
+                        : userShares > 0n
+                          ? `Redeem ${redeemPct}%`
+                          : "Nothing to redeem"}
+                    </Button>
+                  ) : (
+                    <Button className="mt-4 w-full" size="lg" onClick={wallet.login} disabled={!wallet.ready}>
+                      <Wallet size={16} />
+                      Connect wallet
+                    </Button>
+                  )}
+                  <p className="mt-3 text-center text-[11px] text-muted-foreground">
+                    Redemptions return both tokens and are never paused.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-[1.75rem] border border-border bg-surface p-5 text-sm text-muted-foreground shadow-float">
+                <p className="flex items-center gap-2 font-semibold text-foreground">
+                  <LockKey size={16} weight="fill" className="text-accent-strong" />
+                  Creator-managed vault
+                </p>
+                <p className="mt-2 text-xs leading-relaxed">
+                  Only the creator can add {tickerA} + {tickerB} here. Everyone else trades this pair through its
+                  token, which is backed 1:1 by this vault and can be sold back at any time.
+                </p>
+              </div>
+            )}
           </div>
         </aside>
       </div>

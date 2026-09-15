@@ -68,6 +68,7 @@ contract PairRouterTest is Test {
         tsla.mint(alice, 1_000 ether);
         amd.mint(alice, 1_000 ether);
         vm.deal(alice, 100 ether);
+        usdg.mint(alice, 100_000e6);
         usdg.mint(bob, 100_000e6);
         vm.deal(bob, 100 ether);
 
@@ -149,28 +150,45 @@ contract PairRouterTest is Test {
 
     function test_BuyWithUsdg() public {
         PairVault pair = _launch();
-        vm.startPrank(bob);
+        vm.startPrank(alice);
         usdg.approve(address(router), 1_000e6);
         uint256 shares = router.buy(_buyParams(pair, address(usdg), 1_000e6));
         vm.stopPrank();
 
-        // $1,000 -> $997 of stock after the 0.3% pool fee -> 997 gross, minus 2% creator fee
-        assertApproxEqRel(shares, 977.06e18, 0.002e18);
-        assertEq(pair.receiptToken().balanceOf(bob), shares);
-        assertEq(usdg.balanceOf(bob), 99_000e6);
+        // $1,000 -> $997 of stock after the 0.3% pool fee -> 997 shares; the creator pays no fee
+        assertApproxEqRel(shares, 997e18, 0.002e18);
+        assertEq(pair.receiptToken().balanceOf(alice), 1_000e18 + shares);
+        assertEq(usdg.balanceOf(alice), 99_000e6);
         _assertRouterEmpty();
+    }
+
+    /// Vault deposits are creator-only, so the router's buy is only usable by the pair creator.
+    function test_BuyRevertsForNonCreator() public {
+        PairVault pair = _launch();
+        // Build params first: _buyParams reads the pair, which would otherwise be the call expectRevert attaches to.
+        PairRouter.BuyParams memory usdgParams = _buyParams(pair, address(usdg), 1_000e6);
+        PairRouter.BuyParams memory ethParams = _buyParams(pair, address(weth), 0.4 ether);
+        vm.startPrank(bob);
+        usdg.approve(address(router), 1_000e6);
+        vm.expectRevert("PairVault: creator only");
+        router.buy(usdgParams);
+        vm.stopPrank();
+        vm.prank(bob);
+        vm.expectRevert("PairVault: creator only");
+        router.buy{value: 0.4 ether}(ethParams);
     }
 
     function test_BuyWithEth() public {
         PairVault pair = _launch();
         PairRouter.BuyParams memory params = _buyParams(pair, address(weth), 0.4 ether);
-        vm.prank(bob);
+        uint256 before = alice.balance;
+        vm.prank(alice);
         uint256 shares = router.buy{value: 0.4 ether}(params);
 
-        assertApproxEqRel(shares, 977.06e18, 0.002e18);
-        assertEq(pair.receiptToken().balanceOf(bob), shares);
-        assertGe(bob.balance, 99.6 ether, "any unused ETH is refunded");
-        assertLe(bob.balance, 99.601 ether, "only dust comes back");
+        assertApproxEqRel(shares, 997e18, 0.002e18);
+        assertEq(pair.receiptToken().balanceOf(alice), 1_000e18 + shares);
+        assertGe(alice.balance, before - 0.4 ether, "any unused ETH is refunded");
+        assertLe(alice.balance, before - 0.399 ether, "only dust comes back");
         _assertRouterEmpty();
     }
 
@@ -192,13 +210,15 @@ contract PairRouterTest is Test {
         PairVault pair = PairVault(p);
 
         PairRouter.BuyParams memory params = _buyParams(pair, address(weth), 0.2 ether);
-        vm.prank(bob);
+        uint256 sharesBefore = pair.receiptToken().balanceOf(alice);
+        uint256 ethBefore = alice.balance;
+        vm.prank(alice);
         uint256 shares = router.buy{value: 0.2 ether}(params);
-        assertEq(pair.receiptToken().balanceOf(bob), shares);
+        assertEq(pair.receiptToken().balanceOf(alice) - sharesBefore, shares);
 
-        // 0.1 WETH deposited as-is, 0.1 WETH -> 0.997 TSLA; TSLA leg limits -> 498.5 gross shares
-        assertApproxEqRel(shares, 488.53e18, 0.002e18);
-        assertApproxEqAbs(bob.balance, 100 ether - 0.1997 ether, 0.0001 ether);
+        // 0.1 WETH deposited as-is, 0.1 WETH -> 0.997 TSLA; TSLA leg limits -> 498.5 shares, no creator fee
+        assertApproxEqRel(shares, 498.5e18, 0.002e18);
+        assertApproxEqAbs(alice.balance, ethBefore - 0.1997 ether, 0.0001 ether);
         _assertRouterEmpty();
     }
 
@@ -260,7 +280,7 @@ contract PairRouterTest is Test {
         PairVault pair = _launch();
         PairRouter.BuyParams memory params = _buyParams(pair, address(usdg), 1_000e6);
         params.minShares = 1_000e18;
-        vm.startPrank(bob);
+        vm.startPrank(alice);
         usdg.approve(address(router), 1_000e6);
         vm.expectRevert("PairVault: slippage");
         router.buy(params);
@@ -286,13 +306,14 @@ contract PairRouterTest is Test {
 
     function test_SellForUsdg() public {
         PairVault pair = _launch();
+        uint256 usdgBefore = usdg.balanceOf(alice);
         vm.startPrank(alice);
         pair.setOperator(address(router), true);
         uint256 out = router.sell(_sellParams(pair, address(usdg), 500e18, false));
         vm.stopPrank();
 
         assertApproxEqRel(out, 498.5e6, 0.001e18);
-        assertEq(usdg.balanceOf(alice), out);
+        assertEq(usdg.balanceOf(alice) - usdgBefore, out);
         _assertRouterEmpty();
     }
 

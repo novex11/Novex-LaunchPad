@@ -8,7 +8,7 @@ import { LedgerCell, LedgerGrid } from "./ledger-cell";
 const PAGES = [
   { href: "/markets", title: "Markets", body: "Live prices, sparklines, buy and sell from any row." },
   { href: "/create", title: "Create", body: "Build a basket with real-time allocator preview and Stockback." },
-  { href: "/launchpad", title: "Launchpad", body: "Launch or deposit into unique 2-token pair vaults; creators earn fees on every deposit." },
+  { href: "/launchpad", title: "Launchpad", body: "Trade tokens backed by real stock pairs; creators earn 70% of the fee on every trade." },
   { href: "/portfolio", title: "Portfolio", body: "Basket allocation, direct holdings, and recent activity." },
 ];
 

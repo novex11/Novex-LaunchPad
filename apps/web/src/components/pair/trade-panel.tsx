@@ -28,6 +28,7 @@ import {
   DEFAULT_SLIPPAGE_BPS,
   quoteAssetDecimals,
   quoteTokenAddress,
+  describeRoute,
   useBuyQuote,
   usePairTrade,
   useSellQuote,
@@ -254,6 +255,8 @@ export function TradePanel(props: TradePanelProps) {
           amountIn,
           minShares,
           slippageBps,
+          pathA: buyQuote.pathA,
+          pathB: buyQuote.pathB,
         });
         setAmount("");
       } else {
@@ -264,6 +267,8 @@ export function TradePanel(props: TradePanelProps) {
           shares: sellShares,
           minAmountOut,
           slippageBps,
+          pathA: sellQuote.pathA,
+          pathB: sellQuote.pathB,
         });
       }
       void native.refetch();
@@ -356,6 +361,8 @@ export function TradePanel(props: TradePanelProps) {
               value={isCreator ? "waived (your pair)" : "paid in shares"}
             />
             <Row label="Route" value={`${asset} → ${tickerA} + ${tickerB}`} />
+            <Row label={`${tickerA} swap`} value={describeRoute(buyQuote.routeA, asset, tickerA)} />
+            <Row label={`${tickerB} swap`} value={describeRoute(buyQuote.routeB, asset, tickerB)} />
           </>
         ) : (
           <>
@@ -370,9 +377,10 @@ export function TradePanel(props: TradePanelProps) {
               value={sellQuote.amountOut !== undefined ? `${formatAmount(minAmountOut, decimals)} ${asset}` : "—"}
             />
             <Row label="Route" value={`${tickerA} + ${tickerB} → ${asset}`} />
+            <Row label={`${tickerA} swap`} value={describeRoute(sellQuote.routeA, tickerA, asset)} />
+            <Row label={`${tickerB} swap`} value={describeRoute(sellQuote.routeB, tickerB, asset)} />
           </>
         )}
-        <Row label="Pool fee" value="0.3% per swap" />
         <div className="flex items-center justify-between gap-3 pt-1">
           <dt className="text-muted-foreground">Max slippage</dt>
           <dd className="flex gap-1">

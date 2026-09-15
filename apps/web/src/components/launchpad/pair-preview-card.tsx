@@ -94,7 +94,7 @@ export function PairPreviewCard({
 
         <span className="absolute right-4 top-4 inline-flex items-center gap-1 rounded-full bg-black/40 px-2.5 py-1 font-mono text-[10px] font-semibold text-white backdrop-blur">
           <SealCheck size={10} weight="fill" />
-          {(creatorFeeBps / 100).toFixed(1)}% creator
+          {creatorFeeBps > 0 ? `${(creatorFeeBps / 100).toFixed(1)}% creator` : "Creator-managed"}
         </span>
 
         {/* Logo or stock leg stack over banner bottom edge */}

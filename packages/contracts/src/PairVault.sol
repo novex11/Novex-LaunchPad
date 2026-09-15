@@ -17,8 +17,13 @@ import {IWETH} from "./interfaces/IWETH.sol";
 ///         the target weight at oracle prices and mints 1e18 shares per $1.
 ///         Later deposits are proportional to current reserves, so share math
 ///         never depends on the oracle and redemptions can never be blocked by a
-///         stale price. The creator fee is paid as newly minted shares. Deposits
-///         pause while either stock token has a pending ERC-8056 multiplier change.
+///         stale price. Deposits: creator or fee-exempt recipients only — the pair
+///         is private to its creator and the public holds the pair's curve token,
+///         whose buys reach the vault through the factory-approved CurveRouter.
+///         Redeem is open to any share holder. The creator fee (shares minted to
+///         the creator) only applies to depositors outside those paths, so in
+///         practice it is never charged. Deposits pause while either stock token
+///         has a pending ERC-8056 multiplier change.
 contract PairVault is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -228,11 +233,13 @@ contract PairVault is ReentrancyGuard {
             require(ok, "PairVault: refund failed");
         }
 
-        // No fee on the creator's own deposits, the launch seed the factory places,
-        // or shares minted to a factory-approved fee-exempt recipient (e.g. CurveRouter).
-        uint256 fee = (recipient == creator || msg.sender == factory || _feeExempt(recipient))
-            ? 0
-            : (gross * creatorFeeBps) / 10_000;
+        // Deposits: creator or fee-exempt recipients only. The pair is private to
+        // its creator; the public holds the curve token, whose buys reach the vault
+        // through a factory-approved fee-exempt recipient (CurveRouter). The launch
+        // seed the factory places is the third allowed path. None of them pay a fee.
+        bool allowed = recipient == creator || msg.sender == factory || _feeExempt(recipient);
+        require(allowed, "PairVault: creator only");
+        uint256 fee = allowed ? 0 : (gross * creatorFeeBps) / 10_000;
         shares = gross - fee;
         require(shares >= minShares, "PairVault: slippage");
 

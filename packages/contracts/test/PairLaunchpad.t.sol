@@ -161,7 +161,7 @@ contract PairLaunchpadTest is Test {
         factory.launchPair(p);
 
         p = _params(2.4 ether, 4 ether);
-        p.creatorFeeBps = 50;
+        p.creatorFeeBps = 600;
         vm.prank(alice);
         vm.expectRevert("PairFactory: invalid fee");
         factory.launchPair(p);
@@ -250,23 +250,42 @@ contract PairLaunchpadTest is Test {
 
     // ─── Deposit ────────────────────────────────────────────
 
-    function test_DepositIsProportionalAndPaysCreatorFee() public {
+    function test_PublicDepositReverts() public {
         PairVault pair = _launch();
+        (uint256 maxA, uint256 maxB) = _ordered(pair, 1.2 ether, 2 ether);
+        vm.startPrank(bob);
+        tsla.approve(address(pair), type(uint256).max);
+        amd.approve(address(pair), type(uint256).max);
+        vm.expectRevert("PairVault: creator only");
+        pair.deposit(maxA, maxB, 0);
+        vm.expectRevert("PairVault: creator only");
+        pair.depositFor(bob, maxA, maxB, 0);
+        vm.stopPrank();
 
+        // Not even the creator can mint shares to a stranger.
+        vm.startPrank(alice);
+        tsla.approve(address(pair), type(uint256).max);
+        amd.approve(address(pair), type(uint256).max);
+        vm.expectRevert("PairVault: creator only");
+        pair.depositFor(bob, maxA, maxB, 0);
+        vm.stopPrank();
+        assertEq(pair.creatorFeeShares(), 0);
+    }
+
+    function test_DepositForCreatorByAnyoneIsAllowed() public {
+        PairVault pair = _launch();
         vm.startPrank(bob);
         tsla.approve(address(pair), type(uint256).max);
         amd.approve(address(pair), type(uint256).max);
         // Offer extra AMD; only the proportional amount is pulled.
-        (uint256 maxA, uint256 maxB) = pair.tokenA() == address(tsla)
-            ? (uint256(1.2 ether), uint256(10 ether))
-            : (uint256(10 ether), uint256(1.2 ether));
-        uint256 shares = pair.deposit(maxA, maxB, 0);
+        (uint256 maxA, uint256 maxB) = _ordered(pair, 1.2 ether, 10 ether);
+        uint256 shares = pair.depositFor(alice, maxA, maxB, 0);
         vm.stopPrank();
 
-        // 1.2 TSLA is half the TSLA reserve -> 500 gross shares, 2% fee = 10
-        assertEq(shares, 490e18);
-        assertEq(pair.receiptToken().balanceOf(alice), 1_010e18);
-        assertEq(pair.creatorFeeShares(), 10e18);
+        // 1.2 TSLA is half the TSLA reserve -> 500 shares, no fee, all to the creator
+        assertEq(shares, 500e18);
+        assertEq(pair.receiptToken().balanceOf(alice), 1_500e18);
+        assertEq(pair.creatorFeeShares(), 0);
         (uint256 balTsla, uint256 balAmd) = _balances(pair);
         assertEq(balTsla, 3.6 ether);
         assertEq(balAmd, 6 ether, "only 2 AMD pulled");
@@ -287,36 +306,37 @@ contract PairLaunchpadTest is Test {
 
     function test_DepositSlippageGuard() public {
         PairVault pair = _launch();
-        vm.startPrank(bob);
+        vm.startPrank(alice);
         tsla.approve(address(pair), type(uint256).max);
         amd.approve(address(pair), type(uint256).max);
         (uint256 maxA, uint256 maxB) = _ordered(pair, 2.4 ether, 4 ether);
+        // The creator's deposit mints exactly 1,000 shares; asking for one more must revert.
         vm.expectRevert("PairVault: slippage");
-        pair.deposit(maxA, maxB, 1_000e18);
+        pair.deposit(maxA, maxB, 1_000e18 + 1);
         vm.stopPrank();
     }
 
     function test_QuoteDepositMatchesDeposit() public {
         PairVault pair = _launch();
         (uint256 amountA, uint256 amountB, uint256 grossShares) = pair.quoteDeposit(250e8);
-        vm.startPrank(bob);
+        vm.startPrank(alice);
         tsla.approve(address(pair), type(uint256).max);
         amd.approve(address(pair), type(uint256).max);
         uint256 shares = pair.deposit(amountA, amountB, 0);
         vm.stopPrank();
-        assertApproxEqAbs(shares, (grossShares * 98) / 100, 1e6);
+        assertApproxEqAbs(shares, grossShares, 1e6);
     }
 
     function test_DepositWorksWithStalePriceAfterLaunch() public {
         PairVault pair = _launch();
         vm.warp(block.timestamp + 1 days);
-        vm.startPrank(bob);
+        vm.startPrank(alice);
         tsla.approve(address(pair), type(uint256).max);
         amd.approve(address(pair), type(uint256).max);
         (uint256 maxA, uint256 maxB) = _ordered(pair, 2.4 ether, 4 ether);
         uint256 shares = pair.deposit(maxA, maxB, 0);
         vm.stopPrank();
-        assertEq(shares, 980e18);
+        assertEq(shares, 1_000e18);
     }
 
     function test_DepositPaused() public {
@@ -335,15 +355,15 @@ contract PairLaunchpadTest is Test {
         (address pairAddr, , ) = factory.launchPair{value: 0.4 ether}(p);
         PairVault pair = PairVault(pairAddr);
 
-        vm.startPrank(bob);
+        vm.startPrank(alice);
         tsla.approve(address(pair), type(uint256).max);
         bool wethIsA = pair.tokenA() == address(weth);
         (uint256 maxA, uint256 maxB) = wethIsA ? (uint256(1 ether), uint256(2 ether)) : (uint256(2 ether), uint256(1 ether));
         pair.deposit{value: 1 ether}(maxA, maxB, 0);
         vm.stopPrank();
 
-        // 2 TSLA is half the TSLA reserve -> needs 0.2 ETH; 0.8 ETH refunded
-        assertEq(bob.balance, 99.8 ether);
+        // 0.4 ETH went into the launch; 2 TSLA is half the TSLA reserve -> needs 0.2 ETH; 0.8 ETH refunded
+        assertEq(alice.balance, 99.4 ether);
         assertEq(weth.balanceOf(pairAddr), 0.6 ether);
     }
 
@@ -391,6 +411,33 @@ contract PairLaunchpadTest is Test {
         receipt.transfer(bob, 1e18);
         assertEq(receipt.balanceOf(bob), 1e18);
         assertEq(receipt.balanceOf(alice), before - 1e18);
+    }
+
+    function test_LaunchWithZeroFee() public {
+        PairFactory.LaunchParams memory p = _params(2.4 ether, 4 ether);
+        p.creatorFeeBps = 0;
+        vm.prank(alice);
+        (address pairAddr, , uint256 shares) = factory.launchPair(p);
+        assertEq(shares, 1_000e18);
+        assertEq(PairVault(pairAddr).creatorFeeBps(), 0);
+    }
+
+    /// Redeem stays open: a holder who received shares by transfer (e.g. a token seller) can exit.
+    function test_TransferredHolderCanRedeem() public {
+        PairVault pair = _launch();
+        ReceiptToken receipt = pair.receiptToken();
+        vm.prank(alice);
+        receipt.transfer(bob, 100e18);
+        uint256 tslaBefore = tsla.balanceOf(bob);
+        uint256 amdBefore = amd.balanceOf(bob);
+        vm.prank(bob);
+        (uint256 outA, uint256 outB) = pair.redeem(100e18, 0, 0);
+        assertGt(outA, 0);
+        assertGt(outB, 0);
+        (uint256 gotTsla, uint256 gotAmd) = pair.tokenA() == address(tsla) ? (outA, outB) : (outB, outA);
+        assertEq(tsla.balanceOf(bob) - tslaBefore, gotTsla);
+        assertEq(amd.balanceOf(bob) - amdBefore, gotAmd);
+        assertEq(receipt.balanceOf(bob), 0);
     }
 
     // ─── Oracle feed + factory views ────────────────────────

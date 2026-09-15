@@ -17,7 +17,7 @@ import { pairMetadataMessage, corsOrigins } from "@compose/config";
 import { startChainListener } from "./chain-listener.js";
 import { VerifyError, verifyDeposit, verifyRedeem } from "./basket-verify.js";
 import { ensurePairIndexed, startLaunchpadIndexer } from "./launchpad-indexer.js";
-import { getPublicClient, pairFactoryAddress, vaultFactoryAddress } from "./chain-client.js";
+import { composeCurveAddress, getPublicClient, pairFactoryAddress, vaultFactoryAddress } from "./chain-client.js";
 import { startMarkToMarket } from "./mark-to-market.js";
 import {
   getVaults,
@@ -821,6 +821,9 @@ app.get("/launchpad/pair/:address/history", async (c) => {
 
 // ─── Bonding-curve creator tokens ───────────────────────
 
+/** The ComposeCurve every token read is scoped to ("" when none is configured → nothing matches). */
+const curveScope = () => composeCurveAddress() ?? "";
+
 type PairProfile = Awaited<ReturnType<typeof launchpadStore.getPair>> | null;
 
 /** A token carries its pair's identity: the pair's name, description, banner and logo are the token's. */
@@ -843,26 +846,52 @@ async function tokenJson(row: curveStore.CurveTokenRow, withVolume = false, pair
   });
 }
 
-/** Token JSON for a list, looking each distinct pair up once. */
-async function tokensJson(rows: curveStore.CurveTokenRow[]) {
+/** Look each distinct pair up once for a list of tokens. */
+async function pairProfiles(rows: curveStore.CurveTokenRow[]) {
   const pairs = new Map<string, PairProfile>();
   for (const addr of new Set(rows.map((r) => r.pairAddress))) {
     pairs.set(addr, await launchpadStore.getPair(db!, addr));
   }
+  return pairs;
+}
+
+/** Token JSON for a list, looking each distinct pair up once. */
+async function tokensJson(rows: curveStore.CurveTokenRow[]) {
+  const pairs = await pairProfiles(rows);
   return Promise.all(rows.map((r) => tokenJson(r, false, pairs.get(r.pairAddress) ?? null)));
 }
 
+/**
+ * Launchpad token cards. `?sort=new|mcap|volume` (default mcap), `?limit` ≤ 200.
+ * Each token carries its pair identity plus `volume24hUsd` and `holders`.
+ */
 app.get("/launchpad/tokens", async (c) => {
   if (!useDb) return c.json({ tokens: [] });
-  const sort = c.req.query("sort") === "mcap" ? "mcap" : "new";
+  const sortParam = (c.req.query("sort") ?? "mcap").toLowerCase();
+  const sort = curveStore.isTokenListSort(sortParam) ? sortParam : "mcap";
   const limit = Math.min(200, Math.max(1, Number(c.req.query("limit") ?? 100) || 100));
-  const rows = await curveStore.listTokens(db!, { sort, limit });
-  return c.json({ tokens: await tokensJson(rows) }, 200, { "Cache-Control": "no-store" });
+  const list = await curveStore.listTokens(db!, curveScope(), { sort, limit });
+  const pairs = await pairProfiles(list.map((t) => t.row));
+  const tokens = list.map((t) =>
+    curveStore.toTokenJson(t.row, {
+      ...tokenIdentity(pairs.get(t.row.pairAddress) ?? null),
+      volume24hUsd: t.volume24hUsd,
+      holders: t.holders,
+    }),
+  );
+  return c.json({ tokens }, 200, { "Cache-Control": "no-store" });
+});
+
+/** Launchpad header: token count, summed market cap, 24h volume. */
+app.get("/launchpad/tokens/stats", async (c) => {
+  if (!useDb) return c.json({ tokens: 0, totalMarketCapUsd: 0, volume24hUsd: 0 });
+  const stats = await curveStore.getTokenStats(db!, curveScope());
+  return c.json(stats, 200, { "Cache-Control": "no-store" });
 });
 
 app.get("/launchpad/token/:address", async (c) => {
   if (!useDb) return c.json({ error: "DB not configured" }, 503);
-  const row = await curveStore.getToken(db!, c.req.param("address"));
+  const row = await curveStore.getToken(db!, curveScope(), c.req.param("address"));
   if (!row) return c.json({ error: "Token not found" }, 404);
   const trades = await curveStore.getTrades(db!, row.tokenAddress, 50);
   return c.json(
@@ -874,14 +903,14 @@ app.get("/launchpad/token/:address", async (c) => {
 
 app.get("/launchpad/pair/:address/token", async (c) => {
   if (!useDb) return c.json({ token: null });
-  const row = await curveStore.getTokenByPair(db!, c.req.param("address"));
+  const row = await curveStore.getTokenByPair(db!, curveScope(), c.req.param("address"));
   return c.json({ token: row ? await tokenJson(row) : null }, 200, { "Cache-Control": "no-store" });
 });
 
 /** Every token launched on a pair, newest first. */
 app.get("/launchpad/pair/:address/tokens", async (c) => {
   if (!useDb) return c.json({ tokens: [] });
-  const rows = await curveStore.listTokensByPair(db!, c.req.param("address"));
+  const rows = await curveStore.listTokensByPair(db!, curveScope(), c.req.param("address"));
   return c.json({ tokens: await tokensJson(rows) }, 200, { "Cache-Control": "no-store" });
 });
 
@@ -890,7 +919,7 @@ app.get("/launchpad/token/:address/candles", async (c) => {
   const interval = c.req.query("interval") ?? "1m";
   if (!isCandleInterval(interval)) return c.json({ error: "interval must be 1m, 5m, 15m or 1h" }, 400);
   if (!useDb) return c.json({ interval, candles: [] });
-  const row = await curveStore.getToken(db!, c.req.param("address"));
+  const row = await curveStore.getToken(db!, curveScope(), c.req.param("address"));
   if (!row) return c.json({ interval, candles: [] });
   const limit = Math.min(500, Math.max(10, Number(c.req.query("limit") ?? 180) || 180));
   const candles = await curveStore.getTokenCandles(db!, row, CANDLE_INTERVALS[interval], limit);
@@ -908,7 +937,7 @@ app.get("/launchpad/token/:address/history", async (c) => {
   const range = (c.req.query("range") ?? "24h").toLowerCase();
   if (!curveStore.isTokenHistoryRange(range)) return c.json({ error: "range must be 1h, 24h, 7d, 30d or all" }, 400);
   if (!useDb) return c.json({ error: "DB not configured" }, 503);
-  const row = await curveStore.getToken(db!, c.req.param("address"));
+  const row = await curveStore.getToken(db!, curveScope(), c.req.param("address"));
   if (!row) return c.json({ error: "Token not found" }, 404);
   const points = await curveStore.getTokenHistory(db!, row, range);
   return c.json({ range, points }, 200, { "Cache-Control": "no-store" });

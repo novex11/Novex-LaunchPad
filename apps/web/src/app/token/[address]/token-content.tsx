@@ -126,11 +126,11 @@ export default function TokenDetailContent({ address }: { address: string }) {
   return (
     <div className="container-page min-h-[100dvh] py-8 md:py-10">
       <Link
-        href={`/pair/${curve.pair}`}
+        href="/launchpad"
         className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
       >
         <CaretLeft size={14} />
-        {meta?.pairName || `${tickerA} × ${tickerB} pair`}
+        Launchpad
       </Link>
 
       {/* Banner — the token shares its pair's identity */}
@@ -164,10 +164,10 @@ export default function TokenDetailContent({ address }: { address: string }) {
             )}
             <p className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
               Backed by
-              <Link href={`/pair/${curve.pair}`} className="flex items-center gap-1.5 font-medium text-foreground hover:underline">
+              <span className="flex items-center gap-1.5 font-medium text-foreground">
                 <DualLogoStack tickerA={tickerA} tickerB={tickerB} size="sm" />
                 {tickerA} + {tickerB}
-              </Link>
+              </span>
             </p>
           </div>
         </div>
@@ -215,6 +215,36 @@ export default function TokenDetailContent({ address }: { address: string }) {
             : toGraduation !== undefined
               ? `${formatUsd(toGraduation)} more market cap to graduate at ≈ ${formatUsd(graduationMcap!)}. Every buy adds ${tickerA} + ${tickerB} to the pair vault.`
               : "Every buy adds stock-backed pair shares to the curve reserve."}
+        </p>
+      </section>
+
+      {/* Backing: what the vault behind this token holds */}
+      <section className="mt-4 rounded-[1.5rem] border border-border bg-surface p-5">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <p className="text-sm font-semibold">Backing</p>
+          <Link
+            href={`/pair/${curve.pair}`}
+            className="font-mono text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          >
+            Creator vault ↗
+          </Link>
+        </div>
+        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+          <BackingStat
+            label={`${tickerA} in vault`}
+            value={chain ? `${formatReserve(chain.reserveA, tokenAMeta?.decimals ?? 18)} ${tickerA}` : "—"}
+            sub={chain && priceA8 ? formatUsd(Number(formatUnits(chain.reserveA, tokenAMeta?.decimals ?? 18)) * (Number(priceA8) / 1e8)) : undefined}
+          />
+          <BackingStat
+            label={`${tickerB} in vault`}
+            value={chain ? `${formatReserve(chain.reserveB, tokenBMeta?.decimals ?? 18)} ${tickerB}` : "—"}
+            sub={chain && priceB8 ? formatUsd(Number(formatUnits(chain.reserveB, tokenBMeta?.decimals ?? 18)) * (Number(priceB8) / 1e8)) : undefined}
+          />
+          <BackingStat label="Vault TVL" value={chain ? formatUsd(Number(chain.navUsd8) / 1e8) : "—"} sub="real stocks, redeemable" />
+        </div>
+        <p className="mt-3 text-xs text-muted-foreground">
+          Every buy adds {tickerA} + {tickerB} to this vault and every sell takes them back out. Only the creator can
+          deposit into it directly.
         </p>
       </section>
 
@@ -357,6 +387,21 @@ export default function TokenDetailContent({ address }: { address: string }) {
           </div>
         </aside>
       </div>
+    </div>
+  );
+}
+
+function formatReserve(amount: bigint, decimals: number): string {
+  const n = Number(formatUnits(amount, decimals));
+  return n.toLocaleString(undefined, { maximumFractionDigits: n !== 0 && n < 1 ? 6 : 4 });
+}
+
+function BackingStat({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <div className="rounded-2xl border border-border-subtle bg-surface-muted/50 p-3">
+      <p className="text-[11px] text-muted-foreground">{label}</p>
+      <p className="mt-1 font-mono text-sm font-semibold tabular-nums">{value}</p>
+      {sub && <p className="mt-0.5 font-mono text-[11px] text-muted-foreground">{sub}</p>}
     </div>
   );
 }

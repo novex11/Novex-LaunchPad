@@ -301,6 +301,10 @@ export async function ensureSchema(): Promise<void> {
         )
       `;
       await sql`CREATE INDEX IF NOT EXISTS curve_tokens_pair_idx ON curve_tokens (pair_address)`;
+      // Tokens are scoped to the ComposeCurve that issued them; rows from older
+      // curve deployments keep '' and drop out of every read.
+      await sql`ALTER TABLE curve_tokens ADD COLUMN IF NOT EXISTS curve_address text NOT NULL DEFAULT ''`;
+      await sql`CREATE INDEX IF NOT EXISTS curve_tokens_curve_idx ON curve_tokens (curve_address)`;
       await sql`
         CREATE TABLE IF NOT EXISTS curve_trades (
           id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

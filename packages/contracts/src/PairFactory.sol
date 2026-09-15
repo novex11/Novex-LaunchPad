@@ -24,7 +24,7 @@ contract PairFactory is Ownable, ReentrancyGuard {
 
     uint16 public constant MIN_WEIGHT_BPS = 1_000; // 10%
     uint16 public constant MAX_WEIGHT_BPS = 9_000; // 90%
-    uint16 public constant MIN_CREATOR_FEE_BPS = 100; // 1%
+    uint16 public constant MIN_CREATOR_FEE_BPS = 0; // deposits are creator-only, so 0 is the norm
     uint16 public constant MAX_CREATOR_FEE_BPS = 500; // 5%
     uint16 public constant MAX_PAIRS_PER_CREATOR = 10;
     uint256 public constant MAX_NAME_LENGTH = 64;

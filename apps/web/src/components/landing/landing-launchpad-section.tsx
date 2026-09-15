@@ -12,9 +12,9 @@ export function LandingLaunchpadSection() {
     <SectionFrame
       id="launchpad"
       index="07"
-      eyebrow="Pair Launchpad"
-      title="Launch a pair. Earn on every deposit."
-      description="Any wallet can permissionlessly launch a unique 2-token pair vault. Set the weight split and creator fee — earn on every deposit into your pair."
+      eyebrow="Token Launchpad"
+      title="Back a token with real stocks. Earn on every trade."
+      description="Seed a private 2-stock vault, launch its token on a bonding curve, and earn 70% of the 1% fee on every buy and sell. The public trades the token with ETH or USDG."
     >
       <LedgerGrid cols={3}>
         <LedgerCell
@@ -39,9 +39,8 @@ export function LandingLaunchpadSection() {
           body={
             <>
               <p>
-                Set a fee between {LAUNCHPAD_CONFIG.minCreatorFeeBps / 100}% and{" "}
-                {LAUNCHPAD_CONFIG.maxCreatorFeeBps / 100}% per deposit. Fees
-                are minted to you as pair shares, redeemable at any time.
+                Your pair's token trades on a bonding curve with a 1% fee. 70%
+                of it is paid to you in pair shares, redeemable at any time.
               </p>
               <p className="mt-3 font-mono text-[11px] text-muted-foreground">
                 Up to {LAUNCHPAD_CONFIG.maxPairsPerCreator} pairs per creator
@@ -51,12 +50,12 @@ export function LandingLaunchpadSection() {
         />
         <LedgerCell
           index="03"
-          title="Founder priority"
+          title="Private vault, public token"
           body={
             <>
               <p>
-                The launcher's first deposit is booked at 1:1 NAV with zero
-                creator fee. Seed your pair before anyone else.
+                Only you can add stocks to the vault. Everyone else buys and
+                sells the token, which is backed 1:1 by what the vault holds.
               </p>
               <p className="mt-3 font-mono text-[11px] text-muted-foreground">
                 In-kind deposit + redeem
@@ -68,13 +67,13 @@ export function LandingLaunchpadSection() {
       <div className="mt-8 flex flex-wrap gap-2">
         <Button asChild variant="square">
           <Link href="/launch">
-            Launch a pair
+            Launch a token
             <Rocket size={14} weight="bold" />
           </Link>
         </Button>
         <Button asChild variant="squareOutline">
           <Link href="/launchpad">
-            Browse launched pairs
+            Browse tokens
             <ArrowRight size={14} weight="bold" />
           </Link>
         </Button>

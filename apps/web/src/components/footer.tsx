@@ -12,7 +12,7 @@ const columns = [
     links: [
       { href: "/markets", label: "Markets" },
       { href: "/create", label: "Create basket" },
-      { href: "/launch", label: "Launch pair" },
+      { href: "/launch", label: "Launch a token" },
       { href: "/portfolio", label: "Portfolio" },
       { href: "/redeem", label: "Redeem" },
     ],

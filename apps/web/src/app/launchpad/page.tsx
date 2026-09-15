@@ -2,96 +2,98 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
 import { motion } from "motion/react";
-import { ArrowRight, Rocket, Sparkle, TrendUp, Users } from "@phosphor-icons/react";
 import {
-  fetchLaunchpadPairs,
-  fetchLaunchpadStats,
-  type LaunchpadPair,
-} from "@/lib/api";
+  ArrowRight,
+  ChartLineUp,
+  GraduationCap,
+  Rocket,
+  Sparkle,
+  TrendUp,
+  Users,
+} from "@phosphor-icons/react";
+import { useQuery } from "@tanstack/react-query";
+import { fetchCurveTokenStats, type CurveToken, type CurveTokenSort } from "@/lib/api";
+import { useCurveTokens } from "@/hooks/use-curve-token";
 import { useWallet } from "@/hooks/use-wallet";
-import { useQuotes } from "@/hooks/use-quotes";
 import { cn, formatUsd } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Sparkline } from "@/components/ui/sparkline";
-import { StockLogo } from "@/components/ui/stock-logo";
-import { PairIdentity } from "@/components/ui/pair-identity";
+import { DualLogoStack } from "@/components/launchpad/dual-logo-stack";
 
 const spring = { type: "spring", stiffness: 100, damping: 20 } as const;
 
-type Filter = "all" | "stock" | "forex" | "mixed" | "mine";
-type Sort = "tvl" | "new" | "depositors";
+type Filter = "all" | "graduating" | "graduated" | "mine";
 
 const FILTERS: Array<{ id: Filter; label: string }> = [
   { id: "all", label: "All" },
-  { id: "stock", label: "Stocks" },
-  { id: "forex", label: "Forex" },
-  { id: "mixed", label: "Mixed" },
+  { id: "graduating", label: "Graduating soon" },
+  { id: "graduated", label: "Graduated" },
   { id: "mine", label: "My launches" },
 ];
 
-const SORTS: Array<{ id: Sort; label: string }> = [
-  { id: "tvl", label: "Top TVL" },
-  { id: "new", label: "Newest" },
-  { id: "depositors", label: "Most Depositors" },
+const SORTS: Array<{ id: CurveTokenSort; label: string }> = [
+  { id: "mcap", label: "Market cap" },
+  { id: "new", label: "New" },
+  { id: "volume", label: "Volume" },
 ];
+
+/** Tokens at or past this progress count as "graduating soon". */
+const GRADUATING_BPS = 5_000;
+
+function timeAgo(iso: string): string {
+  const s = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86_400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86_400)}d ago`;
+}
+
+function compactUsd(v: number): string {
+  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(v >= 10_000_000 ? 0 : 1)}M`;
+  if (v >= 10_000) return `$${(v / 1_000).toFixed(0)}k`;
+  return formatUsd(v);
+}
 
 export default function LaunchpadPage() {
   const wallet = useWallet();
   const [filter, setFilter] = useState<Filter>("all");
-  const [sort, setSort] = useState<Sort>("tvl");
+  const [sort, setSort] = useState<CurveTokenSort>("mcap");
 
-  const stats = useQuery({
-    queryKey: ["launchpad-stats"],
-    queryFn: fetchLaunchpadStats,
-    refetchInterval: 30_000,
-  });
-
-  const pairs = useQuery({
-    queryKey: ["launchpad-pairs", sort],
-    queryFn: () => fetchLaunchpadPairs(sort),
-    refetchInterval: 30_000,
-  });
+  const tokens = useCurveTokens(sort);
+  const stats = useQuery({ queryKey: ["curve-token-stats"], queryFn: fetchCurveTokenStats, refetchInterval: 30_000, retry: 1 });
+  const all = useMemo(() => tokens.data?.tokens ?? [], [tokens.data]);
 
   const filtered = useMemo(() => {
-    const all = pairs.data?.pairs ?? [];
-    return all.filter((p) => {
+    return all.filter((t) => {
       if (filter === "mine") {
-        return (
-          wallet.address &&
-          p.creatorWallet.toLowerCase() === wallet.address.toLowerCase()
-        );
+        return !!wallet.address && t.creatorWallet.toLowerCase() === wallet.address.toLowerCase();
       }
-      if (filter === "stock") return isStock(p.categoryA) && isStock(p.categoryB);
-      if (filter === "forex") return p.categoryA === "forex" && p.categoryB === "forex";
-      if (filter === "mixed") {
-        return (
-          (isStock(p.categoryA) && !isStock(p.categoryB)) ||
-          (!isStock(p.categoryA) && isStock(p.categoryB))
-        );
-      }
+      if (filter === "graduated") return t.graduated;
+      if (filter === "graduating") return !t.graduated && t.progressBps >= GRADUATING_BPS;
       return true;
     });
-  }, [pairs.data, filter, wallet.address]);
+  }, [all, filter, wallet.address]);
 
-  // Collect all unique tickers to fetch real-time quotes + sparklines
-  const allTickers = useMemo(() => {
-    const set = new Set<string>();
-    for (const p of filtered) {
-      set.add(p.tickerA);
-      set.add(p.tickerB);
-    }
-    return Array.from(set);
-  }, [filtered]);
-
-  const { byTicker } = useQuotes(allTickers);
+  // Indexer totals when available; fall back to summing the list.
+  const totals = useMemo(
+    () => ({
+      count: stats.data?.tokens ?? all.length,
+      marketCap: stats.data?.totalMarketCapUsd ?? all.reduce((sum, t) => sum + (t.marketCapUsd || 0), 0),
+      volume24h: stats.data?.volume24hUsd ?? all.reduce((sum, t) => sum + (t.volume24hUsd ?? 0), 0),
+      creators: new Set(all.map((t) => t.creatorWallet.toLowerCase())).size,
+    }),
+    [all, stats.data],
+  );
 
   const emptyLabel =
     filter === "mine"
-      ? "You haven't launched any pairs yet."
-      : "No pairs match this filter.";
+      ? "You haven't launched a token yet."
+      : filter === "graduated"
+        ? "No token has graduated yet."
+        : filter === "graduating"
+          ? "No token is close to graduating right now."
+          : "No tokens have launched yet.";
 
   return (
     <div className="container-page min-h-[100dvh] py-8 md:py-10">
@@ -100,43 +102,31 @@ export default function LaunchpadPage() {
           <p className="label-caps flex items-center gap-2">
             <Sparkle size={12} weight="fill" /> Launchpad
           </p>
-          <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
-            Launched pairs
-          </h1>
+          <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">Stock-backed tokens</h1>
           <p className="mt-3 max-w-xl text-muted-foreground">
-            Discover unique 2-token pair vaults created by the community. Every
-            pair holds the real tokens on-chain, is redeemable any time, and
-            pays creator fees to its launcher.
+            Every token here trades on a bonding curve backed by real tokenized stocks. Buy with ETH or USDG,
+            sell any time, and watch it graduate.
           </p>
         </div>
         <div className="md:col-span-4 md:text-right">
-          <Button asChild size="lg">
+          <Button asChild variant="outline" size="lg">
             <Link href="/launch">
               Launch a pair
               <Rocket size={16} weight="bold" />
             </Link>
           </Button>
+          <p className="mt-2 text-[11px] text-muted-foreground md:text-right">
+            Creators seed a stock pair, then launch its token.
+          </p>
         </div>
       </div>
 
       {/* Stats strip */}
       <div className="mt-8 grid grid-cols-2 gap-3 md:grid-cols-4">
-        <StatCard label="Total pairs" value={stats.data?.totalPairs ?? 0} icon={Rocket} />
-        <StatCard
-          label="Total TVL"
-          value={formatUsd(stats.data?.totalTvlUsd ?? 0)}
-          icon={TrendUp}
-        />
-        <StatCard
-          label="Creator earnings"
-          value={formatUsd(stats.data?.totalCreatorEarningsUsd ?? 0)}
-          icon={Sparkle}
-        />
-        <StatCard
-          label="Unique creators"
-          value={stats.data?.totalCreators ?? 0}
-          icon={Users}
-        />
+        <StatCard label="Tokens" value={totals.count} icon={Rocket} />
+        <StatCard label="Total market cap" value={compactUsd(totals.marketCap)} icon={TrendUp} />
+        <StatCard label="24h volume" value={compactUsd(totals.volume24h)} icon={ChartLineUp} />
+        <StatCard label="Creators" value={totals.creators} icon={Users} />
       </div>
 
       {/* Filters */}
@@ -149,9 +139,7 @@ export default function LaunchpadPage() {
               onClick={() => setFilter(f.id)}
               className={cn(
                 "rounded-full px-3 py-1.5 text-xs font-medium transition-all active:scale-[0.98]",
-                filter === f.id
-                  ? "bg-accent-subtle text-accent-strong"
-                  : "text-muted-foreground hover:text-foreground",
+                filter === f.id ? "bg-accent-subtle text-accent-strong" : "text-muted-foreground hover:text-foreground",
               )}
             >
               {f.label}
@@ -166,9 +154,7 @@ export default function LaunchpadPage() {
               onClick={() => setSort(s.id)}
               className={cn(
                 "rounded-full px-3 py-1.5 text-xs font-medium transition-all active:scale-[0.98]",
-                sort === s.id
-                  ? "bg-accent-subtle text-accent-strong"
-                  : "text-muted-foreground hover:text-foreground",
+                sort === s.id ? "bg-accent-subtle text-accent-strong" : "text-muted-foreground hover:text-foreground",
               )}
             >
               {s.label}
@@ -177,45 +163,39 @@ export default function LaunchpadPage() {
         </div>
       </div>
 
-      {/* Pairs list */}
+      {/* Token list */}
       <div className="mt-8">
-        {pairs.isLoading ? (
+        {tokens.isLoading ? (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {Array.from({ length: 6 }).map((_, i) => (
-              <div
-                key={i}
-                className="h-40 animate-pulse rounded-3xl border border-border bg-surface-muted/40"
-              />
+              <div key={i} className="h-56 animate-pulse rounded-3xl border border-border bg-surface-muted/40" />
             ))}
+          </div>
+        ) : tokens.isError ? (
+          <div className="rounded-3xl border border-dashed border-border bg-surface p-12 text-center">
+            <p className="font-mono text-sm text-muted-foreground">Tokens are unavailable while the indexer is offline.</p>
           </div>
         ) : filtered.length === 0 ? (
           <div className="rounded-3xl border border-dashed border-border bg-surface p-12 text-center">
             <p className="font-mono text-sm text-muted-foreground">{emptyLabel}</p>
-            <Button asChild className="mt-4">
-              <Link href="/launch">
-                Launch the first pair
-                <ArrowRight size={14} weight="bold" />
-              </Link>
-            </Button>
+            {filter !== "graduated" && filter !== "graduating" && (
+              <Button asChild className="mt-4">
+                <Link href="/launch">
+                  Launch the first one
+                  <ArrowRight size={14} weight="bold" />
+                </Link>
+              </Button>
+            )}
           </div>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {filtered.map((pair, i) => (
-              <PairCard key={pair.pairAddress} pair={pair} delay={i * 0.03} byTicker={byTicker} />
+            {filtered.map((token, i) => (
+              <TokenCard key={token.tokenAddress} token={token} delay={i * 0.03} />
             ))}
           </div>
         )}
       </div>
     </div>
-  );
-}
-
-function isStock(cat: string): boolean {
-  return (
-    cat === "large-cap" ||
-    cat === "growth" ||
-    cat === "broad-market" ||
-    cat === "thematic"
   );
 }
 
@@ -241,191 +221,114 @@ function StatCard({
   );
 }
 
-function PairCard({ pair, delay, byTicker }: { pair: LaunchpadPair; delay: number; byTicker: Map<string, import("@/hooks/use-quotes").QuoteData> }) {
-  const quoteA = byTicker.get(pair.tickerA);
-  const quoteB = byTicker.get(pair.tickerB);
-
-  // Blend sparklines from both legs into one combined series (average)
-  const combined = useMemo(() => {
-    const a = quoteA?.sparkline ?? [];
-    const b = quoteB?.sparkline ?? [];
-    if (a.length === 0 && b.length === 0) return undefined;
-    const len = Math.max(a.length, b.length);
-    const out: number[] = [];
-    for (let i = 0; i < len; i++) {
-      const va = a[Math.min(i, a.length - 1)] ?? 0;
-      const vb = b[Math.min(i, b.length - 1)] ?? 0;
-      out.push((va + vb) / 2);
-    }
-    return out;
-  }, [quoteA?.sparkline, quoteB?.sparkline]);
-
-  const changeA = quoteA?.changePercent ?? 0;
-  const changeB = quoteB?.changePercent ?? 0;
-  const blendedChange = (changeA + changeB) / 2;
-  const up = blendedChange >= 0;
+function TokenCard({ token, delay }: { token: CurveToken; delay: number }) {
+  const tickerA = token.tickerA ?? "A";
+  const tickerB = token.tickerB ?? "B";
+  const progress = token.graduated ? 100 : Math.min(100, token.progressBps / 100);
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ ...spring, delay }}
-    >
+    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ ...spring, delay }}>
       <Link
-        href={`/pair/${pair.pairAddress}`}
+        href={`/token/${token.tokenAddress}`}
         className="group block h-full overflow-hidden rounded-3xl border border-border bg-surface transition-all hover:border-accent hover:shadow-card active:scale-[0.99]"
       >
-        {!pair.imageUrl && (
-          <PairIdentity tickerA={pair.tickerA} tickerB={pair.tickerB} height={84} logos={!pair.logoUrl} className="transition-transform duration-500 group-hover:scale-[1.02]">
-            {pair.logoUrl && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={pair.logoUrl} alt="" className="absolute bottom-3 left-4 h-10 w-10 rounded-xl border-2 border-white/60 bg-surface object-cover shadow-md" />
-            )}
-          </PairIdentity>
-        )}
-        {pair.imageUrl && (
+        {token.imageUrl ? (
           <div className="relative h-24 w-full overflow-hidden">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={pair.imageUrl}
+              src={token.imageUrl}
               alt=""
-              className="h-full w-full object-cover transition-transform group-hover:scale-[1.02]"
+              className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.02]"
             />
-            {pair.logoUrl && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={pair.logoUrl}
-                alt=""
-                className="absolute -bottom-3 left-4 h-10 w-10 rounded-xl border-2 border-surface bg-surface object-cover shadow-sm"
-              />
+          </div>
+        ) : (
+          <div className="h-3 w-full bg-gradient-to-r from-accent/60 to-accent/10" />
+        )}
+
+        <div className="p-5">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-3">
+              {token.logoUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={token.logoUrl}
+                  alt=""
+                  className="h-11 w-11 shrink-0 rounded-xl border border-border bg-surface object-cover"
+                />
+              ) : (
+                <DualLogoStack tickerA={tickerA} tickerB={tickerB} size="md" />
+              )}
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold">{token.name}</p>
+                <p className="font-mono text-[11px] text-muted-foreground">
+                  ${token.symbol} · backed by {tickerA} + {tickerB}
+                </p>
+              </div>
+            </div>
+            {token.graduated ? (
+              <Badge variant="success">
+                <GraduationCap size={11} weight="fill" />
+                Graduated
+              </Badge>
+            ) : (
+              <Badge variant="accent">{progress.toFixed(0)}%</Badge>
             )}
           </div>
-        )}
-        <div className={cn("p-5", pair.imageUrl && pair.logoUrl && "pt-6")}>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
+
+          <div className="mt-4 flex items-baseline justify-between">
             <div>
-              <p className="font-mono text-sm font-semibold">
-                {pair.displayName || pair.receiptSymbol}
-              </p>
-              <p className="text-[11px] capitalize text-muted-foreground">
-                {pair.displayName && pair.displayName !== pair.receiptSymbol
-                  ? pair.receiptSymbol
-                  : `${pair.tickerA} · ${pair.tickerB}`}
+              <p className="text-[11px] text-muted-foreground">Market cap</p>
+              <p className="font-mono text-xl font-semibold tabular-nums">{formatUsd(token.marketCapUsd)}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-[11px] text-muted-foreground">24h volume</p>
+              <p className="font-mono text-sm tabular-nums">
+                {token.volume24hUsd != null ? formatUsd(token.volume24hUsd) : "—"}
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <span
-              className={cn(
-                "rounded-full px-2 py-0.5 font-mono text-[11px] tabular-nums",
-                up
-                  ? "bg-success/10 text-success"
-                  : "bg-destructive/10 text-destructive",
-              )}
-            >
-              {up ? "+" : ""}{blendedChange.toFixed(2)}%
-            </span>
-            <Badge variant="accent">{(pair.creatorFeeBps / 100).toFixed(1)}%</Badge>
-          </div>
-        </div>
 
-        {/* Sparkline */}
-        {combined && combined.length > 2 && (
           <div className="mt-3">
-            <Sparkline
-              data={combined}
-              width={280}
-              height={40}
-              positive={up}
-              strokeWidth={1.5}
-              className="w-full"
-            />
-          </div>
-        )}
-
-        {/* Live prices per leg */}
-        {(quoteA || quoteB) && (
-          <div className="mt-3 flex items-center justify-between font-mono text-xs">
-            <span className="flex items-center gap-1.5">
-              <StockLogo ticker={pair.tickerA} size="xs" />
-              <span className="tabular-nums">
-                {quoteA ? formatUsd(quoteA.price) : "—"}
+            <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+              <span>Bonding curve</span>
+              <span className="font-mono tabular-nums">
+                {token.graduated ? "graduated" : `${formatUsd(token.marketCapUsd)} / ${compactUsd(token.graduationMarketCapUsd)}`}
               </span>
-              {quoteA && (
-                <span className={cn("tabular-nums", quoteA.changePercent >= 0 ? "text-success" : "text-destructive")}>
-                  {quoteA.changePercent >= 0 ? "+" : ""}{quoteA.changePercent.toFixed(1)}%
-                </span>
-              )}
-            </span>
-            <span className="flex items-center gap-1.5">
-              {quoteB && (
-                <span className={cn("tabular-nums", quoteB.changePercent >= 0 ? "text-success" : "text-destructive")}>
-                  {quoteB.changePercent >= 0 ? "+" : ""}{quoteB.changePercent.toFixed(1)}%
-                </span>
-              )}
-              <span className="tabular-nums">
-                {quoteB ? formatUsd(quoteB.price) : "—"}
-              </span>
-              <StockLogo ticker={pair.tickerB} size="xs" />
-            </span>
+            </div>
+            <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-surface-muted">
+              <div
+                className={cn("h-full rounded-full transition-all duration-700", token.graduated ? "bg-success" : "bg-accent")}
+                style={{ width: `${progress}%` }}
+              />
+            </div>
           </div>
-        )}
 
-        <div className="mt-3">
-          <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-            <span>{pair.tickerA}</span>
-            <span className="font-mono tabular-nums">
-              {(pair.weightABps / 100).toFixed(0)}% / {((10_000 - pair.weightABps) / 100).toFixed(0)}%
+          <dl className="mt-4 grid grid-cols-3 gap-2 font-mono text-[11px]">
+            <div>
+              <dt className="text-muted-foreground">Holders</dt>
+              <dd className="mt-0.5 text-sm font-semibold tabular-nums">
+                {token.holders != null ? token.holders.toLocaleString() : "—"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">Trades</dt>
+              <dd className="mt-0.5 text-sm font-semibold tabular-nums">{token.tradesCount.toLocaleString()}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">Launched</dt>
+              <dd className="mt-0.5 text-sm font-semibold tabular-nums">{timeAgo(token.createdAt)}</dd>
+            </div>
+          </dl>
+
+          <div className="mt-4 flex items-center justify-between text-[11px] text-muted-foreground">
+            <span className="font-mono">
+              by {token.creatorWallet.slice(0, 6)}…{token.creatorWallet.slice(-4)}
             </span>
-            <span>{pair.tickerB}</span>
+            <span className="inline-flex items-center gap-1 text-accent-strong opacity-0 transition-opacity group-hover:opacity-100">
+              Trade
+              <ArrowRight size={12} weight="bold" />
+            </span>
           </div>
-          <div className="mt-2 flex h-2 overflow-hidden rounded-full bg-surface-muted">
-            <div
-              className="bg-accent"
-              style={{ width: `${pair.weightABps / 100}%` }}
-            />
-            <div
-              className="bg-accent/40"
-              style={{ width: `${(10_000 - pair.weightABps) / 100}%` }}
-            />
-          </div>
-        </div>
-
-        <dl className="mt-4 grid grid-cols-2 gap-3 font-mono text-xs">
-          <div>
-            <dt className="text-muted-foreground">TVL</dt>
-            <dd className="mt-0.5 text-sm font-semibold tabular-nums">
-              {formatUsd(pair.tvlUsd)}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-muted-foreground">Depositors</dt>
-            <dd className="mt-0.5 text-sm font-semibold tabular-nums">
-              {pair.totalDepositors}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-muted-foreground">Volume</dt>
-            <dd className="mt-0.5 tabular-nums">{formatUsd(pair.totalDepositsUsd)}</dd>
-          </div>
-          <div>
-            <dt className="text-muted-foreground">Creator earned</dt>
-            <dd className="mt-0.5 tabular-nums text-accent-strong">
-              +{formatUsd(pair.creatorEarningsUsd)}
-            </dd>
-          </div>
-        </dl>
-
-        <div className="mt-4 flex items-center justify-between text-[11px] text-muted-foreground">
-          <span className="font-mono">
-            by {pair.creatorWallet.slice(0, 6)}…{pair.creatorWallet.slice(-4)}
-          </span>
-          <span className="inline-flex items-center gap-1 text-accent-strong opacity-0 transition-opacity group-hover:opacity-100">
-            Open
-            <ArrowRight size={12} weight="bold" />
-          </span>
-        </div>
         </div>
       </Link>
     </motion.div>

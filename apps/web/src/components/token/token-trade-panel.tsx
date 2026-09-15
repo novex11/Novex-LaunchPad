@@ -25,6 +25,7 @@ import {
   DEFAULT_SLIPPAGE_BPS,
   quoteAssetDecimals,
   quoteTokenAddress,
+  describeRoute,
   useBuyQuote,
   useSellQuote,
   useUsdgFaucet,
@@ -154,6 +155,11 @@ export function TokenTradePanel(props: TokenTradePanelProps) {
   const stockBalances = useTokenBalances(account, [chain.tokenA, chain.tokenB]);
   const balanceA = stockBalances.balances.get(chain.tokenA.toLowerCase()) ?? 0n;
   const balanceB = stockBalances.balances.get(chain.tokenB.toLowerCase()) ?? 0n;
+  // If the wallet no longer holds the pair's stocks, fall back to ETH.
+  useEffect(() => {
+    if (method === "STOCKS" && account !== undefined && balanceA === 0n && balanceB === 0n) setMethod("ETH");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [method, account, balanceA, balanceB]);
   const amountA = useMemo(() => {
     try {
       return amountAText ? parseUnits(amountAText, decA) : 0n;
@@ -283,7 +289,17 @@ export function TokenTradePanel(props: TokenTradePanelProps) {
       } else if (stocks) {
         await trade.sellForStocks({ token, tokensIn: sellTokens, minAmountA: minOutA, minAmountB: minOutB });
       } else if (mode === "buy") {
-        await trade.buy({ token, asset, amountIn, tokenA: chain.tokenA, tokenB: chain.tokenB, minTokensOut, slippageBps });
+        await trade.buy({
+          token,
+          asset,
+          amountIn,
+          tokenA: chain.tokenA,
+          tokenB: chain.tokenB,
+          minTokensOut,
+          slippageBps,
+          pathA: sharesQuote.pathA,
+          pathB: sharesQuote.pathB,
+        });
         setAmount("");
       } else {
         await trade.sell({
@@ -294,6 +310,8 @@ export function TokenTradePanel(props: TokenTradePanelProps) {
           tokenB: chain.tokenB,
           minAmountOut,
           slippageBps,
+          pathA: sellQuote.pathA,
+          pathB: sellQuote.pathB,
         });
       }
       void native.refetch();
@@ -330,7 +348,18 @@ export function TokenTradePanel(props: TokenTradePanelProps) {
             ];
   const order: TradeStage[] = ["approve", "approve-a", "approve-b", "submit", "done"];
 
-  const noStocks = !!account && balanceA === 0n && balanceB === 0n;
+  const holdsStocks = !!account && (balanceA > 0n || balanceB > 0n);
+  const routeA = mode === "buy" ? sharesQuote.routeA : sellQuote.routeA;
+  const routeB = mode === "buy" ? sharesQuote.routeB : sellQuote.routeB;
+  const swapFeeLabel = (() => {
+    const parts = [
+      routeA ? describeRoute(routeA, mode === "buy" ? asset : tickerA, mode === "buy" ? tickerA : asset) : null,
+      routeB ? describeRoute(routeB, mode === "buy" ? asset : tickerB, mode === "buy" ? tickerB : asset) : null,
+    ].filter((x): x is string => !!x);
+    if (parts.length === 0) return "Uniswap swap per leg";
+    if (parts.length === 2 && parts[0] === parts[1]) return `${parts[0]} per leg`;
+    return parts.join(" · ");
+  })();
   const prefix = mode === "buy" ? "" : "Receive ";
   const methodOptions: AssetOption<TradeMethod>[] = [
     {
@@ -347,15 +376,17 @@ export function TokenTradePanel(props: TokenTradePanelProps) {
       logo: <UsdgLogo />,
       balance: account ? `${formatAmount((usdgBalance.data as bigint | undefined) ?? 0n, 6)} USDG` : undefined,
     },
-    {
-      id: "STOCKS",
-      label: `${prefix}${tickerA} + ${tickerB}`,
-      subtitle: mode === "buy" ? "Pay with the pair's stocks you already hold" : "Get both stocks straight to your wallet",
-      logo: <DualLogoStack tickerA={tickerA} tickerB={tickerB} size="sm" />,
-      balance: account ? `${formatAmount(balanceA, decA)} / ${formatAmount(balanceB, decB)}` : undefined,
-      dimmed: mode === "buy" && noStocks,
-      dimmedNote: `No ${tickerA}/${tickerB} in wallet`,
-    },
+    ...(holdsStocks
+      ? [
+          {
+            id: "STOCKS" as const,
+            label: `${prefix}${tickerA} + ${tickerB}`,
+            subtitle: mode === "buy" ? "Pay with the pair's stocks you already hold" : "Get both stocks straight to your wallet",
+            logo: <DualLogoStack tickerA={tickerA} tickerB={tickerB} size="sm" />,
+            balance: `${formatAmount(balanceA, decA)} / ${formatAmount(balanceB, decB)}`,
+          },
+        ]
+      : []),
   ];
 
   return (
@@ -512,7 +543,11 @@ export function TokenTradePanel(props: TokenTradePanelProps) {
           )}
           <Row
             label="Fees"
-            value={stocks ? "1% curve · no swap · no pair deposit fee" : "1% curve · 0.3% Uniswap swap per leg · no pair deposit fee"}
+            value={
+              stocks
+                ? "1% curve · no swap · no pair deposit fee"
+                : `1% curve · ${swapFeeLabel} · no pair deposit fee`
+            }
           />
           <div className="flex items-center justify-between gap-3 pt-1">
             <dt className="text-muted-foreground">Max slippage</dt>

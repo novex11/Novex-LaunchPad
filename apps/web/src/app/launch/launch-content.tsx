@@ -83,7 +83,6 @@ import { DepositAmountField } from "@/components/launchpad/deposit-amount-field"
 
 const spring = { type: "spring", stiffness: 100, damping: 20 } as const;
 const LEG_B_ACCENT = "#3D8BFF";
-const FEE_PRESETS = [100, 200, 300, 500];
 const WEIGHT_PRESETS = [3000, 5000, 7000];
 /** Native ETH kept aside for gas when a WETH leg is paid with ETH. */
 const GAS_RESERVE_WEI = 500_000_000_000_000n;
@@ -269,7 +268,8 @@ export default function LaunchContent() {
   const [tickerA, setTickerA] = useState<string>(() => eligibleTokens[0]?.ticker ?? "TSLA");
   const [tickerB, setTickerB] = useState<string>(() => eligibleTokens[1]?.ticker ?? "AMZN");
   const [weightABps, setWeightABps] = useState<number>(5000);
-  const [feeBps, setFeeBps] = useState<number>(200);
+  // Pair deposits are creator-only, so the public never pays a deposit fee.
+  const feeBps = 0;
   const [usdTarget, setUsdTarget] = useState<number>(LAUNCHPAD_CONFIG.defaultSeedUsd);
   const [payWithEth, setPayWithEth] = useState<boolean | null>(null);
   const [poolOn, setPoolOn] = useState(false);
@@ -374,8 +374,6 @@ export default function LaunchContent() {
   }, [eligibleTokens, tickerA, tickerB]);
 
   const weightBBps = 10_000 - weightABps;
-  const feePct = feeBps / 100;
-  const feeExampleUsd = 1000 * (feeBps / 10_000);
 
   const usd8 = BigInt(Math.round((usdTarget || 0) * 1e8));
   const amountA = tokenA ? tokenAmountForUsd(usd8, weightABps, priceA8, tokenA.decimals) : 0n;
@@ -468,7 +466,6 @@ export default function LaunchContent() {
     canPair && !alreadyExists,
     metadataComplete,
     true, // weights are always in range via the slider
-    true, // fee is always in range via the slider
     wallet.authenticated && seedBlocker === null,
   ];
   const stepsCompleted = stepsDone.filter(Boolean).length;
@@ -644,8 +641,8 @@ export default function LaunchContent() {
           </h1>
           <p className="mt-3 max-w-xl text-muted-foreground">
             Pair any two listed tokens on Robinhood Chain, seed the vault with
-            the tokens themselves, and earn a creator fee on every future
-            deposit.
+            the tokens themselves, then launch its token. Only you can add
+            stocks to the vault; the public trades the token.
           </p>
         </div>
 
@@ -675,8 +672,7 @@ export default function LaunchContent() {
                   ["Pair", stepsDone[0]],
                   ["Identity", stepsDone[1]],
                   ["Weights", stepsDone[2]],
-                  ["Fee", stepsDone[3]],
-                  ["Seed", stepsDone[4]],
+                  ["Seed", stepsDone[3]],
                 ].map(([label, ok]) => (
                   <span
                     key={label as string}
@@ -707,13 +703,13 @@ export default function LaunchContent() {
           },
           {
             icon: <Coins size={16} weight="fill" />,
-            title: "Earn on every deposit",
-            body: `${LAUNCHPAD_CONFIG.minCreatorFeeBps / 100}–${LAUNCHPAD_CONFIG.maxCreatorFeeBps / 100}% of each deposit, paid to you in pair shares.`,
+            title: "Earn on every token trade",
+            body: "70% of the 1% curve fee on every buy and sell of your pair's token, paid in pair shares.",
           },
           {
             icon: <SealCheck size={16} weight="fill" />,
             title: "Fully backed, always redeemable",
-            body: "Pairs hold the real tokens. Holders can redeem both at any time.",
+            body: "Your vault holds the real tokens. Token holders can always sell back into them.",
           },
         ].map((h, i) => (
           <motion.div
@@ -1165,93 +1161,12 @@ export default function LaunchContent() {
             </div>
           </Section>
 
+          {/* Step 04 — seed amount */}
           <Section
             n="04"
-            title="Creator fee"
-            hint={`Between ${LAUNCHPAD_CONFIG.minCreatorFeeBps / 100}% and ${LAUNCHPAD_CONFIG.maxCreatorFeeBps / 100}% of every deposit.`}
-            done={stepsDone[3]}
-            icon={Coins}
-          >
-            <div className="rounded-2xl border border-border bg-surface p-5">
-              <div className="flex items-baseline justify-between">
-                <div>
-                  <p className="text-sm font-semibold">Your cut of every deposit</p>
-                  <p className="mt-0.5 font-mono text-3xl font-semibold tabular-nums text-accent-strong">
-                    {feePct.toFixed(2)}%
-                  </p>
-                </div>
-                <span className="rounded-full bg-surface-muted px-2.5 py-1 font-mono text-[11px] text-muted-foreground">
-                  ≈ {formatUsd(feeExampleUsd)} / $1k deposit
-                </span>
-              </div>
-              <input
-                type="range"
-                min={LAUNCHPAD_CONFIG.minCreatorFeeBps}
-                max={LAUNCHPAD_CONFIG.maxCreatorFeeBps}
-                step={25}
-                value={feeBps}
-                onChange={(e) => setFeeBps(Number(e.target.value))}
-                className="range-slider mt-4 w-full"
-                style={{
-                  background: `linear-gradient(90deg, var(--accent) 0%, var(--accent) ${
-                    ((feeBps - LAUNCHPAD_CONFIG.minCreatorFeeBps) /
-                      (LAUNCHPAD_CONFIG.maxCreatorFeeBps - LAUNCHPAD_CONFIG.minCreatorFeeBps)) *
-                    100
-                  }%, var(--surface-muted) ${
-                    ((feeBps - LAUNCHPAD_CONFIG.minCreatorFeeBps) /
-                      (LAUNCHPAD_CONFIG.maxCreatorFeeBps - LAUNCHPAD_CONFIG.minCreatorFeeBps)) *
-                    100
-                  }%, var(--surface-muted) 100%)`,
-                }}
-                aria-label="Creator fee"
-              />
-              <div className="mt-3 flex flex-wrap gap-2">
-                {FEE_PRESETS.map((f) => (
-                  <button
-                    key={f}
-                    type="button"
-                    onClick={() => setFeeBps(f)}
-                    className={cn(
-                      "rounded-full border px-3 py-1 font-mono text-xs transition-all active:scale-[0.98]",
-                      feeBps === f
-                        ? "border-accent bg-accent-subtle text-accent-strong"
-                        : "border-border text-muted-foreground hover:border-accent/40",
-                    )}
-                  >
-                    {(f / 100).toFixed(f % 100 === 0 ? 0 : 1)}%
-                  </button>
-                ))}
-              </div>
-
-              {/* Earnings projection */}
-              <div className="mt-4 grid grid-cols-3 gap-2">
-                {[10_000, 100_000, 1_000_000].map((tvl) => (
-                  <div
-                    key={tvl}
-                    className="rounded-xl border border-border-subtle bg-surface-muted/60 px-3 py-2.5"
-                  >
-                    <p className="font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
-                      ${(tvl / 1000).toLocaleString()}k deposited
-                    </p>
-                    <p className="mt-0.5 font-mono text-sm font-semibold tabular-nums text-accent-strong">
-                      {formatUsd(tvl * (feeBps / 10_000))}
-                    </p>
-                  </div>
-                ))}
-              </div>
-              <p className="mt-2 text-[11px] text-muted-foreground">
-                Lower fees attract more depositors; higher fees earn more per
-                deposit. Fees never apply to your own first seed.
-              </p>
-            </div>
-          </Section>
-
-          {/* Step 05 — seed amount */}
-          <Section
-            n="05"
             title="Seed deposit"
             hint={`You launch by depositing your own ${tickerA} and ${tickerB} (USDG and ETH can't be used to launch). The value is split by your weights at on-chain prices, and you receive pair shares at $1.00 each.`}
-            done={stepsDone[4]}
+            done={stepsDone[3]}
             last
             icon={Wallet}
           >
@@ -1442,8 +1357,8 @@ export default function LaunchContent() {
                       <dd className="tabular-nums">$1.00</dd>
                     </div>
                     <div className="flex justify-between">
-                      <dt className="text-muted-foreground">Creator fee</dt>
-                      <dd className="tabular-nums">{feePct.toFixed(2)}% of others&apos; deposits</dd>
+                      <dt className="text-muted-foreground">Curve fee to you</dt>
+                      <dd className="tabular-nums">70% of the 1% trade fee</dd>
                     </div>
                   </dl>
                 </div>

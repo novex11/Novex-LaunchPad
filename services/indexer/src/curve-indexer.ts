@@ -82,6 +82,7 @@ export function startCurveIndexer(): (() => void) | null {
     return null;
   }
 
+  const curveAddr: string = curve;
   const cursorId = `curve:${curve.toLowerCase()}`;
   const pairOfToken = new Map<string, Address>();
   let stopped = false;
@@ -91,7 +92,7 @@ export function startCurveIndexer(): (() => void) | null {
     const key = token.toLowerCase();
     const cached = pairOfToken.get(key);
     if (cached) return cached;
-    const row = await curveStore.getToken(db!, key);
+    const row = await curveStore.getToken(db!, curveAddr, key);
     if (!row) return null;
     pairOfToken.set(key, row.pairAddress as Address);
     return row.pairAddress as Address;
@@ -106,6 +107,7 @@ export function startCurveIndexer(): (() => void) | null {
     ]);
     await curveStore.recordToken(db!, {
       tokenAddress: token,
+      curveAddress: curveAddr,
       pairAddress: pair,
       shareAddress: share,
       creatorWallet: creator,
