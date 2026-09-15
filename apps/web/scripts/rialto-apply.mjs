@@ -103,38 +103,62 @@ async function apply() {
   const app_url = process.env.APP_URL || null;
   const requested_max_fee_bps = Number(process.env.MAX_FEE_BPS ?? 50);
 
-  const hash = payloadHash([
-    ["action", "create_integrator_application"],
-    ["chain_id", CHAIN_ID],
-    ["owner_wallet", owner],
-    ["display_name", display_name],
-    ["slug", slug],
-    ["contact_email", optional(contact_email)],
-    ["telegram_handle", optional(telegram_handle)],
-    ["app_url", optional(app_url)],
-    ["fee_recipient", owner],
-    ["requested_max_fee_bps", requested_max_fee_bps],
-  ]);
-  const auth = await signed("create_integrator_application", hash);
-  const body = {
-    chain_id: CHAIN_ID,
-    owner_wallet: owner,
-    display_name,
-    slug,
-    contact_email,
-    telegram_handle,
-    app_url,
-    fee_recipient: owner,
-    requested_max_fee_bps,
-    payload_hash: hash,
-    ...auth,
-  };
-  // Rialto rejects null for optional strings; omit them (the hash already encodes them as "none").
-  for (const k of ["contact_email", "telegram_handle", "app_url"]) {
-    if (body[k] == null) delete body[k];
+  // The live API requires every optional field to be present as a string (null
+  // and missing are both rejected), which the docs' Python example does not
+  // reflect. How an empty string is canonicalised for the hash is undocumented,
+  // so try the plausible encodings in order; a mismatch is rejected before
+  // anything is created and the next attempt uses a fresh nonce.
+  const asString = (v) => v ?? "";
+  const encodings = [
+    (v) => (v ? `some:${v}` : "none"),
+    (v) => `some:${asString(v)}`,
+    (v) => asString(v),
+  ];
+
+  let application;
+  let lastError;
+  for (const enc of encodings) {
+    const hash = payloadHash([
+      ["action", "create_integrator_application"],
+      ["chain_id", CHAIN_ID],
+      ["owner_wallet", owner],
+      ["display_name", display_name],
+      ["slug", slug],
+      ["contact_email", enc(contact_email)],
+      ["telegram_handle", enc(telegram_handle)],
+      ["app_url", enc(app_url)],
+      ["fee_recipient", owner],
+      ["requested_max_fee_bps", requested_max_fee_bps],
+    ]);
+    const auth = await signed("create_integrator_application", hash);
+    const body = {
+      chain_id: CHAIN_ID,
+      owner_wallet: owner,
+      display_name,
+      slug,
+      contact_email: asString(contact_email),
+      telegram_handle: asString(telegram_handle),
+      app_url: asString(app_url),
+      fee_recipient: owner,
+      requested_max_fee_bps,
+      payload_hash: hash,
+      ...auth,
+    };
+    console.log("Submitting application:", JSON.stringify({ ...body, signature: "<signed>", nonce: "<nonce>" }, null, 2));
+    try {
+      application = await post("/integrators/applications", body);
+      break;
+    } catch (err) {
+      lastError = err;
+      const msg = String(err.message);
+      if (/hash/i.test(msg) && !/slug|exists|already/i.test(msg)) {
+        console.log("Payload hash rejected with this encoding, trying the next one…");
+        continue;
+      }
+      throw err;
+    }
   }
-  console.log("Submitting application:", JSON.stringify({ ...body, signature: "<signed>", nonce: "<nonce>" }, null, 2));
-  const application = await post("/integrators/applications", body);
+  if (!application) throw lastError;
   console.log("Application response:", JSON.stringify(application, null, 2));
   if (application.status === "active") {
     await createKey(application.integrator_id);
