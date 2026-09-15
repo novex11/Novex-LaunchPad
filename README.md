@@ -103,6 +103,8 @@ forge script script/DeployMainnet.s.sol --rpc-url robinhood --broadcast --verify
 4. Copy `factory`, `oracle` and `vault`/`receiptToken` from `deployments-mainnet.json` into `NEXT_PUBLIC_FACTORY_ADDRESS`, `NEXT_PUBLIC_ORACLE_ADAPTER_ADDRESS`, `NEXT_PUBLIC_VAULT_ADDRESS`, `NEXT_PUBLIC_RECEIPT_TOKEN_ADDRESS` (web) and `VAULT_FACTORY_ADDRESS` (indexer).
 5. Fund the `CashbackReserve` with reward tokens, then set `NEXT_PUBLIC_USE_TESTNET=false`.
 
+The indexer's `/deposits` and `/redeems` endpoints only accept a wallet and a transaction hash. Every amount, the vault, and the Stockback paid are read from the on-chain receipt, writes are idempotent per transaction, and the chain listener records the same events independently, so nothing in the ledger can be claimed without a matching transaction.
+
 Deposits mint shares for the value that actually lands in the vault after swaps, so `minShares` (web: `NEXT_PUBLIC_BASKET_SLIPPAGE_BPS`, default 1%) bounds the depositor's slippage and existing holders are never diluted. Keep that tolerance above the router's `MAX_SWAP_SLIPPAGE_BPS`.
 
 ## Documentation

@@ -264,6 +264,50 @@ contract BasketProductionTest is Test {
         assertGe(nvda.balanceOf(user), 99.99 ether, "~1 NVDA back");
     }
 
+    // ─── Cashback reserve ────────────────────────────────────
+
+    function test_DepositEmitsValueAddedAndPaysBoundedStockback() public {
+        cashback.setOracle(address(oracle), 100);
+        nvda.approve(address(cashback), 10 ether);
+        cashback.fund(address(nvda), 10 ether);
+
+        uint256 before = nvda.balanceOf(user);
+        vm.prank(user);
+        uint256 shares = vault.deposit(_params(0));
+        // $2 stockback in NVDA at $500 = 0.004 NVDA forwarded to the user
+        assertEq(nvda.balanceOf(user), before - 1 ether + 0.004 ether, "stockback forwarded");
+        assertEq(cashback.walletStockbackUsd8(user), 2e8);
+        assertGt(shares, 0);
+    }
+
+    function test_CashbackRejectsOversizedPayout() public {
+        cashback.setOracle(address(oracle), 100);
+        nvda.approve(address(cashback), 10 ether);
+        cashback.fund(address(nvda), 10 ether);
+        cashback.setAuthorizedVault(address(this), true);
+
+        // $2 reward but asking for 1 NVDA ($500) of inventory
+        vm.expectRevert(bytes("CashbackReserve: amount exceeds reward"));
+        cashback.payDepositStockback(user, address(nvda), 1 ether, 500e8);
+
+        // Exactly $2 worth passes
+        cashback.payDepositStockback(user, address(nvda), 0.004 ether, 500e8);
+        assertEq(nvda.balanceOf(address(this)) >= 0.004 ether, true);
+    }
+
+    function test_CashbackOwnerControls() public {
+        cashback.setRewardParams(50e8, 3e8, 100e8);
+        assertEq(cashback.depositStockbackUsd8(), 3e8);
+        cashback.setGlobalBudget(1e8);
+        assertEq(cashback.canReward(user, 500e8), false, "budget below reward");
+
+        vm.prank(user);
+        vm.expectRevert();
+        cashback.setOracle(address(oracle), 100);
+        vm.expectRevert(bytes("CashbackReserve: tolerance too high"));
+        cashback.setOracle(address(oracle), 5_000);
+    }
+
     // ─── Guards + admin ──────────────────────────────────────
 
     function test_ZeroAmountAndZeroSharesRevert() public {

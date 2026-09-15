@@ -476,7 +476,7 @@
         "internalType": "uint256"
       },
       {
-        "name": "navUsd8AtDeposit",
+        "name": "valueUsd8",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"

@@ -95,6 +95,7 @@ contract DeployMainnet is Script {
         oracle = new OracleAdapter(deployer);
         controller = new AllocationController(deployer);
         cashback = new CashbackReserve(deployer);
+        cashback.setOracle(address(oracle), 100);
         emergency = new EmergencyRegistry(deployer);
 
         // ─── 2. Swap venue ─────────────────────────────────

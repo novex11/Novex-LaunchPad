@@ -1,6 +1,11 @@
 /** Robinhood Chain — Arbitrum Orbit L2 for Stock Tokens */
 
-const alchemyKey = process.env.ALCHEMY_API_KEY ?? "demo";
+const alchemyKey = process.env.ALCHEMY_API_KEY;
+
+/** Alchemy endpoint only when a real key is configured — never a shared "demo" key in production. */
+function alchemyHttp(network: "mainnet" | "testnet"): string[] {
+  return alchemyKey ? [`https://robinhood-chain-${network}.g.alchemy.com/v2/${alchemyKey}`] : [];
+}
 
 export const robinhoodChain = {
   id: 4663,
@@ -14,9 +19,7 @@ export const robinhoodChain = {
       ],
     },
     alchemy: {
-      http: [
-        `https://robinhood-chain-mainnet.g.alchemy.com/v2/${alchemyKey}`,
-      ],
+      http: alchemyHttp("mainnet"),
     },
   },
   blockExplorers: {
@@ -40,9 +43,7 @@ export const robinhoodTestnet = {
       ],
     },
     alchemy: {
-      http: [
-        `https://robinhood-chain-testnet.g.alchemy.com/v2/${alchemyKey}`,
-      ],
+      http: alchemyHttp("testnet"),
     },
   },
   blockExplorers: {

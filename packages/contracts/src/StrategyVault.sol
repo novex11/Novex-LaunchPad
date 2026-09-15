@@ -46,11 +46,12 @@ contract StrategyVault is Ownable, ReentrancyGuard {
         UsdStable
     }
 
+    /// @param valueUsd8 USD value (8 decimals) the deposit added to the vault after swaps
     event Deposited(
         address indexed user,
         uint256 amountIn,
         uint256 sharesMinted,
-        uint256 navUsd8AtDeposit
+        uint256 valueUsd8
     );
     event Redeemed(
         address indexed user,
@@ -192,7 +193,7 @@ contract StrategyVault is Ownable, ReentrancyGuard {
         // Try to pay Stockback cashback to user
         _tryCashback(msg.sender, depositValue8);
 
-        emit Deposited(msg.sender, params.amount, sharesMinted, navUsd8());
+        emit Deposited(msg.sender, params.amount, sharesMinted, valueAdded8);
     }
 
     function _registerBasketToken(address token) internal {

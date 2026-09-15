@@ -154,7 +154,14 @@ export default function CreateBasketContent() {
   const [failedAt, setFailedAt] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<{ txHash?: string; ledgerPending?: boolean } | null>(null);
+  const [success, setSuccess] = useState<{
+    txHash?: string;
+    ledgerPending?: boolean;
+    /** Stockback actually paid on-chain (USD), from the reserve's event. */
+    stockbackUsd: number;
+    /** USD value the vault credited after swaps, from the Deposited event. */
+    creditedUsd?: number;
+  } | null>(null);
 
   const depositUsd = Number(amountStr) || 0;
 
@@ -252,7 +259,7 @@ export default function CreateBasketContent() {
       );
       const minShares = minSharesFor(depositAmount, depositTokenPriceUsd8, vaultSharePrice as bigint, decimals);
 
-      const { hash } = await onchainDeposit.execute({
+      const outcome = await onchainDeposit.execute({
         tokenAddress,
         depositAmount,
         basketTokens,
@@ -263,24 +270,24 @@ export default function CreateBasketContent() {
           setStage(current);
         },
       });
+      const hash = outcome.hash;
       setTxHash(hash);
+      const creditedUsd = outcome.valueUsd8 != null ? Number(outcome.valueUsd8) / 1e8 : undefined;
 
-      // The deposit is final on-chain from here. A ledger hiccup must not read as
-      // a failed deposit: the indexer also picks the event up from the chain.
+      // The deposit is final on-chain from here. The indexer verifies the receipt
+      // itself and takes every amount from the chain, so a ledger hiccup must not
+      // read as a failed deposit.
       current = "record";
       setStage(current);
       let ledgerPending = false;
       try {
         await recordDeposit({
           wallet: wallet.address,
-          depositTicker,
-          depositUsd,
-          strategy,
-          openingNetUsd: data.openingNetUsd,
-          stockbackUsd: data.stockback.totalStockbackUsd,
-          allocation: data.allocation,
-          vaultId: receiptTokenName(depositTicker, strategy),
           txHash: hash,
+          allocation: data.allocation,
+          depositTicker,
+          strategy,
+          vaultId: receiptTokenName(depositTicker, strategy),
         });
       } catch {
         ledgerPending = true;
@@ -289,7 +296,7 @@ export default function CreateBasketContent() {
       qc.invalidateQueries({ queryKey: ["activity"] });
       qc.invalidateQueries({ queryKey: ["receipt-positions"] });
       setStage("done");
-      setSuccess({ txHash: hash, ledgerPending });
+      setSuccess({ txHash: hash, ledgerPending, stockbackUsd: outcome.stockbackUsd, creditedUsd });
     } catch (e) {
       setFailedAt(current);
       setStage("error");
@@ -324,20 +331,20 @@ export default function CreateBasketContent() {
               Basket created
             </span>
             <h1 className="mt-4 text-3xl font-semibold tracking-tight">
-              {formatUsd(depositUsd)} of {depositTicker} is now <span className="font-mono">{receipt}</span>
+              {formatUsd(success.creditedUsd ?? depositUsd)} of {depositTicker} is now{" "}
+              <span className="font-mono">{receipt}</span>
             </h1>
             <p className="mt-2 text-muted-foreground">
-              {success.ledgerPending ? (
-                <>Your basket is confirmed on-chain. The activity ledger will catch up from the chain shortly.</>
-              ) : data?.stockback.eligible && (data.stockback.totalStockbackUsd ?? 0) > 0 ? (
+              {success.stockbackUsd > 0 ? (
                 <>
                   Stockback of{" "}
-                  <span className="font-mono font-semibold text-accent-strong">{formatUsd(data.stockback.totalStockbackUsd)}</span>{" "}
-                  has been credited to your ledger.
+                  <span className="font-mono font-semibold text-accent-strong">{formatUsd(success.stockbackUsd)}</span>{" "}
+                  was paid on-chain to your wallet in {depositTicker}.
                 </>
               ) : (
-                <>No Stockback was credited at this deposit size.</>
+                <>No Stockback was paid on-chain for this deposit.</>
               )}
+              {success.ledgerPending && <> The activity ledger will catch up from the chain shortly.</>}
             </p>
             <div className="mt-4 flex flex-wrap gap-1.5">
               {(data?.allocation ?? []).map((a, i) => (

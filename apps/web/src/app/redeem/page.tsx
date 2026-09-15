@@ -42,6 +42,8 @@ export default function RedeemPage() {
 
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [mode, setMode] = useState<RedeemMode>("original");
+  /** Share of the position to redeem, in percent. */
+  const [portionPct, setPortionPct] = useState<number>(100);
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -50,7 +52,10 @@ export default function RedeemPage() {
   const onchainRedeem = useVaultRedeem(active?.vaultAddress);
   const { priceUsd8: depositPriceUsd8 } = useDepositTokenPrice(active?.vaultAddress);
 
-  const grossValue = active?.valueUsd ?? 0;
+  const portion = BigInt(Math.round(Math.min(100, Math.max(1, portionPct))));
+  const sharesToRedeem = active ? (active.receiptBalance * portion) / 100n : 0n;
+  const redeemValueUsd8 = active ? (active.valueUsd8 * portion) / 100n : 0n;
+  const grossValue = Number(redeemValueUsd8) / 1e8;
   // Worst case the vault will accept: the on-chain value minus the slippage tolerance.
   const slippagePct = BASKET_CONFIG.slippageBps / 10_000;
   const externalCosts = grossValue * slippagePct;
@@ -60,8 +65,7 @@ export default function RedeemPage() {
   const pricingReady = !needsOraclePrice || (depositPriceUsd8 != null && depositPriceUsd8 > 0n);
 
   /** `minOut` in the units `StrategyVault.redeem` expects for each mode. */
-  function minOutFor(position: OnChainReceiptPosition): bigint {
-    const valueUsd8 = position.valueUsd8;
+  function minOutFor(valueUsd8: bigint): bigint {
     switch (mode) {
       case "original": {
         if (!depositPriceUsd8 || depositPriceUsd8 <= 0n) throw new Error("Deposit token price unavailable. Retry in a moment.");
@@ -80,22 +84,17 @@ export default function RedeemPage() {
     setConfirming(true);
     setError(null);
     try {
-      if (!contractsReady || active.receiptBalance <= 0n) {
+      if (!contractsReady || sharesToRedeem <= 0n) {
         throw new Error("Nothing to redeem on-chain for this receipt.");
       }
       const txHash = await onchainRedeem.execute({
-        shares: active.receiptBalance,
+        shares: sharesToRedeem,
         mode: MODE_TO_CHAIN[mode],
-        minOut: minOutFor(active),
+        minOut: minOutFor(redeemValueUsd8),
       });
-      // Confirmed on-chain from here; the indexer also sees the Redeemed event.
+      // Confirmed on-chain from here; the indexer verifies the receipt itself.
       try {
-        await recordRedeem({
-          wallet: wallet.address,
-          valueUsd: grossValue,
-          vaultId: active.receiptSymbol,
-          txHash,
-        });
+        await recordRedeem({ wallet: wallet.address, txHash, vaultId: active.receiptSymbol });
       } catch {
         // ledger catches up from the chain
       }
@@ -196,6 +195,33 @@ export default function RedeemPage() {
                 );
               })}
             </div>
+
+            <p className="label-caps mt-8">Amount</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {[25, 50, 75, 100].map((pct) => {
+                const on = portionPct === pct;
+                return (
+                  <button
+                    key={pct}
+                    type="button"
+                    onClick={() => setPortionPct(pct)}
+                    className={cn(
+                      "rounded-full border px-3.5 py-1.5 font-mono text-xs font-medium transition-all active:scale-[0.98]",
+                      on
+                        ? "border-accent bg-accent-subtle text-accent-strong"
+                        : "border-border text-muted-foreground hover:border-accent/40",
+                    )}
+                  >
+                    {pct === 100 ? "All" : `${pct}%`}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              Redeeming {Number(formatUnits(sharesToRedeem, RECEIPT_SHARE_DECIMALS)).toFixed(3)} of{" "}
+              {Number(formatUnits(active?.receiptBalance ?? 0n, RECEIPT_SHARE_DECIMALS)).toFixed(3)} shares
+              {portionPct < 100 && " — the rest stays invested."}
+            </p>
 
             <p className="label-caps mt-8">Redemption method</p>
             <div className="mt-3 grid gap-2">

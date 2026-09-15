@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { useReadContract } from "wagmi";
-import type { Address, Hash } from "viem";
+import { decodeEventLog, parseAbi, type Address, type Hash } from "viem";
 import { BASKET_CONFIG, applySlippage } from "@novex/config";
 import {
   strategyVaultAbi,
@@ -115,6 +115,24 @@ export function minSharesFor(
 
 export type DepositStage = "approve" | "deposit" | "mined";
 
+const DEPOSIT_EVENTS = parseAbi([
+  "event Deposited(address indexed user, uint256 amountIn, uint256 sharesMinted, uint256 valueUsd8)",
+  "event CashbackForwarded(address indexed user, uint256 amount)",
+  "event StockbackPaid(address indexed wallet, address indexed token, uint256 amount, uint256 usdValue8)",
+]);
+
+export interface DepositOutcome {
+  hash: Hash;
+  /** Receipt shares minted (1e8 = one share). */
+  sharesMinted: bigint | undefined;
+  /** USD value (8 decimals) the vault credited after swaps. */
+  valueUsd8: bigint | undefined;
+  /** Stockback actually paid on-chain to the wallet, in deposit-token base units. */
+  stockbackTokenAmount: bigint;
+  /** Stockback actually paid on-chain, in USD (from the reserve's event). */
+  stockbackUsd: number;
+}
+
 export function useApproveAndDeposit(vaultAddress: `0x${string}` | undefined) {
   const { send, approveIfNeeded, getClient, ensureReady } = useContractTx();
   const [txHash, setTxHash] = useState<Hash | undefined>();
@@ -138,7 +156,7 @@ export function useApproveAndDeposit(vaultAddress: `0x${string}` | undefined) {
       minShares: bigint;
       /** Progress callback so the UI can show approve → deposit → mined. */
       onStage?: (stage: DepositStage) => void;
-    }): Promise<{ hash: Hash; sharesMinted: bigint | undefined }> => {
+    }): Promise<DepositOutcome> => {
       if (!contractsReady || !vaultAddress) {
         throw new Error("Vault not configured for this deposit asset");
       }
@@ -184,19 +202,33 @@ export function useApproveAndDeposit(vaultAddress: `0x${string}` | undefined) {
         );
 
         onStage?.("mined");
-        // Deposited(user, amountIn, sharesMinted, navUsd8AtDeposit) → sharesMinted is data word 2
-        let sharesMinted: bigint | undefined;
+        // Read what actually happened from the receipt, not from the preview.
+        const outcome: DepositOutcome = {
+          hash,
+          sharesMinted: undefined,
+          valueUsd8: undefined,
+          stockbackTokenAmount: 0n,
+          stockbackUsd: 0,
+        };
         const vaultLower = vaultAddress.toLowerCase();
+        const me = account.toLowerCase();
         for (const log of receipt.logs) {
-          if (log.address.toLowerCase() !== vaultLower || log.data.length < 2 + 64 * 3) continue;
+          let ev;
           try {
-            sharesMinted = BigInt(`0x${log.data.slice(2 + 64, 2 + 128)}`);
-            break;
+            ev = decodeEventLog({ abi: DEPOSIT_EVENTS, data: log.data, topics: log.topics });
           } catch {
             continue;
           }
+          if (ev.eventName === "Deposited" && log.address.toLowerCase() === vaultLower) {
+            outcome.sharesMinted = ev.args.sharesMinted;
+            outcome.valueUsd8 = ev.args.valueUsd8;
+          } else if (ev.eventName === "CashbackForwarded" && ev.args.user.toLowerCase() === me) {
+            outcome.stockbackTokenAmount += ev.args.amount;
+          } else if (ev.eventName === "StockbackPaid" && ev.args.wallet.toLowerCase() === me) {
+            outcome.stockbackUsd += Number(ev.args.usdValue8) / 1e8;
+          }
         }
-        return { hash, sharesMinted };
+        return outcome;
       } catch (e) {
         const err = e instanceof Error ? e : new Error(String(e));
         setError(err);
