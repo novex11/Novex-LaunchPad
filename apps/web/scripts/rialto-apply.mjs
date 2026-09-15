@@ -112,9 +112,11 @@ async function apply() {
   // is undocumented, so try the plausible layouts in turn. A mismatch is
   // rejected before anything is created and the next attempt uses a fresh nonce.
   const asString = (v) => v ?? "";
+  // Confirmed 2026-09-15: the live server hashes plain string values (no
+  // some:/none wrapper) with application_description right after app_url.
   const encodings = [
-    (v) => (v ? `some:${v}` : "none"),
     (v) => asString(v),
+    (v) => (v ? `some:${v}` : "none"),
     (v) => `some:${asString(v)}`,
   ];
   const layouts = [
