@@ -8,6 +8,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {PairFactory} from "../src/PairFactory.sol";
 import {PairVault} from "../src/PairVault.sol";
 import {PairRouter} from "../src/PairRouter.sol";
+import {OracleAdapter} from "../src/OracleAdapter.sol";
 import {PonsLauncher} from "../src/pons/PonsLauncher.sol";
 import {PonsRouter} from "../src/pons/PonsRouter.sol";
 import {IPonsV2LaunchFactory, IPonsV2BondingCurve} from "../src/pons/IPonsV2.sol";
@@ -20,8 +21,8 @@ import {IPonsV2LaunchFactory, IPonsV2BondingCurve} from "../src/pons/IPonsV2.sol
 /// creator's dev buy fills untaxed, and router buys/sells settle on the Pons curve.
 contract PonsForkMainnetTest is Test {
     address constant PONS = 0x7eD598BcEf8bd9Edd8C97A195C6d13f40801EC7e;
-    address constant PAIR_FACTORY = 0x5Aa951533B1f0C1D910843BcBF648C5cf463E764;
-    address constant PAIR_ROUTER = 0xffba7117c19D1aB3DF23C3989e4F1c69669CCbD3;
+    address constant PAIR_FACTORY = 0x14F7fD2eeC1D716b30B161aD7072A7DcCDA2dc69;
+    address constant PAIR_ROUTER = 0x67B32aFf036461e41392C2d6985a5b82965f8Eb1;
 
     IPonsV2LaunchFactory pons = IPonsV2LaunchFactory(PONS);
     PairFactory factory = PairFactory(PAIR_FACTORY);
@@ -54,7 +55,7 @@ contract PonsForkMainnetTest is Test {
 
     function _setupFork() internal {
         usdg = PairRouter(payable(PAIR_ROUTER)).usdg();
-        require(factory.pairCount() > 0, "no live pair");
+        if (factory.pairCount() == 0) _launchPair();
         (address pairAddr, , , , , , address creator_) = factory.pairs(0);
         vault = PairVault(pairAddr);
         creator = creator_;
@@ -82,6 +83,42 @@ contract PonsForkMainnetTest is Test {
         emit log_named_string("quote", IERC20Metadata(quote).symbol());
         emit log_named_decimal_uint("phantom", phantom, dec);
         emit log_named_decimal_uint("threshold", threshold, dec);
+    }
+
+
+    /// @dev A freshly redeployed factory has no pairs yet: seed one 50/50 from two listed stocks.
+    function _launchPair() internal {
+        address[] memory listed = factory.listedTokens();
+        require(listed.length >= 2, "need two listed tokens");
+        address a = listed[0];
+        address b = listed[1];
+        OracleAdapter oracle = PairRouter(payable(PAIR_ROUTER)).oracle();
+        uint256 amountA = 10 ** IERC20Metadata(a).decimals();
+        uint256 amountB = Math.mulDiv(
+            Math.mulDiv(amountA, oracle.getPrice(a), 10 ** IERC20Metadata(a).decimals()),
+            10 ** IERC20Metadata(b).decimals(),
+            oracle.getPrice(b)
+        );
+        address seeder = makeAddr("seeder");
+        deal(a, seeder, amountA);
+        deal(b, seeder, amountB);
+        vm.startPrank(seeder);
+        IERC20(a).approve(PAIR_FACTORY, amountA);
+        IERC20(b).approve(PAIR_FACTORY, amountB);
+        factory.launchPair(
+            PairFactory.LaunchParams({
+                tokenA: a,
+                tokenB: b,
+                weightABps: 5000,
+                creatorFeeBps: 100,
+                receiptName: "Fork Pair",
+                receiptSymbol: "FORKP",
+                amountA: amountA,
+                amountB: amountB,
+                minShares: 0
+            })
+        );
+        vm.stopPrank();
     }
 
     function _launch() internal {
