@@ -78,7 +78,7 @@ contract BasketProductionTest is Test {
         );
         factory.setUsdStableAsset(address(usdg));
         (address v, address r) = factory.createVault(
-            address(nvda), AllocationController.Strategy.Balanced, "Novex NVDA Balanced", "tNVDA-B", 1_000_000e8
+            address(nvda), AllocationController.Strategy.Balanced, "Compose NVDA Balanced", "tNVDA-B", 1_000_000e8
         );
         vault = StrategyVault(v);
         receipt = ReceiptToken(r);

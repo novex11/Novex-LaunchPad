@@ -96,7 +96,7 @@ async function createKey(integratorId, label = "novex-production") {
 }
 
 async function apply() {
-  const display_name = process.env.DISPLAY_NAME ?? "Novex";
+  const display_name = process.env.DISPLAY_NAME ?? "Compose";
   const slug = process.env.SLUG ?? "novex";
   const contact_email = process.env.CONTACT_EMAIL || null;
   const telegram_handle = process.env.TELEGRAM_HANDLE || null;
@@ -104,7 +104,7 @@ async function apply() {
   const requested_max_fee_bps = Number(process.env.MAX_FEE_BPS ?? 50);
   const application_description =
     process.env.APPLICATION_DESCRIPTION ??
-    "Novex is an onchain managed-stock basket protocol on Robinhood Chain. Users deposit one tokenized stock and receive a diversified basket; the vault swaps into each line and needs a production execution venue with real order flow. We want Swap API access to route basket swaps and quotes through Rialto with an integrator fee.";
+    "Compose is an onchain managed-stock basket protocol on Robinhood Chain. Users deposit one tokenized stock and receive a diversified basket; the vault swaps into each line and needs a production execution venue with real order flow. We want Swap API access to route basket swaps and quotes through Rialto with an integrator fee.";
 
   // The live API (see /openapi.json) requires every field as a plain string,
   // including application_description, which the public docs omit. The server
