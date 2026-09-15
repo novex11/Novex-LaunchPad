@@ -1,36 +1,53 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { encodeAbiParameters, parseAbi, type Address, type PublicClient } from "viem";
+import { parseAbi, type Address, type PublicClient } from "viem";
 
 /*
- * Source verification on Blockscout (Etherscan-compatible API) for the
- * contracts PairFactory deploys at launch time. Uses only viem + node so the
- * indexer and CLI scripts can share it.
+ * Source verification on Blockscout (Etherscan-compatible API).
+ *
+ * Every contract a launch creates (PairVault — which is also the pair's share
+ * token — and CreatorToken) is an EIP-1167 minimal proxy of one implementation
+ * held by PairDeployer / ComposeCurve. Blockscout resolves such proxies to their
+ * implementation on its own, so a launched contract is shown as verified — with
+ * its name, symbol, ABI and source — the moment it exists, provided the
+ * implementation is verified. That leaves exactly two contracts per deployment
+ * to verify, once, with no constructor arguments; this module does that and
+ * never touches the per-launch clones. Uses only viem + node so the indexer and
+ * CLI scripts can share it.
  */
 
 export interface VerifierOptions {
   /** e.g. https://explorer.testnet.chain.robinhood.com/api */
   explorerApiUrl: string;
-  /** Directory with compiler.json and PairVault.input.json */
+  /** Directory with compiler.json and <Contract>.input.json (see scripts/export-verification-inputs.sh) */
   inputsDir: string;
   log?: (message: string) => void;
 }
 
-export type VerifyOutcome = "verified" | "already-verified" | "failed" | "skipped";
+export type VerifyOutcome =
+  "verified" | "already-verified" | "failed" | "skipped";
 
-const vaultAbi = parseAbi([
-  "function creator() view returns (address)",
-  "function tokenA() view returns (address)",
-  "function tokenB() view returns (address)",
-  "function weightABps() view returns (uint16)",
-  "function creatorFeeBps() view returns (uint16)",
-  "function receiptToken() view returns (address)",
-  "function oracle() view returns (address)",
-  "function emergency() view returns (address)",
-  "function weth() view returns (address)",
-  "function factory() view returns (address)",
-  "function name() view returns (string)",
-  "function symbol() view returns (string)",
+/** The implementations every launched contract delegates to. */
+export type ImplementationName = "PairVault" | "CreatorToken";
+
+export const IMPLEMENTATION_NAMES: readonly ImplementationName[] = [
+  "PairVault",
+  "CreatorToken",
+];
+
+export interface LaunchImplementations {
+  pairDeployer: Address;
+  PairVault: Address;
+  /** Absent when no curve address is configured. */
+  CreatorToken?: Address;
+}
+
+const factoryAbi = parseAbi(["function pairDeployer() view returns (address)"]);
+const deployerAbi = parseAbi([
+  "function vaultImplementation() view returns (address)",
+]);
+const curveAbi = parseAbi([
+  "function creatorTokenImplementation() view returns (address)",
 ]);
 
 const POLL_MS = 5_000;
@@ -39,9 +56,52 @@ const ATTEMPTS = 3;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+const EIP1167_PREFIX = "0x363d3d373d3d3d363d73";
+const EIP1167_SUFFIX = "5af43d82803e903d91602b57fd5bf3";
+
+/** Implementation address if `code` is an EIP-1167 minimal proxy, else null. */
+export function minimalProxyTarget(code: string | undefined): Address | null {
+  if (!code) return null;
+  const lower = code.toLowerCase();
+  if (
+    lower.length !== 2 + 45 * 2 ||
+    !lower.startsWith(EIP1167_PREFIX) ||
+    !lower.endsWith(EIP1167_SUFFIX)
+  ) {
+    return null;
+  }
+  return `0x${lower.slice(EIP1167_PREFIX.length, EIP1167_PREFIX.length + 40)}` as Address;
+}
+
+/** Read the implementation addresses off the live factory and curve. */
+export async function readLaunchImplementations(
+  client: PublicClient,
+  contracts: { factory: Address; curve?: Address },
+): Promise<LaunchImplementations> {
+  const pairDeployer = await client.readContract({
+    address: contracts.factory,
+    abi: factoryAbi,
+    functionName: "pairDeployer",
+  });
+  const PairVault = await client.readContract({
+    address: pairDeployer,
+    abi: deployerAbi,
+    functionName: "vaultImplementation",
+  });
+  const result: LaunchImplementations = { pairDeployer, PairVault };
+  if (contracts.curve) {
+    result.CreatorToken = await client.readContract({
+      address: contracts.curve,
+      abi: curveAbi,
+      functionName: "creatorTokenImplementation",
+    });
+  }
+  return result;
+}
+
 interface Inputs {
   compilerVersion: string;
-  pairVault: string;
+  sources: Partial<Record<ImplementationName, string>>;
 }
 
 const inputsCache = new Map<string, Inputs | null>();
@@ -50,13 +110,18 @@ function loadInputs(dir: string): Inputs | null {
   if (inputsCache.has(dir)) return inputsCache.get(dir)!;
   let inputs: Inputs | null = null;
   try {
-    const { compilerVersion } = JSON.parse(readFileSync(join(dir, "compiler.json"), "utf8")) as {
-      compilerVersion: string;
-    };
-    inputs = {
-      compilerVersion,
-      pairVault: readFileSync(join(dir, "PairVault.input.json"), "utf8"),
-    };
+    const { compilerVersion } = JSON.parse(
+      readFileSync(join(dir, "compiler.json"), "utf8"),
+    ) as { compilerVersion: string };
+    const sources: Inputs["sources"] = {};
+    for (const name of IMPLEMENTATION_NAMES) {
+      try {
+        sources[name] = readFileSync(join(dir, `${name}.input.json`), "utf8");
+      } catch {
+        // exported per contract; a missing one is reported as "skipped"
+      }
+    }
+    inputs = { compilerVersion, sources };
   } catch {
     inputs = null;
   }
@@ -66,7 +131,9 @@ function loadInputs(dir: string): Inputs | null {
 
 async function isVerified(apiUrl: string, address: Address): Promise<boolean> {
   try {
-    const res = await fetch(`${apiUrl}/v2/addresses/${address}`, { signal: AbortSignal.timeout(20_000) });
+    const res = await fetch(`${apiUrl}/v2/addresses/${address}`, {
+      signal: AbortSignal.timeout(20_000),
+    });
     if (!res.ok) return false;
     const json = (await res.json()) as { is_verified?: boolean };
     return json.is_verified === true;
@@ -75,7 +142,10 @@ async function isVerified(apiUrl: string, address: Address): Promise<boolean> {
   }
 }
 
-async function submit(apiUrl: string, fields: Record<string, string>): Promise<string> {
+async function submit(
+  apiUrl: string,
+  fields: Record<string, string>,
+): Promise<string> {
   const body = new URLSearchParams({
     module: "contract",
     action: "verifysourcecode",
@@ -88,14 +158,29 @@ async function submit(apiUrl: string, fields: Record<string, string>): Promise<s
     body,
     signal: AbortSignal.timeout(60_000),
   });
-  const json = (await res.json().catch(() => ({}))) as { status?: string; result?: unknown; message?: string };
+  if (res.status === 403) {
+    throw new Error(
+      "explorer refused the request (HTTP 403, bot protection) — verify from a browser instead",
+    );
+  }
+  const json = (await res.json().catch(() => ({}))) as {
+    status?: string;
+    result?: unknown;
+    message?: string;
+  };
   if (json.status !== "1" || typeof json.result !== "string") {
-    throw new Error(`submit rejected: ${String(json.result ?? json.message ?? res.status)}`);
+    throw new Error(
+      `submit rejected: ${String(json.result ?? json.message ?? res.status)}`,
+    );
   }
   return json.result;
 }
 
-async function waitForResult(apiUrl: string, guid: string, address: Address): Promise<string> {
+async function waitForResult(
+  apiUrl: string,
+  guid: string,
+  address: Address,
+): Promise<string> {
   for (let i = 0; i < MAX_POLLS; i++) {
     await sleep(POLL_MS);
     // Blockscout often answers "Unknown UID" while a job is still processing,
@@ -120,11 +205,17 @@ async function waitForResult(apiUrl: string, guid: string, address: Address): Pr
 /** Verify one contract; idempotent (skips contracts the explorer already shows as verified). */
 export async function verifyContract(
   opts: VerifierOptions,
-  request: { address: Address; contractName: string; input: string; constructorArgs: `0x${string}` },
+  request: {
+    address: Address;
+    contractName: string;
+    input: string;
+    constructorArgs: `0x${string}`;
+  },
   compilerVersion: string,
 ): Promise<VerifyOutcome> {
   const log = opts.log ?? (() => {});
-  if (await isVerified(opts.explorerApiUrl, request.address)) return "already-verified";
+  if (await isVerified(opts.explorerApiUrl, request.address))
+    return "already-verified";
 
   const args = request.constructorArgs.replace(/^0x/, "");
   for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
@@ -137,90 +228,81 @@ export async function verifyContract(
         constructorArguements: args,
         constructorArguments: args,
       });
-      const result = await waitForResult(opts.explorerApiUrl, guid, request.address);
+      const result = await waitForResult(
+        opts.explorerApiUrl,
+        guid,
+        request.address,
+      );
       if (/pass|already verified/i.test(result)) return "verified";
-      log(`${request.contractName} ${request.address}: attempt ${attempt} → ${result}`);
+      log(
+        `${request.contractName} ${request.address}: attempt ${attempt} → ${result}`,
+      );
     } catch (e) {
-      log(`${request.contractName} ${request.address}: attempt ${attempt} → ${e instanceof Error ? e.message : e}`);
+      log(
+        `${request.contractName} ${request.address}: attempt ${attempt} → ${e instanceof Error ? e.message : e}`,
+      );
     }
     // A fresh contract may not be indexed by the explorer yet; a queued job may finish late.
     await sleep(attempt * 20_000);
-    if (await isVerified(opts.explorerApiUrl, request.address)) return "verified";
+    if (await isVerified(opts.explorerApiUrl, request.address))
+      return "verified";
   }
   return "failed";
 }
 
 /**
- * Verify a launched pair's PairVault using constructor values read from chain.
- * The vault is its own ERC-20 share token, so `receipt` mirrors the vault outcome.
+ * Verify the PairVault and CreatorToken implementations behind the live factory
+ * and curve. Every launched clone becomes verified with them.
  */
-export async function verifyPairContracts(
+export async function verifyLaunchImplementations(
   client: PublicClient,
   opts: VerifierOptions,
-  pair: Address,
-): Promise<{ vault: VerifyOutcome; receipt: VerifyOutcome }> {
+  contracts: { factory: Address; curve?: Address },
+): Promise<{
+  implementations: LaunchImplementations;
+  outcomes: Record<ImplementationName, VerifyOutcome>;
+}> {
+  const implementations = await readLaunchImplementations(client, contracts);
   const inputs = loadInputs(opts.inputsDir);
+  const outcomes: Record<ImplementationName, VerifyOutcome> = {
+    PairVault: "skipped",
+    CreatorToken: "skipped",
+  };
   if (!inputs) {
-    opts.log?.(`verification inputs missing in ${opts.inputsDir} (run scripts/export-verification-inputs.sh)`);
-    return { vault: "skipped", receipt: "skipped" };
+    opts.log?.(
+      `verification inputs missing in ${opts.inputsDir} (run pnpm verification:export)`,
+    );
+    return { implementations, outcomes };
   }
-
-  const read = <T>(functionName: (typeof vaultAbi)[number]["name"]) =>
-    client.readContract({ address: pair, abi: vaultAbi, functionName }) as Promise<T>;
-  const [creator, tokenA, tokenB, weightABps, creatorFeeBps, oracle, emergency, weth, factory, name, symbol] =
-    await Promise.all([
-      read<Address>("creator"),
-      read<Address>("tokenA"),
-      read<Address>("tokenB"),
-      read<number>("weightABps"),
-      read<number>("creatorFeeBps"),
-      read<Address>("oracle"),
-      read<Address>("emergency"),
-      read<Address>("weth"),
-      read<Address>("factory"),
-      read<string>("name"),
-      read<string>("symbol"),
-    ]);
-
-  const vaultArgs = encodeAbiParameters(
-    [
+  for (const name of IMPLEMENTATION_NAMES) {
+    const address = implementations[name];
+    const input = inputs.sources[name];
+    if (!address || !input) continue;
+    outcomes[name] = await verifyContract(
+      opts,
       {
-        type: "tuple",
-        components: [
-          { name: "creator", type: "address" },
-          { name: "tokenA", type: "address" },
-          { name: "tokenB", type: "address" },
-          { name: "weightABps", type: "uint16" },
-          { name: "creatorFeeBps", type: "uint16" },
-          { name: "oracle", type: "address" },
-          { name: "emergency", type: "address" },
-          { name: "weth", type: "address" },
-          { name: "factory", type: "address" },
-        ],
+        address,
+        contractName: `src/${name}.sol:${name}`,
+        input,
+        constructorArgs: "0x",
       },
-      { type: "string" },
-      { type: "string" },
-    ],
-    [{ creator, tokenA, tokenB, weightABps, creatorFeeBps, oracle, emergency, weth, factory }, name, symbol],
-  );
-
-  const vault = await verifyContract(
-    opts,
-    { address: pair, contractName: "src/PairVault.sol:PairVault", input: inputs.pairVault, constructorArgs: vaultArgs },
-    inputs.compilerVersion,
-  );
-  const receipt = vault;
-  return { vault, receipt };
+      inputs.compilerVersion,
+    );
+  }
+  return { implementations, outcomes };
 }
 
-/** Runs verification jobs one at a time and never twice for the same pair. */
-export function createVerificationQueue(run: (pair: Address) => Promise<void>) {
-  const seen = new Set<string>();
-  let tail: Promise<void> = Promise.resolve();
-  return (pair: Address) => {
-    const key = pair.toLowerCase();
-    if (seen.has(key)) return;
-    seen.add(key);
-    tail = tail.then(() => run(pair)).catch(() => undefined);
-  };
+/**
+ * Explorer status of one launched contract: a minimal proxy counts as verified as
+ * soon as its implementation is.
+ */
+export async function launchedContractStatus(
+  client: PublicClient,
+  explorerApiUrl: string,
+  address: Address,
+): Promise<{ implementation: Address | null; verified: boolean }> {
+  const code = await client.getCode({ address });
+  const implementation = minimalProxyTarget(code);
+  const verified = await isVerified(explorerApiUrl, implementation ?? address);
+  return { implementation, verified };
 }
