@@ -181,8 +181,9 @@ services:
   web:
     build:
       context: .
-      dockerfile: Dockerfile.web
+      dockerfile: Dockerfile
       args:
+        SERVICE: web
         NEXT_PUBLIC_USE_TESTNET: ${NEXT_PUBLIC_USE_TESTNET:-true}
         NEXT_PUBLIC_PRIVY_APP_ID: ${NEXT_PUBLIC_PRIVY_APP_ID:-}
         NEXT_PUBLIC_VAULT_ADDRESS: ${NEXT_PUBLIC_VAULT_ADDRESS:-}

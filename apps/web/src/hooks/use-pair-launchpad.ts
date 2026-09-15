@@ -222,13 +222,28 @@ export interface LaunchPairInput {
   minShares: bigint;
   /** Pay this WETH leg with native ETH instead of WETH */
   nativeLeg?: Address | null;
+  /** Also open a Uniswap v3 share/quote pool seeded with part of the shares. */
+  pool?: {
+    /** Share of the seed shares moved into the pool (bps, ≤ 5000) */
+    shareBps: number;
+    /** Quote token the factory prices the pool in (PairFactory.poolQuoteToken) */
+    quoteToken: Address;
+    /** Cap on quote tokens pulled (raw units) */
+    maxQuoteAmount: bigint;
+  };
 }
 
 export interface LaunchPairResult {
   pair: Address;
   receiptToken: Address;
   hash: Hash;
+  /** Uniswap v4 PoolId seeded at launch, if requested */
+  pool?: `0x${string}`;
 }
+
+const PoolSeededEvent = parseAbiItem(
+  "event PoolSeeded(address indexed pair, bytes32 indexed poolId, address indexed creator, uint256 positionId, uint256 shares, uint256 quoteAmount)",
+);
 
 /** Approve both seed tokens (skipping a native-ETH leg), then launch + seed in one tx. */
 export function useLaunchPair() {
@@ -254,6 +269,11 @@ export function useLaunchPair() {
           await approveIfNeeded(input.tokenB, PAIR_FACTORY_ADDRESS, input.amountB, { onSubmitted });
         }
 
+        if (input.pool) {
+          setStage("approve-b");
+          await approveIfNeeded(input.pool.quoteToken, PAIR_FACTORY_ADDRESS, input.pool.maxQuoteAmount, { onSubmitted });
+        }
+
         setStage("submit");
         const value =
           native === input.tokenA.toLowerCase()
@@ -261,39 +281,57 @@ export function useLaunchPair() {
             : native === input.tokenB.toLowerCase()
               ? input.amountB
               : 0n;
+        const params = {
+          tokenA: input.tokenA,
+          tokenB: input.tokenB,
+          weightABps: input.weightABps,
+          creatorFeeBps: input.creatorFeeBps,
+          receiptName: input.receiptName,
+          receiptSymbol: input.receiptSymbol,
+          amountA: input.amountA,
+          amountB: input.amountB,
+          minShares: input.minShares,
+        };
         const { hash, receipt } = await send(
-          {
-            address: PAIR_FACTORY_ADDRESS,
-            abi: pairFactoryAbi,
-            functionName: "launchPair",
-            args: [
-              {
-                tokenA: input.tokenA,
-                tokenB: input.tokenB,
-                weightABps: input.weightABps,
-                creatorFeeBps: input.creatorFeeBps,
-                receiptName: input.receiptName,
-                receiptSymbol: input.receiptSymbol,
-                amountA: input.amountA,
-                amountB: input.amountB,
-                minShares: input.minShares,
+          input.pool
+            ? {
+                address: PAIR_FACTORY_ADDRESS,
+                abi: pairFactoryAbi,
+                functionName: "launchPairWithPool",
+                args: [params, { poolShareBps: input.pool.shareBps, maxQuoteAmount: input.pool.maxQuoteAmount }],
+                value,
+              }
+            : {
+                address: PAIR_FACTORY_ADDRESS,
+                abi: pairFactoryAbi,
+                functionName: "launchPair",
+                args: [params],
+                value,
               },
-            ],
-            value,
-          },
           { onSubmitted },
         );
 
+        let launched: { pair: Address; receiptToken: Address } | undefined;
+        let pool: `0x${string}` | undefined;
         for (const log of receipt.logs) {
           try {
-            const decoded = decodeEventLog({ abi: [PairLaunchedEvent], data: log.data, topics: log.topics });
-            setStage("done");
-            return { pair: decoded.args.pair, receiptToken: decoded.args.receiptToken, hash };
+            const decoded = decodeEventLog({
+              abi: [PairLaunchedEvent, PoolSeededEvent],
+              data: log.data,
+              topics: log.topics,
+            });
+            if (decoded.eventName === "PairLaunched") {
+              launched = { pair: decoded.args.pair, receiptToken: decoded.args.receiptToken };
+            } else if (decoded.eventName === "PoolSeeded") {
+              pool = decoded.args.poolId;
+            }
           } catch {
             continue;
           }
         }
-        throw new Error("Launch confirmed, but the pair address was not found in the receipt.");
+        if (!launched) throw new Error("Launch confirmed, but the pair address was not found in the receipt.");
+        setStage("done");
+        return { ...launched, hash, pool };
       } catch (e) {
         return fail(e);
       }
@@ -394,4 +432,48 @@ export function usePairRedeem(pair: Address | undefined) {
   );
 
   return { execute, stage: s.stage, error: s.error, pendingHash: s.pendingHash, reset: s.reset };
+}
+
+// ─── DEX pool ───────────────────────────────────────────
+
+export interface PoolConfig {
+  enabled: boolean;
+  quoteToken: Address | undefined;
+  maxShareBps: number;
+}
+
+/** Whether the factory seeds a Uniswap v3 pool at launch, and in which quote token. */
+export function usePoolConfig(): { data: PoolConfig | undefined; isLoading: boolean } {
+  const query = useReadContracts({
+    contracts: [
+      { address: PAIR_FACTORY_ADDRESS, abi: pairFactoryAbi, functionName: "poolEnabled" },
+      { address: PAIR_FACTORY_ADDRESS, abi: pairFactoryAbi, functionName: "poolQuoteToken" },
+      { address: PAIR_FACTORY_ADDRESS, abi: pairFactoryAbi, functionName: "MAX_POOL_SHARE_BPS" },
+    ],
+    query: { enabled: pairFactoryReady, staleTime: 60_000 },
+  });
+  const r = query.data;
+  const ok = (i: number) => r?.[i]?.status === "success";
+  const data: PoolConfig | undefined =
+    r && ok(0)
+      ? {
+          enabled: Boolean(r[0]!.result),
+          quoteToken: ok(1) ? (r[1]!.result as Address) : undefined,
+          maxShareBps: ok(2) ? Number(r[2]!.result) : 5_000,
+        }
+      : undefined;
+  return { data, isLoading: query.isLoading };
+}
+
+/** Uniswap v4 PoolId for a launched pair (undefined if launched without a pool). */
+export function usePairPool(pair: Address | undefined): `0x${string}` | undefined {
+  const { data } = useReadContract({
+    address: PAIR_FACTORY_ADDRESS,
+    abi: pairFactoryAbi,
+    functionName: "poolIdOf",
+    args: pair ? [pair] : undefined,
+    query: { enabled: !!pair && pairFactoryReady, staleTime: 60_000 },
+  });
+  const id = data as `0x${string}` | undefined;
+  return id && !/^0x0+$/.test(id) ? id : undefined;
 }

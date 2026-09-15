@@ -253,6 +253,8 @@ export const launchedPairs = pgTable(
     websiteUrl: text("website_url").notNull().default(""),
     /** Which token is the quote/numeraire leg (Long.xyz concept) */
     numeraireTicker: text("numeraire_ticker").notNull().default(""),
+    /** Uniswap v3 pool seeded at launch (share token vs USDG); empty if none */
+    poolAddress: text("pool_address").notNull().default(""),
     /** PairFactory that launched the pair (hides pairs from older deployments) */
     factoryAddress: text("factory_address").notNull().default(""),
     status: text("status").notNull().default("active"),

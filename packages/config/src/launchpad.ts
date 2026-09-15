@@ -30,6 +30,17 @@ export const LAUNCHPAD_CONFIG = {
   depositPresets: [10, 25, 50, 100, 250] as const,
   /** Max deviation of the seed's value split from the target weight (on-chain) */
   weightToleranceBps: 300,
+  /** DEX pool seeded at launch (Uniswap v3, share token vs USDG) */
+  pool: {
+    /** Default share of the creator's seed shares moved into the pool */
+    defaultShareBps: 2_000,
+    /** On-chain cap (PairFactory.MAX_POOL_SHARE_BPS) */
+    maxShareBps: 5_000,
+    /** Fee tier of the seeded pool */
+    feeBps: 30,
+    /** Slack added to the quote amount cap to absorb NAV drift between quote and mine */
+    quoteBufferBps: 100,
+  },
 } as const;
 
 /**

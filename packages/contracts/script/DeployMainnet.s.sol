@@ -10,6 +10,7 @@ import {EmergencyRegistry} from "../src/EmergencyRegistry.sol";
 import {ExecutionRouter} from "../src/ExecutionRouter.sol";
 import {StrategyVault} from "../src/StrategyVault.sol";
 import {PairFactory} from "../src/PairFactory.sol";
+import {PairDeployer} from "../src/PairDeployer.sol";
 import {UniswapV3SwapAdapter} from "../src/UniswapV3SwapAdapter.sol";
 
 /// @title DeployMainnet — deploys Novex protocol against real Robinhood Chain tokens
@@ -122,7 +123,7 @@ contract DeployMainnet is Script {
 
         // ─── 3. Launchpad ──────────────────────────────────
         // Tokens are listed with pairFactory.setTokenListed() once their feeds exist.
-        pairFactory = new PairFactory(deployer, address(oracle), address(emergency), WETH);
+        pairFactory = new PairFactory(deployer, address(oracle), address(emergency), WETH, address(new PairDeployer()));
 
         // ─── 4. Price feeds + asset approvals ──────────────
         for (uint256 i; i < tokens.length; ++i) {

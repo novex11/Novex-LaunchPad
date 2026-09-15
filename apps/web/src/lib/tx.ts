@@ -90,6 +90,15 @@ const REVERT_MESSAGES: Array<[string, string]> = [
   ["ERC20InsufficientBalance", "Not enough token balance in your wallet."],
   ["ERC20InsufficientAllowance", "Token approval is missing or too low. Retry to approve again."],
   ["ReceiptToken: non-transferable", "Pair receipts can't be transferred."],
+  ["PairVault: not operator", "Enable selling for this pair first."],
+  ["PairRouter: slippage too high", "Slippage can be at most 3%."],
+  ["PairRouter: below oracle floor", "The swap price is too far from the market price. Try a smaller amount."],
+  ["too little received", "The swap price moved beyond your slippage. Try a smaller amount or raise slippage."],
+  ["PairRouter: slippage", "The price moved since your quote. Refresh and retry."],
+  ["PairRouter: expired", "Your quote expired. Refresh and retry."],
+  ["PairRouter: pair not seeded", "This pair has no liquidity yet."],
+  ["PairRouter: corporate action pending", "A stock split or dividend is pending for one of these stocks. Trading resumes after it takes effect."],
+  ["TestUSDG: cooldown", "You already claimed test USDG in the last hour."],
   // Managed baskets
   ["StrategyVault: deposits paused", "Basket deposits are paused by the protocol."],
   ["StrategyVault: multiplier pending", "A stock split or dividend is pending for this stock. Deposits resume after it takes effect."],
@@ -108,7 +117,6 @@ const REVERT_MESSAGES: Array<[string, string]> = [
   ["ExecutionRouter: unapproved", "One of the basket lines can't be swapped yet. Exclude it and retry."],
   ["ExecutionRouter: slippage", "A swap would fill too far below the oracle price. Try a smaller amount."],
   ["UniswapV3SwapAdapter: slippage", "A swap would fill too far below the oracle price. Try a smaller amount."],
-  ["Too little received", "A swap would fill too far below the oracle price. Try a smaller amount."],
   ["ReentrancyGuardReentrantCall", "The transaction was rejected. Retry."],
 ];
 

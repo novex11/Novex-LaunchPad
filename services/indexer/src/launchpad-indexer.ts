@@ -19,9 +19,13 @@ import {
   pairFactoryAddress,
 } from "./chain-client.js";
 import * as launchpadStore from "./launchpad-store.js";
+import { recordAndPublishSnapshot } from "./pair-live.js";
 
 const PairLaunchedEvent = parseAbiItem(
   "event PairLaunched(address indexed pair, address indexed receiptToken, address indexed creator, address tokenA, address tokenB, uint16 weightABps, uint16 creatorFeeBps)",
+);
+const PoolSeededEvent = parseAbiItem(
+  "event PoolSeeded(address indexed pair, address indexed pool, address indexed creator, uint256 positionId, uint256 shares, uint256 quoteAmount)",
 );
 const DepositedEvent = parseAbiItem(
   "event Deposited(address indexed user, uint256 amountA, uint256 amountB, uint256 sharesMinted, uint256 feeShares, uint256 navUsd8)",
@@ -31,6 +35,7 @@ const RedeemedEvent = parseAbiItem(
 );
 
 type LaunchLog = Log<bigint, number, false, typeof PairLaunchedEvent>;
+type PoolLog = Log<bigint, number, false, typeof PoolSeededEvent>;
 type DepositLog = Log<bigint, number, false, typeof DepositedEvent>;
 type RedeemLog = Log<bigint, number, false, typeof RedeemedEvent>;
 
@@ -46,12 +51,15 @@ const vaultAbi = parseAbi([
   "function weightABps() view returns (uint16)",
   "function creatorFeeBps() view returns (uint16)",
   "function receiptToken() view returns (address)",
+  "function navUsd8() view returns (uint256)",
+  "function sharePrice() view returns (uint256)",
+  "function totalShares() view returns (uint256)",
 ]);
 const factoryAbi = parseAbi(["function isPair(address) view returns (bool)"]);
 const oracleAbi = parseAbi(["function getPriceUnchecked(address) view returns (uint256)"]);
 
 const CHUNK = BigInt(process.env.INDEXER_LOG_CHUNK ?? 5_000);
-const POLL_MS = Number(process.env.INDEXER_POLL_MS ?? 4_000);
+const POLL_MS = Number(process.env.INDEXER_POLL_MS ?? 1_500);
 const VERIFICATION_INPUTS_DIR = fileURLToPath(new URL("../verification", import.meta.url));
 
 /** Without a configured start block, only look back this far on first sync. */
@@ -267,6 +275,37 @@ export function startLaunchpadIndexer(): (() => void) | null {
     queueVerification(pair);
   }
 
+  /** Chart point right after a buy/sell, read at the event's block. */
+  async function snapshotAtBlock(pair: Address, blockNumber: bigint, createdAt: Date) {
+    const readAll = (atBlock?: bigint) =>
+      Promise.all([
+        client!.readContract({ address: pair, abi: vaultAbi, functionName: "navUsd8", blockNumber: atBlock }),
+        client!.readContract({ address: pair, abi: vaultAbi, functionName: "sharePrice", blockNumber: atBlock }),
+        client!.readContract({ address: pair, abi: vaultAbi, functionName: "totalShares", blockNumber: atBlock }),
+      ]);
+    try {
+      let values: [bigint, bigint, bigint];
+      try {
+        values = await readAll(blockNumber);
+      } catch {
+        values = await readAll();
+      }
+      const [nav8, price8, shares] = values;
+      const navUsd = Number(nav8) / 1e8;
+      await recordAndPublishSnapshot(db!, {
+        pairAddress: pair,
+        navUsd,
+        sharePrice: Number(price8) / 1e8,
+        totalShares: shares.toString(),
+        createdAt,
+        reason: "trade",
+      });
+      await launchpadStore.updatePairTvl(db!, pair, navUsd);
+    } catch (e) {
+      console.error(`[launchpad-indexer] snapshot ${pair} failed:`, e instanceof Error ? e.message : e);
+    }
+  }
+
   async function handleDeposit(log: DepositLog) {
     const info = pairs.get(log.address.toLowerCase());
     const { user, amountA, amountB, sharesMinted, feeShares } = log.args;
@@ -295,6 +334,7 @@ export function startLaunchpadIndexer(): (() => void) | null {
     });
     if (row) {
       console.log(`[launchpad-indexer] Deposit ${log.address} $${valueUsd.toFixed(2)} by ${user}`);
+      await snapshotAtBlock(log.address, log.blockNumber, createdAt);
     }
   }
 
@@ -302,6 +342,7 @@ export function startLaunchpadIndexer(): (() => void) | null {
     const { user, sharesBurned, amountA, amountB, valueUsd8 } = log.args;
     if (!pairs.has(log.address.toLowerCase()) || !user || log.blockNumber == null || !log.transactionHash) return;
     const valueUsd = Number(valueUsd8 ?? 0n) / 1e8;
+    const createdAt = await blockTime(client!, log.blockNumber);
     const row = await launchpadStore.recordPairRedeem(db!, {
       pairAddress: log.address,
       wallet: user,
@@ -311,11 +352,19 @@ export function startLaunchpadIndexer(): (() => void) | null {
       sharesBurned: (sharesBurned ?? 0n).toString(),
       txHash: log.transactionHash,
       logIndex: log.logIndex ?? 0,
-      createdAt: await blockTime(client!, log.blockNumber),
+      createdAt,
     });
     if (row) {
       console.log(`[launchpad-indexer] Redeem ${log.address} $${valueUsd.toFixed(2)} by ${user}`);
+      await snapshotAtBlock(log.address, log.blockNumber, createdAt);
     }
+  }
+
+  async function handlePoolSeeded(log: PoolLog) {
+    const { pair, pool } = log.args;
+    if (!pair || !pool) return;
+    await launchpadStore.setPairPool(db!, pair, pool);
+    console.log(`[launchpad-indexer] PoolSeeded ${pair} -> ${pool}`);
   }
 
   async function processRange(from: bigint, to: bigint) {
@@ -326,6 +375,14 @@ export function startLaunchpadIndexer(): (() => void) | null {
       toBlock: to,
     });
     for (const log of launches) await handleLaunch(log as LaunchLog);
+
+    const poolLogs = await client!.getLogs({
+      address: factory!,
+      event: PoolSeededEvent,
+      fromBlock: from,
+      toBlock: to,
+    });
+    for (const log of poolLogs) await handlePoolSeeded(log as PoolLog);
 
     if (pairs.size > 0) {
       const logs = await client!.getLogs({

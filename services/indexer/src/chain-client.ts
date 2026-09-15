@@ -53,6 +53,14 @@ export function oracleAddress(): `0x${string}` | undefined {
   return isHexAddress(value) ? value : undefined;
 }
 
+/** NovexCurve (creator tokens); the synced deployment file on testnet, env on mainnet. */
+export function novexCurveAddress(): `0x${string}` | undefined {
+  const value = USE_TESTNET
+    ? testnetDeployment().contracts.novexCurve
+    : (process.env.NOVEX_CURVE_ADDRESS ?? process.env.NEXT_PUBLIC_NOVEX_CURVE_ADDRESS);
+  return isHexAddress(value) ? value : undefined;
+}
+
 /** Blockscout (Etherscan-compatible) API base for source verification. */
 export function explorerApiUrl(): string {
   const base =

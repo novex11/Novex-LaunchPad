@@ -30,11 +30,20 @@ import {
   isUSMarketHours,
 } from "@novex/config";
 import { fetchLaunchpadPair, type PairHistoryRange } from "@/lib/api";
-import { isWeth, pairVaultAbi, receiptTokenAbi } from "@/lib/contracts";
+import {
+  PAIR_FACTORY_ADDRESS,
+  isWeth,
+  pairFactoryAbi,
+  pairFactoryReady,
+  pairRouterReady,
+  pairVaultAbi,
+  receiptTokenAbi,
+} from "@/lib/contracts";
 import {
   useOraclePrices,
   usePairDeposit,
   usePairOnchain,
+  usePairPool,
   usePairRedeem,
   useTokenBalances,
   type TxStage,
@@ -42,6 +51,8 @@ import {
 import { useWallet } from "@/hooks/use-wallet";
 import { useQuotes } from "@/hooks/use-quotes";
 import { usePairHistory } from "@/hooks/use-pair-history";
+import { usePairLive } from "@/hooks/use-pair-live";
+import { PairAreaChart } from "@/components/pair/pair-area-chart";
 import { cn, explorerUrl, formatUsd } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -54,7 +65,10 @@ import { DualLogoStack } from "@/components/launchpad/dual-logo-stack";
 import { AddressChip } from "@/components/launchpad/address-chip";
 import { StageProgressList, type ProgressStep } from "@/components/launchpad/stage-progress";
 import { DepositAmountField } from "@/components/launchpad/deposit-amount-field";
-import { PairChart, type PairChartMetric } from "@/components/pair/pair-chart";
+import type { PairChartMetric } from "@/components/pair/pair-chart";
+import { TradeMethodPicker, TradePanel, type TradeMethod } from "@/components/pair/trade-panel";
+import { CreatorRewards } from "@/components/pair/creator-rewards";
+import { PairTokenCard } from "@/components/token/pair-token-card";
 
 const spring = { type: "spring", stiffness: 100, damping: 20 } as const;
 const LEG_B_ACCENT = "#3D8BFF";
@@ -87,21 +101,37 @@ export default function PairDetailContent({ address }: { address: string }) {
   const [lastStage, setLastStage] = useState<TxStage | null>(null);
   const [chartRange, setChartRange] = useState<PairHistoryRange>("24h");
   const [chartMetric, setChartMetric] = useState<PairChartMetric>("navUsd");
+  const [tradeMethod, setTradeMethod] = useState<TradeMethod>(pairRouterReady ? "ETH" : "STOCKS");
+  // PairRouter only trades pairs from the current factory; older pairs trade in stocks only.
+  const routerPairCheck = useReadContract({
+    address: PAIR_FACTORY_ADDRESS,
+    abi: pairFactoryAbi,
+    functionName: "isPair",
+    args: pairAddress ? [pairAddress] : undefined,
+    query: { enabled: !!pairAddress && pairRouterReady && pairFactoryReady },
+  });
+  const routerSupported = routerPairCheck.data as boolean | undefined;
+  const activeMethod: TradeMethod = routerSupported ? tradeMethod : "STOCKS";
 
   // Off-chain profile + activity (optional — the page works from chain data alone)
   const detail = useQuery({
     queryKey: ["pair-detail", pairAddress?.toLowerCase()],
     queryFn: () => fetchLaunchpadPair(pairAddress!),
     enabled: !!pairAddress,
-    refetchInterval: 20_000,
+    refetchInterval: 10_000,
     retry: 1,
   });
   const meta = detail.data?.pair;
   const activity = detail.data?.activity;
 
   const onchain = usePairOnchain(pairAddress);
+  const poolAddress = usePairPool(pairAddress);
   const chain = onchain.data;
   const historyQuery = usePairHistory(pairAddress, chartRange);
+  // Live snapshots: a buy/sell or price move shows up within seconds.
+  const live = usePairLive(pairAddress, () => {
+    void onchain.refetch();
+  });
   const historyPoints = historyQuery.data?.points ?? [];
 
   const tokenAMeta = chain ? getTokenByAddress(chain.tokenA) : undefined;
@@ -301,6 +331,16 @@ export default function PairDetailContent({ address }: { address: string }) {
     }
   }
 
+  function refreshAfterTrade() {
+    void onchain.refetch();
+    void receiptBalance.refetch();
+    refetchBalances();
+    qc.invalidateQueries({ queryKey: ["pair-detail", pairAddress?.toLowerCase()] });
+    qc.invalidateQueries({ queryKey: ["pair-history"] });
+    qc.invalidateQueries({ queryKey: ["launchpad-pairs"] });
+    qc.invalidateQueries({ queryKey: ["launchpad-stats"] });
+  }
+
   if (!pairAddress) {
     return <NotFound message="That is not a valid pair address." />;
   }
@@ -415,6 +455,12 @@ export default function PairDetailContent({ address }: { address: string }) {
           {isTestnetMode() ? "Robinhood Chain Testnet" : "Robinhood Chain"}
         </span>
         <AddressChip address={pairAddress} label="Pair" />
+        {poolAddress && (
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-2.5 py-1 font-mono text-[11px]" title={poolAddress}>
+            <span className="label-caps">Uniswap v4 pool</span>
+            {poolAddress.slice(0, 10)}…{poolAddress.slice(-6)}
+          </span>
+        )}
         <AddressChip address={chain.receiptToken} label="Receipt" />
         <AddressChip address={chain.creator} label="Creator" />
       </div>
@@ -430,46 +476,31 @@ export default function PairDetailContent({ address }: { address: string }) {
       <div className="mt-10 grid gap-8 lg:grid-cols-12">
         {/* Left: chart + legs + creator + activity */}
         <div className="lg:col-span-7">
-          <section className="mb-6 rounded-[1.5rem] border border-border bg-surface p-5">
-            <div className="mb-3 flex items-center justify-between">
-              <div className="flex items-center gap-1 rounded-full border border-border bg-surface-muted p-1">
-                {(
-                  [
-                    ["navUsd", "TVL"],
-                    ["sharePrice", "Share price"],
-                  ] as const
-                ).map(([metric, label]) => (
-                  <button
-                    key={metric}
-                    type="button"
-                    onClick={() => setChartMetric(metric)}
-                    className={cn(
-                      "rounded-full px-3 py-1 font-mono text-[11px] font-semibold uppercase tracking-wide transition-all",
-                      chartMetric === metric
-                        ? "bg-foreground text-background"
-                        : "text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-              {historyQuery.data?.source === "reconstructed" && (
-                <span className="rounded-full bg-amber-500/10 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide text-amber-600 dark:text-amber-400">
-                  Warming up
-                </span>
-              )}
-            </div>
-            <PairChart
-              points={historyPoints}
-              metric={chartMetric}
-              range={chartRange}
-              onRangeChange={setChartRange}
-              title={chartMetric === "navUsd" ? "On-chain TVL" : "Share price"}
-              loading={historyQuery.isLoading}
-              height={280}
-            />
-          </section>
+          <PairAreaChart
+            className="mb-6"
+            points={historyPoints}
+            metric={chartMetric}
+            onMetricChange={setChartMetric}
+            range={chartRange}
+            onRangeChange={setChartRange}
+            loading={historyQuery.isLoading}
+            connected={live.connected}
+            live={
+              live.last
+                ? {
+                    timestamp: live.last.timestamp,
+                    value: chartMetric === "navUsd" ? live.last.navUsd : live.last.sharePrice,
+                  }
+                : undefined
+            }
+            stats={[
+              { label: "Price", value: sharePriceUsd !== undefined ? `$${sharePriceUsd.toFixed(4)}` : "—" },
+              { label: "Market cap", value: formatUsd(navUsd) },
+              { label: "Creator fee", value: `${(feeBps / 100).toFixed(1)}%` },
+              { label: "Market", value: poolAddress ? "Uniswap v3" : "Novex vault" },
+            ]}
+            height={340}
+          />
 
           <section className="grid gap-3 sm:grid-cols-2">
             <LegCard
@@ -575,6 +606,30 @@ export default function PairDetailContent({ address }: { address: string }) {
         {/* Right: deposit / redeem */}
         <aside className="lg:col-span-5">
           <div className="lg:sticky lg:top-24">
+            <PairTokenCard
+              className="mb-4"
+              pair={pairAddress}
+              share={chain.receiptToken}
+              isCreator={isCreator}
+              userShares={userShares}
+              sharePriceUsd={sharePriceUsd}
+            />
+            {isCreator && (
+              <CreatorRewards
+                className="mb-4"
+                pair={pairAddress}
+                chain={chain}
+                symbol={symbol}
+                tickerA={tickerA}
+                tickerB={tickerB}
+                decA={decA}
+                decB={decB}
+                userShares={userShares}
+                sharePriceUsd={sharePriceUsd}
+                routerSupported={routerSupported}
+                onDone={refreshAfterTrade}
+              />
+            )}
             <div className="overflow-hidden rounded-[1.75rem] border border-border bg-surface shadow-float">
               <div className="flex border-b border-border-subtle">
                 {(["deposit", "redeem"] as const).map((t) => (
@@ -587,13 +642,44 @@ export default function PairDetailContent({ address }: { address: string }) {
                       tab === t ? "bg-accent-subtle text-accent-strong" : "text-muted-foreground hover:text-foreground",
                     )}
                   >
-                    {t}
+                    {t === "deposit" ? "Buy" : "Sell"}
                   </button>
                 ))}
               </div>
 
-              {tab === "deposit" ? (
+              {activeMethod !== "STOCKS" ? (
                 <div className="p-5">
+                  <TradeMethodPicker
+                    mode={tab === "deposit" ? "buy" : "sell"}
+                    value={activeMethod}
+                    onChange={setTradeMethod}
+                    supported={routerSupported}
+                  />
+                  <TradePanel
+                    mode={tab === "deposit" ? "buy" : "sell"}
+                    asset={activeMethod}
+                    pair={pairAddress}
+                    chain={chain}
+                    symbol={symbol}
+                    tickerA={tickerA}
+                    tickerB={tickerB}
+                    decA={decA}
+                    decB={decB}
+                    priceA8={priceA8}
+                    priceB8={priceB8}
+                    isCreator={isCreator}
+                    userShares={userShares}
+                    sharePriceUsd={sharePriceUsd}
+                    account={wallet.address}
+                    authenticated={wallet.authenticated}
+                    walletReady={wallet.ready}
+                    onLogin={wallet.login}
+                    onDone={refreshAfterTrade}
+                  />
+                </div>
+              ) : tab === "deposit" ? (
+                <div className="p-5">
+                  <TradeMethodPicker mode="buy" value={activeMethod} onChange={setTradeMethod} supported={routerSupported} />
                   <DepositAmountField
                     id="pair-usd"
                     label="USD value to deposit"
@@ -685,6 +771,7 @@ export default function PairDetailContent({ address }: { address: string }) {
                 </div>
               ) : (
                 <div className="p-5">
+                  <TradeMethodPicker mode="sell" value={activeMethod} onChange={setTradeMethod} supported={routerSupported} />
                   <p className="text-sm">
                     Your <span className="font-mono">{symbol}</span> balance
                   </p>

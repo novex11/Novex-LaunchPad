@@ -5,7 +5,7 @@
  *   - packages/config/src/testnet-deployments.json
  *   - .env (testnet launchpad vars; clears addresses left from the old mock deploy)
  */
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, statSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -46,9 +46,54 @@ const config = {
     oracle: contracts.oracle ?? "",
     emergency: contracts.emergency ?? "",
     priceFeedUpdater: contracts.priceFeedUpdater ?? "",
+    pairRouter: "",
+    swapRouter: "",
+    usdg: "",
+    usdgFeed: "",
+    novexCurve: "",
+    curveRouter: "",
   },
   syncedAt: new Date().toISOString(),
 };
+
+// DeployTestnetRouter (USDG/ETH buy & sell) deploys a newer PairFactory on the
+// same oracle. Only apply it if it is newer than the base deployment.
+const routerPath = join(root, "packages/contracts/deployments-testnet-router.json");
+if (existsSync(routerPath) && statSync(routerPath).mtimeMs >= statSync(deployPath).mtimeMs) {
+  const r = JSON.parse(readFileSync(routerPath, "utf8"));
+  config.contracts.pairFactory = r.pairFactory;
+  config.contracts.pairRouter = r.pairRouter;
+  config.contracts.swapRouter = r.swapRouter;
+  config.contracts.usdg = r.usdg;
+  config.contracts.usdgFeed = r.usdgFeed;
+  const routerBroadcast = join(root, "packages/contracts/broadcast/DeployTestnetRouter.s.sol/46630/run-latest.json");
+  if (existsSync(routerBroadcast)) {
+    const receipts = JSON.parse(readFileSync(routerBroadcast, "utf8")).receipts ?? [];
+    const blocks = receipts.map((rc) => parseInt(rc.blockNumber, 16)).filter(Number.isFinite);
+    if (blocks.length) config.startBlock = Math.min(...blocks);
+  }
+}
+
+// DeployTestnetCurve (bonding curve) deploys a newer PairFactory + PairRouter
+// with transferable pair shares; apply it when it is the most recent deployment.
+const curvePath = join(root, "packages/contracts/deployments-testnet-curve.json");
+const newestOther = Math.max(
+  statSync(deployPath).mtimeMs,
+  existsSync(routerPath) ? statSync(routerPath).mtimeMs : 0,
+);
+if (existsSync(curvePath) && statSync(curvePath).mtimeMs >= newestOther) {
+  const cv = JSON.parse(readFileSync(curvePath, "utf8"));
+  config.contracts.pairFactory = cv.pairFactory;
+  config.contracts.pairRouter = cv.pairRouter;
+  config.contracts.novexCurve = cv.novexCurve;
+  config.contracts.curveRouter = cv.curveRouter;
+  const curveBroadcast = join(root, "packages/contracts/broadcast/DeployTestnetCurve.s.sol/46630/run-latest.json");
+  if (existsSync(curveBroadcast)) {
+    const receipts = JSON.parse(readFileSync(curveBroadcast, "utf8")).receipts ?? [];
+    const blocks = receipts.map((rc) => parseInt(rc.blockNumber, 16)).filter(Number.isFinite);
+    if (blocks.length) config.startBlock = Math.min(...blocks);
+  }
+}
 
 writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
 console.log("✅  Updated", configPath);
@@ -90,5 +135,10 @@ console.log("\n📋  Testnet launchpad:");
 console.log("   PairFactory:      ", config.contracts.pairFactory);
 console.log("   OracleAdapter:    ", config.contracts.oracle);
 console.log("   PriceFeedUpdater: ", config.contracts.priceFeedUpdater);
+if (config.contracts.pairRouter) {
+  console.log("   PairRouter:       ", config.contracts.pairRouter);
+  console.log("   SwapRouter (test):", config.contracts.swapRouter);
+  console.log("   TestUSDG:         ", config.contracts.usdg);
+}
 console.log("   Start block:      ", config.startBlock);
 console.log("\n   Restart dev servers: pnpm dev:testnet");

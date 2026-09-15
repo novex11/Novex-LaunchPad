@@ -308,6 +308,138 @@ export async function fetchPairHistory(
   return parseJson(res);
 }
 
+export type PairCandleInterval = "1m" | "5m" | "15m" | "1h";
+export type PairCandleMetric = "navUsd" | "sharePrice";
+
+export interface PairCandle {
+  /** Bucket start (ISO) */
+  time: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+}
+
+export interface PairCandlesResponse {
+  interval: PairCandleInterval;
+  metric: PairCandleMetric;
+  candles: PairCandle[];
+}
+
+export async function fetchPairCandles(
+  address: string,
+  interval: PairCandleInterval,
+  metric: PairCandleMetric,
+): Promise<PairCandlesResponse> {
+  const res = await fetch(
+    `${INDEXER_URL}/launchpad/pair/${address}/candles?interval=${interval}&metric=${metric}`,
+    { cache: "no-store" },
+  );
+  return parseJson(res);
+}
+
+/** Pushed by the indexer the moment a pair trades or its price moves. */
+export interface PairLiveSnapshot {
+  pairAddress: string;
+  navUsd: number;
+  sharePrice: number;
+  totalShares: string;
+  timestamp: string;
+  reason: "trade" | "tick";
+}
+
+export function pairStreamUrl(address: string): string {
+  return `${INDEXER_URL}/launchpad/pair/${address.toLowerCase()}/stream`;
+}
+
+/** Creator fee shares already cashed out (18-decimal string). */
+export async function fetchCreatorClaims(address: string): Promise<{ claimedShares: string }> {
+  const res = await fetch(`${INDEXER_URL}/launchpad/pair/${address.toLowerCase()}/creator-claims`, {
+    cache: "no-store",
+  });
+  return parseJson(res);
+}
+
+// ─── Bonding-curve creator tokens ───────────────────────
+
+export interface CurveToken {
+  tokenAddress: string;
+  pairAddress: string;
+  shareAddress: string;
+  creatorWallet: string;
+  name: string;
+  symbol: string;
+  graduated: boolean;
+  priceUsd: number;
+  marketCapUsd: number;
+  startMarketCapUsd: number;
+  graduationMarketCapUsd: number;
+  sharePriceUsd: number;
+  progressBps: number;
+  tradesCount: number;
+  txHash: string;
+  createdAt: string;
+  tickerA?: string;
+  tickerB?: string;
+  pairName?: string;
+  volume24hUsd?: number;
+}
+
+export interface CurveTrade {
+  trader: string;
+  isBuy: boolean;
+  shares: string;
+  tokens: string;
+  priceUsd: number;
+  marketCapUsd: number;
+  valueUsd: number;
+  txHash: string;
+  timestamp: string;
+}
+
+/** Pushed by the indexer for every trade of a creator token. */
+export interface TokenLiveTrade extends CurveTrade {
+  tokenAddress: string;
+}
+
+export async function fetchCurveTokens(sort: "new" | "mcap" = "new"): Promise<{ tokens: CurveToken[] }> {
+  const res = await fetch(`${INDEXER_URL}/launchpad/tokens?sort=${sort}`, { cache: "no-store" });
+  return parseJson(res);
+}
+
+export async function fetchCurveToken(address: string): Promise<{ token: CurveToken; trades: CurveTrade[] }> {
+  const res = await fetch(`${INDEXER_URL}/launchpad/token/${address.toLowerCase()}`, { cache: "no-store" });
+  return parseJson(res);
+}
+
+export async function fetchTokenCandles(
+  address: string,
+  interval: PairCandleInterval,
+): Promise<{ interval: PairCandleInterval; candles: PairCandle[] }> {
+  const res = await fetch(
+    `${INDEXER_URL}/launchpad/token/${address.toLowerCase()}/candles?interval=${interval}`,
+    { cache: "no-store" },
+  );
+  return parseJson(res);
+}
+
+export function tokenStreamUrl(address: string): string {
+  return `${INDEXER_URL}/launchpad/token/${address.toLowerCase()}/stream`;
+}
+
+/** Record a confirmed claim transaction; the indexer verifies it on-chain. */
+export async function recordCreatorClaim(
+  address: string,
+  txHash: string,
+): Promise<{ ok: true; claimedShares: string; recordedShares: string }> {
+  const res = await fetch(`${INDEXER_URL}/launchpad/pair/${address.toLowerCase()}/creator-claims`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ txHash }),
+  });
+  return parseJson(res);
+}
+
 export async function fetchLaunchpadByCreator(
   wallet: string,
 ): Promise<{ pairs: LaunchpadPair[] }> {

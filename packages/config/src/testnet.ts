@@ -25,6 +25,17 @@ export interface TestnetDeployment {
     oracle: string;
     emergency: string;
     priceFeedUpdater: string;
+    /** USDG/ETH buy & sell router (DeployTestnetRouter). */
+    pairRouter?: string;
+    /** Oracle-priced Uniswap stand-in (testnet has no Uniswap). */
+    swapRouter?: string;
+    /** 6-decimal TestUSDG with a public faucet. */
+    usdg?: string;
+    usdgFeed?: string;
+    /** Bonding-curve creator tokens (DeployTestnetCurve). */
+    novexCurve?: string;
+    /** Buy/sell creator tokens with ETH or USDG. */
+    curveRouter?: string;
   };
   syncedAt?: string;
 }
