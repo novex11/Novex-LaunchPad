@@ -6,12 +6,14 @@ import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, Info, Stack, WarningCircle } from "@phosphor-icons/react";
 import { formatUnits } from "viem";
+import { BASKET_CONFIG, applySlippage } from "@novex/config";
 import { formatUsd } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import { recordRedeem } from "@/lib/api";
 import { contractsReady } from "@/lib/contracts";
-import { useVaultRedeem } from "@/hooks/useContracts";
+import { useDepositTokenPrice, useVaultRedeem } from "@/hooks/useContracts";
 import {
+  RECEIPT_SHARE_DECIMALS,
   useReceiptPositions,
   type OnChainReceiptPosition,
 } from "@/hooks/use-receipt-positions";
@@ -46,31 +48,57 @@ export default function RedeemPage() {
   const list = positions.data ?? [];
   const active: OnChainReceiptPosition | undefined = list[selectedIdx];
   const onchainRedeem = useVaultRedeem(active?.vaultAddress);
+  const { priceUsd8: depositPriceUsd8 } = useDepositTokenPrice(active?.vaultAddress);
 
   const grossValue = active?.valueUsd ?? 0;
-  const externalCosts = grossValue * 0.0016 + 0.05;
+  // Worst case the vault will accept: the on-chain value minus the slippage tolerance.
+  const slippagePct = BASKET_CONFIG.slippageBps / 10_000;
+  const externalCosts = grossValue * slippagePct;
   const minReceived = Math.max(0, grossValue - externalCosts);
   const hasBasket = list.length > 0;
+  const needsOraclePrice = mode === "original";
+  const pricingReady = !needsOraclePrice || (depositPriceUsd8 != null && depositPriceUsd8 > 0n);
+
+  /** `minOut` in the units `StrategyVault.redeem` expects for each mode. */
+  function minOutFor(position: OnChainReceiptPosition): bigint {
+    const valueUsd8 = position.valueUsd8;
+    switch (mode) {
+      case "original": {
+        if (!depositPriceUsd8 || depositPriceUsd8 <= 0n) throw new Error("Deposit token price unavailable. Retry in a moment.");
+        // deposit-asset wei: valueUsd8 / priceUsd8 scaled to 18 decimals
+        return applySlippage((valueUsd8 * 10n ** 18n) / depositPriceUsd8);
+      }
+      case "basket":
+        return applySlippage(valueUsd8); // USD8
+      case "usdg":
+        return applySlippage(valueUsd8 / 100n); // USDG has 6 decimals
+    }
+  }
 
   async function handleRedeem() {
     if (!wallet.address || !active) return;
     setConfirming(true);
     setError(null);
     try {
-      let txHash: string | undefined;
-      if (contractsReady && active.receiptBalance > 0n) {
-        txHash = await onchainRedeem.execute({
-          shares: active.receiptBalance,
-          mode: MODE_TO_CHAIN[mode],
-          minOut: 0n,
-        });
+      if (!contractsReady || active.receiptBalance <= 0n) {
+        throw new Error("Nothing to redeem on-chain for this receipt.");
       }
-      await recordRedeem({
-        wallet: wallet.address,
-        valueUsd: minReceived,
-        vaultId: active.receiptSymbol,
-        txHash,
+      const txHash = await onchainRedeem.execute({
+        shares: active.receiptBalance,
+        mode: MODE_TO_CHAIN[mode],
+        minOut: minOutFor(active),
       });
+      // Confirmed on-chain from here; the indexer also sees the Redeemed event.
+      try {
+        await recordRedeem({
+          wallet: wallet.address,
+          valueUsd: grossValue,
+          vaultId: active.receiptSymbol,
+          txHash,
+        });
+      } catch {
+        // ledger catches up from the chain
+      }
       qc.invalidateQueries({ queryKey: ["portfolio"] });
       qc.invalidateQueries({ queryKey: ["receipt-positions"] });
       qc.invalidateQueries({ queryKey: ["activity"] });
@@ -161,7 +189,7 @@ export default function RedeemPage() {
                     <div className="text-right">
                       <p className="font-mono text-sm tabular-nums">{formatUsd(pos.valueUsd)}</p>
                       <p className="font-mono text-[11px] tabular-nums text-muted-foreground">
-                        {Number(formatUnits(pos.receiptBalance, 18)).toFixed(3)} shares
+                        {Number(formatUnits(pos.receiptBalance, RECEIPT_SHARE_DECIMALS)).toFixed(3)} shares
                       </p>
                     </div>
                   </button>
@@ -222,8 +250,8 @@ export default function RedeemPage() {
               <Info size={16} className="mt-0.5 shrink-0" />
               <p>
                 Redemption uses live on-chain share price. Receipt tokens are burned and
-                assets are sent to your wallet in one transaction.
-                {!contractsReady && " Contracts not deployed — redemption recorded off-chain only."}
+                assets are sent to your wallet in one transaction. It reverts if you would
+                receive more than {(slippagePct * 100).toFixed(1)}% less than the quoted value.
               </p>
             </div>
           </div>
@@ -243,7 +271,7 @@ export default function RedeemPage() {
                   <div className="flex justify-between">
                     <dt className="text-muted-foreground">Receipt balance</dt>
                     <dd className="tabular-nums">
-                      {Number(formatUnits(active!.receiptBalance, 18)).toFixed(3)}
+                      {Number(formatUnits(active!.receiptBalance, RECEIPT_SHARE_DECIMALS)).toFixed(3)}
                     </dd>
                   </div>
                   <div className="flex justify-between">
@@ -255,7 +283,7 @@ export default function RedeemPage() {
                     <dd className="tabular-nums">{formatUsd(grossValue)}</dd>
                   </div>
                   <div className="flex justify-between">
-                    <dt className="text-muted-foreground">Est. external costs</dt>
+                    <dt className="text-muted-foreground">Slippage tolerance ({(slippagePct * 100).toFixed(1)}%)</dt>
                     <dd className="tabular-nums text-destructive">−{formatUsd(externalCosts)}</dd>
                   </div>
                   <div className="flex justify-between border-t border-border pt-3 text-base">
@@ -270,7 +298,7 @@ export default function RedeemPage() {
                       {error}
                     </p>
                   )}
-                  <Button className="w-full" size="lg" variant="inverse" disabled={confirming} onClick={handleRedeem}>
+                  <Button className="w-full" size="lg" variant="inverse" disabled={confirming || !pricingReady} onClick={handleRedeem}>
                     {confirming ? "Processing…" : "Confirm redemption"}
                     {!confirming && <ArrowRight size={16} weight="bold" />}
                   </Button>

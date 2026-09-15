@@ -3,7 +3,9 @@ pragma solidity ^0.8.24;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {ReceiptToken} from "./ReceiptToken.sol";
 import {OracleAdapter} from "./OracleAdapter.sol";
 import {AllocationController} from "./AllocationController.sol";
@@ -12,7 +14,7 @@ import {EmergencyRegistry} from "./EmergencyRegistry.sol";
 import {ExecutionRouter} from "./ExecutionRouter.sol";
 
 /// @title StrategyVault — ERC-4626-style vault for managed stock baskets
-contract StrategyVault is Ownable {
+contract StrategyVault is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     ReceiptToken public receiptToken;
@@ -63,6 +65,7 @@ contract StrategyVault is Ownable {
         uint256 amountOut
     );
     event CashbackForwarded(address indexed user, uint256 amount);
+    event TvlCapUpdated(uint256 tvlCapUsd8);
 
     constructor(
         address owner_,
@@ -89,6 +92,14 @@ contract StrategyVault is Ownable {
         tvlCapUsd8 = tvlCapUsd8_;
     }
 
+    // ─── Admin ──────────────────────────────────────────────
+
+    /// @notice Raise or lower the USD TVL cap (owner is the VaultFactory for factory vaults).
+    function setTvlCapUsd8(uint256 newCap) external onlyOwner {
+        tvlCapUsd8 = newCap;
+        emit TvlCapUpdated(newCap);
+    }
+
     // ─── Views ──────────────────────────────────────────────
 
     function basketTokenCount() external view returns (uint256) {
@@ -101,6 +112,7 @@ contract StrategyVault is Ownable {
     }
 
     /// @notice Net asset value: sum of all basket token balances priced via oracle
+    ///         (staleness-checked, so deposits never mint against a dead feed).
     function navUsd8() public view returns (uint256 total) {
         for (uint256 i; i < basketTokens.length; ++i) {
             address token = basketTokens[i];
@@ -111,9 +123,27 @@ contract StrategyVault is Ownable {
         }
     }
 
+    /// @notice NAV using the latest feed answers without the staleness check, so a
+    ///         late keeper can never lock holders out of redeeming.
+    function navUsd8Unchecked() public view returns (uint256 total) {
+        for (uint256 i; i < basketTokens.length; ++i) {
+            address token = basketTokens[i];
+            uint256 bal = IERC20(token).balanceOf(address(this));
+            if (bal > 0) {
+                total += _tokenValueUnchecked(token, bal);
+            }
+        }
+    }
+
+    function _tokenValueUnchecked(address token, uint256 rawAmount) internal view returns (uint256) {
+        uint256 price = oracle.getPriceUnchecked(token);
+        return (rawAmount * price) / (10 ** IERC20Metadata(token).decimals());
+    }
+
     // ─── Deposit ────────────────────────────────────────────
 
-    function deposit(DepositParams calldata params) external returns (uint256 sharesMinted) {
+    function deposit(DepositParams calldata params) external nonReentrant returns (uint256 sharesMinted) {
+        require(params.amount > 0, "StrategyVault: zero amount");
         require(!emergency.depositsPaused(), "StrategyVault: deposits paused");
         require(
             !oracle.isMultiplierPending(depositAsset),
@@ -127,13 +157,19 @@ contract StrategyVault is Ownable {
         );
         require(valid, reason);
 
-        // Snapshot NAV and price BEFORE transfer (fixes share-dilution bug)
+        // The retained (un-swapped) part of every deposit stays in the vault, so the
+        // deposit asset always counts toward NAV even when it is not a basket line.
+        _registerBasketToken(depositAsset);
+
+        // Snapshot NAV and price BEFORE transfer so existing holders are not diluted
         uint256 navBefore = navUsd8();
         uint256 priceBefore = totalShares == 0
             ? 1e18
             : (navBefore * 1e18) / totalShares;
+        require(priceBefore > 0, "StrategyVault: zero price");
 
         uint256 depositValue8 = oracle.getTokenValueUsd(depositAsset, params.amount);
+        require(depositValue8 > 0, "StrategyVault: zero value");
         require(navBefore + depositValue8 <= tvlCapUsd8, "StrategyVault: TVL cap");
 
         // Pull deposit asset from user
@@ -142,8 +178,13 @@ contract StrategyVault is Ownable {
         // Execute basket swaps via ExecutionRouter
         _executeBasketSwaps(params);
 
-        // Mint receipt shares based on pre-transfer price
-        sharesMinted = (depositValue8 * 1e18) / priceBefore;
+        // Mint shares for the value that actually landed in the vault after swaps, so
+        // swap slippage is borne by the depositor (and bounded by minShares) instead of
+        // diluting existing holders.
+        uint256 navAfter = navUsd8();
+        uint256 valueAdded8 = navAfter > navBefore ? navAfter - navBefore : 0;
+        sharesMinted = (valueAdded8 * 1e18) / priceBefore;
+        require(sharesMinted > 0, "StrategyVault: zero shares");
         require(sharesMinted >= params.minShares, "StrategyVault: slippage");
         totalShares += sharesMinted;
         receiptToken.mint(msg.sender, sharesMinted);
@@ -154,17 +195,20 @@ contract StrategyVault is Ownable {
         emit Deposited(msg.sender, params.amount, sharesMinted, navUsd8());
     }
 
+    function _registerBasketToken(address token) internal {
+        if (!isBasketToken[token]) {
+            isBasketToken[token] = true;
+            basketTokens.push(token);
+        }
+    }
+
     function _executeBasketSwaps(DepositParams calldata params) internal {
         uint256 totalSwapAmount;
 
         // First pass: register tokens and tally swap total
         for (uint256 i; i < params.basketTokens.length; ++i) {
             address token = params.basketTokens[i];
-
-            if (!isBasketToken[token]) {
-                isBasketToken[token] = true;
-                basketTokens.push(token);
-            }
+            _registerBasketToken(token);
 
             if (token == depositAsset) continue;
             uint256 legAmount = (params.amount * params.basketWeightsBps[i]) / 10_000;
@@ -184,11 +228,13 @@ contract StrategyVault is Ownable {
             uint256 legAmount = (params.amount * params.basketWeightsBps[i]) / 10_000;
             if (legAmount == 0) continue;
 
+            // Per-leg floor: ExecutionRouter enforces its oracle-based maxSlippageBps
+            // on every swap; minShares bounds the total value received.
             uint256 amountOut = executionRouter.executeSwap(
                 depositAsset,
                 token,
                 legAmount,
-                0, // per-leg minOut: overall minShares protects against slippage
+                0,
                 address(this)
             );
 
@@ -223,17 +269,18 @@ contract StrategyVault is Ownable {
 
     // ─── Redeem ─────────────────────────────────────────────
 
-    function redeem(uint256 shares, RedeemMode mode, uint256 minOut) external {
+    function redeem(uint256 shares, RedeemMode mode, uint256 minOut) external nonReentrant {
         require(shares > 0, "StrategyVault: zero shares");
         require(
             receiptToken.balanceOf(msg.sender) >= shares,
             "StrategyVault: insufficient shares"
         );
 
-        // Compute value and ratio BEFORE burning
-        uint256 price = sharePrice();
-        uint256 valueUsd8 = (shares * price) / 1e18;
+        // Compute value and ratio BEFORE burning. Valuation uses unchecked prices so
+        // exits stay possible while a feed is stale; swap-based modes still go
+        // through the router's oracle floor.
         uint256 shareRatio = (shares * 1e18) / totalShares;
+        uint256 valueUsd8 = (navUsd8Unchecked() * shareRatio) / 1e18;
 
         // Burn receipt shares
         receiptToken.burn(msg.sender, shares);
@@ -295,7 +342,7 @@ contract StrategyVault is Ownable {
             uint256 amountOut = (tokenBal * shareRatio) / 1e18;
             if (amountOut > 0) {
                 IERC20(token).safeTransfer(msg.sender, amountOut);
-                totalValueUsd8 += oracle.getTokenValueUsd(token, amountOut);
+                totalValueUsd8 += _tokenValueUnchecked(token, amountOut);
             }
         }
         // minOut interpreted as USD8 minimum for proportional mode

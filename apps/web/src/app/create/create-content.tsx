@@ -12,15 +12,21 @@ import {
   DEPOSIT_ASSETS,
   STRATEGIES,
   basketAmountPresets,
+  isPlaceholderAddress,
   isTestnetMode,
   type StrategyId,
   getTokenByTicker,
   receiptTokenName,
 } from "@novex/config";
-import { parseEther } from "viem";
+import { parseUnits } from "viem";
 import { fetchDepositCosts, recordDeposit, type DepositCosts } from "@/lib/api";
 import { basketsAvailable, contractsReady } from "@/lib/contracts";
-import { useApproveAndDeposit, useDepositTokenPrice } from "@/hooks/useContracts";
+import {
+  minSharesFor,
+  useApproveAndDeposit,
+  useDepositTokenPrice,
+  useVaultSharePrice,
+} from "@/hooks/useContracts";
 import { useResolveVault } from "@/hooks/use-resolve-vault";
 import { useWallet } from "@/hooks/use-wallet";
 import { useRewardPreview } from "@/hooks/use-reward-preview";
@@ -42,21 +48,50 @@ const spring = { type: "spring", stiffness: 100, damping: 20 } as const;
 const AMOUNT_PRESETS = basketAmountPresets();
 const ALL_DEPOSIT_TICKERS = DEPOSIT_ASSETS.map((t) => t.ticker);
 
-/** Convert fractional weights to integer bps that sum to exactly 10,000. */
-function weightsToBps(weights: number[]): bigint[] {
+/**
+ * Convert fractional weights to integer bps that sum to exactly 10,000 without
+ * pushing any line over `capBps` (the strategy's on-chain single-stock limit),
+ * so largest-remainder rounding can never trip `AllocationController`.
+ */
+export function weightsToBps(weights: number[], capBps = 10_000): bigint[] {
   const total = weights.reduce((a, b) => a + b, 0) || 1;
   const raw = weights.map((w) => (w / total) * 10_000);
-  const bps = raw.map(Math.floor);
+  const bps = raw.map((r) => Math.min(capBps, Math.floor(r)));
   let remainder = 10_000 - bps.reduce((a, b) => a + b, 0);
   const order = raw
     .map((r, i) => [r - Math.floor(r), i] as const)
     .sort((a, b) => b[0] - a[0]);
-  for (const [, i] of order) {
-    if (remainder <= 0) break;
-    bps[i]! += 1;
-    remainder -= 1;
+  // Hand out the remainder one bp at a time, always to a line with room.
+  while (remainder > 0) {
+    let placed = false;
+    for (const [, i] of order) {
+      if (remainder <= 0) break;
+      if (bps[i]! >= capBps) continue;
+      bps[i]! += 1;
+      remainder -= 1;
+      placed = true;
+    }
+    if (!placed) break; // every line at cap: the allocator already reported a violation
   }
   return bps.map((b) => BigInt(b));
+}
+
+/** Resolve allocation tickers to deployed token addresses, or explain why not. */
+function resolveBasketTokens(allocation: Array<{ ticker: string }>): `0x${string}`[] {
+  const missing: string[] = [];
+  const addresses: `0x${string}`[] = [];
+  for (const line of allocation) {
+    const token = getTokenByTicker(line.ticker);
+    if (!token || isPlaceholderAddress(token.address)) {
+      missing.push(line.ticker);
+      continue;
+    }
+    addresses.push(token.address);
+  }
+  if (missing.length > 0) {
+    throw new Error(`${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} not deployed on-chain yet. Exclude ${missing.length === 1 ? "it" : "them"} and retry.`);
+  }
+  return addresses;
 }
 
 function Section({
@@ -106,7 +141,10 @@ export default function CreateBasketContent() {
 
   const resolvedVault = useResolveVault(depositTicker, strategy);
   const onchainDeposit = useApproveAndDeposit(resolvedVault.vaultAddress);
-  const { priceUsd: depositTokenPriceUsd } = useDepositTokenPrice(resolvedVault.vaultAddress);
+  const { priceUsd: depositTokenPriceUsd, priceUsd8: depositTokenPriceUsd8 } = useDepositTokenPrice(
+    resolvedVault.vaultAddress,
+  );
+  const { data: vaultSharePrice } = useVaultSharePrice(resolvedVault.vaultAddress);
   const [preferred, setPreferred] = useState<string[]>(["AAPL", "MSFT"]);
   const [excluded, setExcluded] = useState<string[]>([]);
   const [maxTokens, setMaxTokens] = useState<number>(5);
@@ -116,7 +154,7 @@ export default function CreateBasketContent() {
   const [failedAt, setFailedAt] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<{ txHash?: string } | null>(null);
+  const [success, setSuccess] = useState<{ txHash?: string; ledgerPending?: boolean } | null>(null);
 
   const depositUsd = Number(amountStr) || 0;
 
@@ -155,6 +193,9 @@ export default function CreateBasketContent() {
   const belowStockbackFloor = depositUsd > 0 && depositUsd < CASHBACK_CONFIG.minEligibleDepositUsd;
   const hasViolations = (data?.violations?.length ?? 0) > 0;
   const previewIsLive = preview.source === "allocator";
+  const pricingReady = Boolean(
+    depositTokenPriceUsd8 && depositTokenPriceUsd8 > 0n && vaultSharePrice != null,
+  );
   const canConfirm = Boolean(
     wallet.authenticated &&
       data &&
@@ -163,6 +204,7 @@ export default function CreateBasketContent() {
       health.indexer &&
       basketsAvailable &&
       resolvedVault.ready &&
+      pricingReady &&
       !hasViolations &&
       previewIsLive,
   );
@@ -185,44 +227,69 @@ export default function CreateBasketContent() {
     let current = "approve";
     setStage(current);
     try {
-      let hash: string | undefined;
-      if (contractsReady && resolvedVault.ready) {
-        const tokenAddress = resolvedVault.depositAsset ?? getTokenByTicker(depositTicker)?.address;
-        if (!tokenAddress) throw new Error(`Token ${depositTicker} not configured`);
-        if (!depositTokenPriceUsd || depositTokenPriceUsd <= 0) {
-          throw new Error("Cannot determine deposit token price");
-        }
-        const tokenAmount = depositUsd / depositTokenPriceUsd;
-        hash = await onchainDeposit.execute({
-          tokenAddress,
-          depositAmount: parseEther(tokenAmount.toFixed(18)),
-          basketTokens: data.allocation.map((a) => (getTokenByTicker(a.ticker)?.address ?? "0x0") as `0x${string}`),
-          basketWeightsBps: weightsToBps(data.allocation.map((a) => a.weight)),
-          minShares: 0n,
-          onStage: (s) => {
-            current = s === "mined" ? "record" : s;
-            setStage(current);
-          },
-        });
-        if (hash) setTxHash(hash);
+      // Baskets are always on-chain: never record a deposit that has no transaction.
+      if (!contractsReady || !resolvedVault.ready || !resolvedVault.vaultAddress) {
+        throw new Error(`No vault for ${depositTicker} · ${STRATEGIES[strategy].label} on this network.`);
       }
+      const depositToken = getTokenByTicker(depositTicker);
+      const tokenAddress = resolvedVault.depositAsset ?? depositToken?.address;
+      if (!tokenAddress || isPlaceholderAddress(tokenAddress)) {
+        throw new Error(`Token ${depositTicker} not configured`);
+      }
+      if (!depositTokenPriceUsd || depositTokenPriceUsd <= 0 || !depositTokenPriceUsd8 || vaultSharePrice == null) {
+        throw new Error("Cannot determine the deposit token price right now. Retry in a moment.");
+      }
+      if (data.violations?.length) throw new Error(data.violations[0]!);
+
+      const decimals = depositToken?.decimals ?? 18;
+      const tokenAmount = depositUsd / depositTokenPriceUsd;
+      const depositAmount = parseUnits(tokenAmount.toFixed(decimals), decimals);
+      const basketTokens = resolveBasketTokens(data.allocation);
+      const capBps = Math.round(STRATEGIES[strategy].maxSingleStock * 10_000);
+      const basketWeightsBps = weightsToBps(
+        data.allocation.map((a) => a.weight),
+        capBps,
+      );
+      const minShares = minSharesFor(depositAmount, depositTokenPriceUsd8, vaultSharePrice as bigint, decimals);
+
+      const { hash } = await onchainDeposit.execute({
+        tokenAddress,
+        depositAmount,
+        basketTokens,
+        basketWeightsBps,
+        minShares,
+        onStage: (s) => {
+          current = s === "mined" ? "record" : s;
+          setStage(current);
+        },
+      });
+      setTxHash(hash);
+
+      // The deposit is final on-chain from here. A ledger hiccup must not read as
+      // a failed deposit: the indexer also picks the event up from the chain.
       current = "record";
       setStage(current);
-      await recordDeposit({
-        wallet: wallet.address,
-        depositTicker,
-        depositUsd,
-        strategy,
-        openingNetUsd: data.openingNetUsd,
-        stockbackUsd: data.stockback.totalStockbackUsd,
-        allocation: data.allocation,
-        vaultId: receiptTokenName(depositTicker, strategy),
-        txHash: hash,
-      });
+      let ledgerPending = false;
+      try {
+        await recordDeposit({
+          wallet: wallet.address,
+          depositTicker,
+          depositUsd,
+          strategy,
+          openingNetUsd: data.openingNetUsd,
+          stockbackUsd: data.stockback.totalStockbackUsd,
+          allocation: data.allocation,
+          vaultId: receiptTokenName(depositTicker, strategy),
+          txHash: hash,
+        });
+      } catch {
+        ledgerPending = true;
+      }
       qc.invalidateQueries({ queryKey: ["portfolio"] });
       qc.invalidateQueries({ queryKey: ["activity"] });
+      qc.invalidateQueries({ queryKey: ["receipt-positions"] });
       setStage("done");
-      setSuccess({ txHash: hash });
+      setSuccess({ txHash: hash, ledgerPending });
     } catch (e) {
       setFailedAt(current);
       setStage("error");
@@ -260,7 +327,9 @@ export default function CreateBasketContent() {
               {formatUsd(depositUsd)} of {depositTicker} is now <span className="font-mono">{receipt}</span>
             </h1>
             <p className="mt-2 text-muted-foreground">
-              {data?.stockback.eligible && (data.stockback.totalStockbackUsd ?? 0) > 0 ? (
+              {success.ledgerPending ? (
+                <>Your basket is confirmed on-chain. The activity ledger will catch up from the chain shortly.</>
+              ) : data?.stockback.eligible && (data.stockback.totalStockbackUsd ?? 0) > 0 ? (
                 <>
                   Stockback of{" "}
                   <span className="font-mono font-semibold text-accent-strong">{formatUsd(data.stockback.totalStockbackUsd)}</span>{" "}
@@ -338,6 +407,12 @@ export default function CreateBasketContent() {
           <WarningCircle size={14} />
           No vault for {depositTicker} · {STRATEGIES[strategy].label} on this network.
           {isTestnetMode() && strategy !== "balanced" && " Testnet only has balanced vaults — switch strategy."}
+        </p>
+      )}
+      {basketsAvailable && wallet.authenticated && resolvedVault.ready && !pricingReady && (
+        <p className="mb-3 flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Info size={14} />
+          Waiting for the on-chain price of {depositTicker}…
         </p>
       )}
     </>
@@ -550,8 +625,8 @@ export default function CreateBasketContent() {
               notices={notices}
               footnote={
                 <>
-                  Redemption returns current basket value, not the original {depositTicker} quantity.
-                  {!contractsReady && " Contracts not yet deployed — deposit is recorded off-chain."}
+                  Redemption returns current basket value, not the original {depositTicker} quantity. Confirm reverts
+                  if swaps fill more than {(BASKET_CONFIG.slippageBps / 100).toFixed(1)}% below the oracle price.
                 </>
               }
             />
