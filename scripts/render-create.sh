@@ -69,14 +69,17 @@ NETWORK="${RENDER_NETWORK:-testnet}"
 if [[ "$NETWORK" == "mainnet" ]]; then
   USE_TESTNET=false
   EXPLORER_URL="https://robinhoodchain.blockscout.com"
-  # Addresses come from the committed mainnet-deployments.json; the .env copies
-  # (kept in sync by scripts/sync-mainnet-deployments.mjs) are passed as overrides.
-  ADDRESS_ENVS=(@NEXT_PUBLIC_PAIR_FACTORY_ADDRESS @NEXT_PUBLIC_ORACLE_ADAPTER_ADDRESS \
-    @NEXT_PUBLIC_COMPOSE_CURVE_ADDRESS @NEXT_PUBLIC_CURVE_ROUTER_ADDRESS @NEXT_PUBLIC_PAIR_ROUTER_ADDRESS)
+  # Addresses and the start block come ONLY from the committed
+  # packages/config/src/mainnet-deployments.json. Never pass the .env copies:
+  # dev-testnet / sync scripts rewrite .env to testnet values, and an override
+  # would silently point a mainnet service at a testnet factory.
+  ADDRESS_ENVS=()
+  START_BLOCK_ENV=()
 else
   USE_TESTNET=true
   EXPLORER_URL="https://explorer.testnet.chain.robinhood.com"
   ADDRESS_ENVS=(@NEXT_PUBLIC_PAIR_FACTORY_ADDRESS @NEXT_PUBLIC_ORACLE_ADAPTER_ADDRESS)
+  START_BLOCK_ENV=(@INDEXER_START_BLOCK)
 fi
 COMMON=("NEXT_PUBLIC_USE_TESTNET=${USE_TESTNET}" @ROBINHOOD_TESTNET_RPC_URL @ROBINHOOD_RPC_URL @ALCHEMY_API_KEY)
 
@@ -85,8 +88,7 @@ create_indexer() {
     MARK_TO_MARKET_INTERVAL_MS=60000 AUTO_VERIFY_CONTRACTS=true \
     "PUBLIC_INDEXER_URL=${INDEXER_URL}" "${COMMON[@]}" \
     @DATABASE_URL @REDIS_HOST @REDIS_PORT @REDIS_USERNAME @REDIS_PASSWORD \
-    @PAIR_FACTORY_ADDRESS "${ADDRESS_ENVS[@]}" \
-    @INDEXER_START_BLOCK @INTERNAL_API_KEY
+    "${ADDRESS_ENVS[@]}" "${START_BLOCK_ENV[@]}" @INTERNAL_API_KEY
 }
 
 create_allocator() {
