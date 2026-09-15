@@ -5,6 +5,7 @@ import {Script, console2} from "forge-std/Script.sol";
 import {OracleAdapter} from "../src/OracleAdapter.sol";
 import {EmergencyRegistry} from "../src/EmergencyRegistry.sol";
 import {PairFactory} from "../src/PairFactory.sol";
+import {PairDeployer} from "../src/PairDeployer.sol";
 import {PushPriceFeed} from "../src/PushPriceFeed.sol";
 import {PriceFeedUpdater} from "../src/PriceFeedUpdater.sol";
 
@@ -56,7 +57,7 @@ contract DeployTestnet is Script {
             oracle.setPriceFeed(tokens[i], feeds[i]);
         }
 
-        factory = new PairFactory(deployer, address(oracle), address(emergency), WETH);
+        factory = new PairFactory(deployer, address(oracle), address(emergency), WETH, address(new PairDeployer()));
         for (uint256 i; i < 6; ++i) {
             factory.setTokenListed(tokens[i], true);
         }

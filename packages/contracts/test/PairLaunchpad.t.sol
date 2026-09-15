@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import {PairFactory} from "../src/PairFactory.sol";
+import {PairDeployer} from "../src/PairDeployer.sol";
 import {PairVault} from "../src/PairVault.sol";
 import {ReceiptToken} from "../src/ReceiptToken.sol";
 import {OracleAdapter} from "../src/OracleAdapter.sol";
@@ -45,7 +46,7 @@ contract PairLaunchpadTest is Test {
         oracle.setPriceFeed(address(amd), address(amdFeed));
         oracle.setPriceFeed(address(weth), address(wethFeed));
 
-        factory = new PairFactory(address(this), address(oracle), address(emergency), address(weth));
+        factory = new PairFactory(address(this), address(oracle), address(emergency), address(weth), address(new PairDeployer()));
         factory.setTokenListed(address(tsla), true);
         factory.setTokenListed(address(amd), true);
         factory.setTokenListed(address(weth), true);
@@ -382,12 +383,14 @@ contract PairLaunchpadTest is Test {
         pair.redeem(1e18, 0, 0);
     }
 
-    function test_ReceiptNonTransferable() public {
+    function test_SharesAreTransferable() public {
         PairVault pair = _launch();
         ReceiptToken receipt = pair.receiptToken();
+        uint256 before = receipt.balanceOf(alice);
         vm.prank(alice);
-        vm.expectRevert("ReceiptToken: non-transferable");
         receipt.transfer(bob, 1e18);
+        assertEq(receipt.balanceOf(bob), 1e18);
+        assertEq(receipt.balanceOf(alice), before - 1e18);
     }
 
     // ─── Oracle feed + factory views ────────────────────────

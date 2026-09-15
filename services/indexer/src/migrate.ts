@@ -198,6 +198,7 @@ export async function ensureSchema(): Promise<void> {
       await sql`ALTER TABLE launched_pairs ADD COLUMN IF NOT EXISTS website_url text NOT NULL DEFAULT ''`;
       await sql`ALTER TABLE launched_pairs ADD COLUMN IF NOT EXISTS numeraire_ticker text NOT NULL DEFAULT ''`;
       await sql`ALTER TABLE launched_pairs ADD COLUMN IF NOT EXISTS volume_24h_usd numeric(18, 4) NOT NULL DEFAULT '0'`;
+      await sql`ALTER TABLE launched_pairs ADD COLUMN IF NOT EXISTS pool_address text NOT NULL DEFAULT ''`;
 
       await sql`
         CREATE TABLE IF NOT EXISTS launchpad_images (
@@ -258,6 +259,65 @@ export async function ensureSchema(): Promise<void> {
       await sql`DELETE FROM pair_redeems a USING pair_redeems b WHERE a.id < b.id AND a.tx_hash = b.tx_hash AND a.log_index = b.log_index`;
       await sql`CREATE UNIQUE INDEX IF NOT EXISTS pair_deposits_tx_log_idx ON pair_deposits (tx_hash, log_index)`;
       await sql`CREATE UNIQUE INDEX IF NOT EXISTS pair_redeems_tx_log_idx ON pair_redeems (tx_hash, log_index)`;
+
+      // ─── Creator fee claims (fee shares the creator has cashed out) ───
+      await sql`
+        CREATE TABLE IF NOT EXISTS creator_fee_claims (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          pair_address text NOT NULL,
+          creator_wallet text NOT NULL,
+          shares text NOT NULL,
+          tx_hash text NOT NULL,
+          created_at timestamp NOT NULL DEFAULT now()
+        )
+      `;
+      await sql`CREATE UNIQUE INDEX IF NOT EXISTS creator_fee_claims_tx_idx ON creator_fee_claims (tx_hash)`;
+      await sql`CREATE INDEX IF NOT EXISTS creator_fee_claims_pair_idx ON creator_fee_claims (pair_address)`;
+
+      // ─── Bonding-curve creator tokens ─────────────────
+      await sql`
+        CREATE TABLE IF NOT EXISTS curve_tokens (
+          token_address text PRIMARY KEY,
+          pair_address text NOT NULL,
+          share_address text NOT NULL,
+          creator_wallet text NOT NULL,
+          name text NOT NULL,
+          symbol text NOT NULL,
+          start_quote text NOT NULL,
+          virtual_quote text NOT NULL,
+          token_reserve text NOT NULL,
+          graduation_quote text NOT NULL,
+          graduated boolean NOT NULL DEFAULT false,
+          price_usd numeric(38, 18) NOT NULL DEFAULT '0',
+          market_cap_usd numeric(24, 4) NOT NULL DEFAULT '0',
+          start_market_cap_usd numeric(24, 4) NOT NULL DEFAULT '0',
+          share_price_usd numeric(18, 8) NOT NULL DEFAULT '1',
+          trades_count numeric NOT NULL DEFAULT '0',
+          tx_hash text NOT NULL DEFAULT '',
+          created_at timestamp NOT NULL DEFAULT now(),
+          updated_at timestamp NOT NULL DEFAULT now()
+        )
+      `;
+      await sql`CREATE INDEX IF NOT EXISTS curve_tokens_pair_idx ON curve_tokens (pair_address)`;
+      await sql`
+        CREATE TABLE IF NOT EXISTS curve_trades (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          token_address text NOT NULL,
+          trader text NOT NULL,
+          is_buy boolean NOT NULL,
+          shares text NOT NULL,
+          tokens text NOT NULL,
+          fee text NOT NULL,
+          price_usd numeric(38, 18) NOT NULL,
+          market_cap_usd numeric(24, 4) NOT NULL,
+          value_usd numeric(18, 4) NOT NULL,
+          tx_hash text NOT NULL,
+          log_index numeric NOT NULL DEFAULT '0',
+          created_at timestamp NOT NULL DEFAULT now()
+        )
+      `;
+      await sql`CREATE UNIQUE INDEX IF NOT EXISTS curve_trades_tx_log_idx ON curve_trades (tx_hash, log_index)`;
+      await sql`CREATE INDEX IF NOT EXISTS curve_trades_token_ts_idx ON curve_trades (token_address, created_at)`;
       await sql`
         CREATE TABLE IF NOT EXISTS indexer_cursor (
           id text PRIMARY KEY,

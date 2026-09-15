@@ -11,6 +11,7 @@ import {EmergencyRegistry} from "../src/EmergencyRegistry.sol";
 import {ExecutionRouter} from "../src/ExecutionRouter.sol";
 import {StrategyVault} from "../src/StrategyVault.sol";
 import {PairFactory} from "../src/PairFactory.sol";
+import {PairDeployer} from "../src/PairDeployer.sol";
 
 /// @title DeployMainnet — deploys Novex protocol against real Robinhood Chain tokens
 /// @notice No mocks. All token addresses are the real ERC-8056 contracts on
@@ -71,7 +72,7 @@ contract DeployMainnet is Script {
         // ─── 2. Deploy launchpad ───────────────────────────
         // Tokens are listed with pairFactory.setTokenListed() once their
         // Chainlink feeds are registered (listing requires a feed).
-        pairFactory = new PairFactory(msg.sender, address(oracle), address(emergency), WETH);
+        pairFactory = new PairFactory(msg.sender, address(oracle), address(emergency), WETH, address(new PairDeployer()));
 
         // ─── 3. Register Chainlink price feeds ─────────────
         // NOTE: Replace these with real Chainlink feed addresses on Robinhood Chain.

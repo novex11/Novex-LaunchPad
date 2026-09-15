@@ -5,6 +5,7 @@ import { positions, tvlSnapshots } from "./schema.js";
 import { eq } from "drizzle-orm";
 import * as jsonStore from "./store.js";
 import * as launchpadStore from "./launchpad-store.js";
+import { recordAndPublishSnapshot } from "./pair-live.js";
 import { pairFactoryAddress } from "./chain-client.js";
 
 const DEFAULT_VAULT_ID = receiptTokenName(
@@ -34,6 +35,11 @@ const receiptAbi = parseAbi([
 ]);
 
 const INTERVAL_MS = Number(process.env.MARK_TO_MARKET_INTERVAL_MS ?? 60_000);
+/** How often each pair's NAV / share price is sampled for live charts. */
+const PAIR_SNAPSHOT_INTERVAL_MS = Number(process.env.PAIR_SNAPSHOT_INTERVAL_MS ?? 10_000);
+/** An unchanged value is stored at most this often, keeping candles continuous. */
+const PAIR_HEARTBEAT_MS = Number(process.env.PAIR_SNAPSHOT_HEARTBEAT_MS ?? 60_000);
+const lastPairSnapshot = new Map<string, { navUsd: number; sharePrice: number; at: number }>();
 
 function getClient() {
   const rpcUrl = USE_TESTNET
@@ -175,12 +181,20 @@ async function snapshotAllPairs(): Promise<void> {
               }),
             ]);
             const navUsd = Number(navUsd8Raw) / 1e8;
-            await launchpadStore.recordPairSnapshot(db, {
+            // PairVault.sharePrice() is USD (8 decimals) per 1e18 shares
+            const sharePrice = Number(sharePriceRaw) / 1e8;
+            const key = pairAddress.toLowerCase();
+            const prev = lastPairSnapshot.get(key);
+            const now = Date.now();
+            const changed = !prev || prev.navUsd !== navUsd || prev.sharePrice !== sharePrice;
+            if (!changed && now - prev.at < PAIR_HEARTBEAT_MS) return;
+            lastPairSnapshot.set(key, { navUsd, sharePrice, at: now });
+            await recordAndPublishSnapshot(db, {
               pairAddress,
               navUsd,
-              // PairVault.sharePrice() is USD (8 decimals) per 1e18 shares
-              sharePrice: Number(sharePriceRaw) / 1e8,
+              sharePrice,
               totalShares: totalSharesRaw.toString(),
+              reason: "tick",
             });
             await launchpadStore.updatePairTvl(db, pairAddress, navUsd);
           } catch {
@@ -200,7 +214,6 @@ async function snapshotAllPairs(): Promise<void> {
 
 async function tick(): Promise<void> {
   await updatePortfolioValues();
-  await snapshotAllPairs();
 }
 
 export function startMarkToMarket(): NodeJS.Timeout | null {
@@ -224,5 +237,21 @@ export function startMarkToMarket(): NodeJS.Timeout | null {
   );
 
   tick();
+
+  // Pair charts sample much faster than portfolio marks; skip a round if the last is still running.
+  let pairRoundBusy = false;
+  const samplePairs = async () => {
+    if (pairRoundBusy) return;
+    pairRoundBusy = true;
+    try {
+      await snapshotAllPairs();
+    } finally {
+      pairRoundBusy = false;
+    }
+  };
+  void samplePairs();
+  setInterval(samplePairs, PAIR_SNAPSHOT_INTERVAL_MS).unref();
+  console.log(`[mark-to-market] Sampling pair prices every ${PAIR_SNAPSHOT_INTERVAL_MS / 1000}s`);
+
   return setInterval(tick, INTERVAL_MS);
 }

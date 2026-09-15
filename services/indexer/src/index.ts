@@ -4,6 +4,7 @@ import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { requestId } from "hono/request-id";
 import { secureHeaders } from "hono/secure-headers";
+import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import { desc, sql, eq } from "drizzle-orm";
 import * as jsonStore from "./store.js";
@@ -17,6 +18,13 @@ import { startChainListener } from "./chain-listener.js";
 import { ensurePairIndexed, startLaunchpadIndexer } from "./launchpad-indexer.js";
 import { getPublicClient, pairFactoryAddress } from "./chain-client.js";
 import { startMarkToMarket } from "./mark-to-market.js";
+import { subscribePairSnapshots } from "./pair-live.js";
+import { getPairCandles, isCandleInterval } from "./pair-candles.js";
+import { ClaimError, getClaimedShares, recordCreatorClaim } from "./creator-claims.js";
+import { startCurveIndexer } from "./curve-indexer.js";
+import * as curveStore from "./curve-store.js";
+import { subscribeTokenTrades } from "./pair-live.js";
+import { CANDLE_INTERVALS } from "./pair-candles.js";
 import { redisConfigured, getRedis, closeRedis } from "./redis.js";
 import {
   storeImage,
@@ -733,6 +741,136 @@ app.get("/launchpad/pair/:address/history", async (c) => {
   return c.json({ range, points: reconstructed, source: "reconstructed" });
 });
 
+// ─── Bonding-curve creator tokens ───────────────────────
+
+async function tokenJson(row: curveStore.CurveTokenRow, withVolume = false) {
+  const pair = await launchpadStore.getPair(db!, row.pairAddress);
+  return curveStore.toTokenJson(row, {
+    tickerA: pair?.tickerA ?? "",
+    tickerB: pair?.tickerB ?? "",
+    pairName: pair?.displayName ?? "",
+    ...(withVolume ? { volume24hUsd: await curveStore.volume24hUsd(db!, row.tokenAddress) } : {}),
+  });
+}
+
+app.get("/launchpad/tokens", async (c) => {
+  if (!useDb) return c.json({ tokens: [] });
+  const sort = c.req.query("sort") === "mcap" ? "mcap" : "new";
+  const limit = Math.min(200, Math.max(1, Number(c.req.query("limit") ?? 100) || 100));
+  const rows = await curveStore.listTokens(db!, { sort, limit });
+  return c.json({ tokens: await Promise.all(rows.map((r) => tokenJson(r))) }, 200, { "Cache-Control": "no-store" });
+});
+
+app.get("/launchpad/token/:address", async (c) => {
+  if (!useDb) return c.json({ error: "DB not configured" }, 503);
+  const row = await curveStore.getToken(db!, c.req.param("address"));
+  if (!row) return c.json({ error: "Token not found" }, 404);
+  const trades = await curveStore.getTrades(db!, row.tokenAddress, 50);
+  return c.json(
+    { token: await tokenJson(row, true), trades: trades.map(curveStore.toTradeJson) },
+    200,
+    { "Cache-Control": "no-store" },
+  );
+});
+
+app.get("/launchpad/pair/:address/token", async (c) => {
+  if (!useDb) return c.json({ token: null });
+  const row = await curveStore.getTokenByPair(db!, c.req.param("address"));
+  return c.json({ token: row ? await tokenJson(row) : null }, 200, { "Cache-Control": "no-store" });
+});
+
+/** Market-cap candles from real trades. */
+app.get("/launchpad/token/:address/candles", async (c) => {
+  const interval = c.req.query("interval") ?? "1m";
+  if (!isCandleInterval(interval)) return c.json({ error: "interval must be 1m, 5m, 15m or 1h" }, 400);
+  if (!useDb) return c.json({ interval, candles: [] });
+  const row = await curveStore.getToken(db!, c.req.param("address"));
+  if (!row) return c.json({ interval, candles: [] });
+  const limit = Math.min(500, Math.max(10, Number(c.req.query("limit") ?? 180) || 180));
+  const candles = await curveStore.getTokenCandles(db!, row, CANDLE_INTERVALS[interval], limit);
+  return c.json({ interval, candles }, 200, { "Cache-Control": "no-store" });
+});
+
+/** Server-sent events: every trade of a creator token as it is indexed. */
+app.get("/launchpad/token/:address/stream", (c) => {
+  const address = c.req.param("address").toLowerCase();
+  return streamSSE(c, async (stream) => {
+    let open = true;
+    const unsubscribe = subscribeTokenTrades(address, (trade) => {
+      void stream.writeSSE({ event: "trade", data: JSON.stringify(trade) });
+    });
+    stream.onAbort(() => {
+      open = false;
+      unsubscribe();
+    });
+    while (open) {
+      await stream.writeSSE({ event: "ping", data: String(Date.now()) });
+      await stream.sleep(15_000);
+    }
+  });
+});
+
+/** Creator fee shares already cashed out for a pair. */
+app.get("/launchpad/pair/:address/creator-claims", async (c) => {
+  if (!useDb) return c.json({ claimedShares: "0" });
+  const claimed = await getClaimedShares(db!, c.req.param("address"));
+  return c.json({ claimedShares: claimed.toString() }, 200, { "Cache-Control": "no-store" });
+});
+
+/** Record a creator reward claim; the redeem is verified from the transaction receipt. */
+app.post("/launchpad/pair/:address/creator-claims", async (c) => {
+  if (!useDb) return c.json({ error: "DB not configured" }, 503);
+  const client = getPublicClient();
+  if (!client) return c.json({ error: "RPC not configured" }, 503);
+  const body = (await c.req.json().catch(() => ({}))) as { txHash?: unknown };
+  const txHash = typeof body.txHash === "string" ? body.txHash : "";
+  if (!/^0x[0-9a-fA-F]{64}$/.test(txHash)) return c.json({ error: "txHash is required" }, 400);
+  try {
+    const result = await recordCreatorClaim(db!, client, c.req.param("address"), txHash);
+    return c.json({
+      ok: true,
+      claimedShares: result.claimedShares.toString(),
+      recordedShares: result.recordedShares.toString(),
+    });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Claim could not be recorded";
+    return c.json({ error: message }, e instanceof ClaimError ? 400 : 500);
+  }
+});
+
+/** OHLC candles of a pair's share price (default) or NAV. */
+app.get("/launchpad/pair/:address/candles", async (c) => {
+  const address = c.req.param("address");
+  const interval = c.req.query("interval") ?? "1m";
+  const metric = c.req.query("metric") === "navUsd" ? "navUsd" : "sharePrice";
+  if (!isCandleInterval(interval)) {
+    return c.json({ error: "interval must be 1m, 5m, 15m or 1h" }, 400);
+  }
+  const limit = Math.min(500, Math.max(10, Number(c.req.query("limit") ?? 180) || 180));
+  if (!useDb) return c.json({ interval, metric, candles: [] });
+  const candles = await getPairCandles(db!, address, interval, metric, limit);
+  return c.json({ interval, metric, candles }, 200, { "Cache-Control": "no-store" });
+});
+
+/** Server-sent events: a snapshot the moment a pair trades or its price moves. */
+app.get("/launchpad/pair/:address/stream", (c) => {
+  const address = c.req.param("address").toLowerCase();
+  return streamSSE(c, async (stream) => {
+    let open = true;
+    const unsubscribe = subscribePairSnapshots(address, (snapshot) => {
+      void stream.writeSSE({ event: "snapshot", data: JSON.stringify(snapshot) });
+    });
+    stream.onAbort(() => {
+      open = false;
+      unsubscribe();
+    });
+    while (open) {
+      await stream.writeSSE({ event: "ping", data: String(Date.now()) });
+      await stream.sleep(15_000);
+    }
+  });
+});
+
 app.get("/launchpad/creator/:wallet", async (c) => {
   if (!useDb) return c.json({ pairs: [] });
   const wallet = c.req.param("wallet");
@@ -789,6 +927,7 @@ const port = Number(process.env.INDEXER_PORT ?? 3003);
 let server: ServerType;
 let chainListenerCleanup: (() => void) | null = null;
 let launchpadIndexerCleanup: (() => void) | null = null;
+let curveIndexerCleanup: (() => void) | null = null;
 let markToMarketTimer: NodeJS.Timeout | null = null;
 
 server = serve({ fetch: app.fetch, port, hostname: "0.0.0.0" }, async () => {
@@ -800,6 +939,7 @@ server = serve({ fetch: app.fetch, port, hostname: "0.0.0.0" }, async () => {
   }
   chainListenerCleanup = startChainListener();
   launchpadIndexerCleanup = startLaunchpadIndexer();
+  curveIndexerCleanup = startCurveIndexer();
   markToMarketTimer = startMarkToMarket();
 });
 
@@ -811,6 +951,9 @@ function gracefulShutdown(signal: string) {
   }
   if (launchpadIndexerCleanup) {
     launchpadIndexerCleanup();
+  }
+  if (curveIndexerCleanup) {
+    curveIndexerCleanup();
   }
   if (markToMarketTimer) {
     clearInterval(markToMarketTimer);

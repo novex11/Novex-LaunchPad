@@ -211,6 +211,14 @@ export async function updatePairTvl(db: Db, pairAddress: string, navUsd: number)
     .where(eq(launchedPairs.pairAddress, pairAddress.toLowerCase()));
 }
 
+/** Record the Uniswap pool the factory seeded for a pair. */
+export async function setPairPool(db: Db, pairAddress: string, poolAddress: string) {
+  await db
+    .update(launchedPairs)
+    .set({ poolAddress: poolAddress.toLowerCase() })
+    .where(eq(launchedPairs.pairAddress, pairAddress.toLowerCase()));
+}
+
 // ─── Indexer cursor ───────────────────────────────────────
 
 export async function getCursor(db: Db, id: string): Promise<bigint | null> {
@@ -351,6 +359,8 @@ export interface PairSnapshotInput {
   navUsd: number;
   sharePrice: number;
   totalShares: string;
+  /** Defaults to now; trade snapshots use the block time. */
+  createdAt?: Date;
 }
 
 export async function recordPairSnapshot(db: Db, input: PairSnapshotInput) {
@@ -359,6 +369,7 @@ export async function recordPairSnapshot(db: Db, input: PairSnapshotInput) {
     navUsd: String(input.navUsd),
     sharePrice: String(input.sharePrice),
     totalShares: input.totalShares,
+    ...(input.createdAt ? { createdAt: input.createdAt } : {}),
   });
 }
 

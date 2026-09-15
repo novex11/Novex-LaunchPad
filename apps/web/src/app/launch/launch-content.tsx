@@ -39,6 +39,7 @@ import {
   sanitizeDisplayName,
   sanitizeReceiptSymbol,
   testnetContractsReady,
+  USDG_DECIMALS,
   type StockToken,
 } from "@novex/config";
 import { saveLaunchpadMetadata } from "@/lib/api";
@@ -46,6 +47,7 @@ import { rpcDisplayLabel } from "@/lib/chain-config";
 import { useChainConfig } from "@/components/chain-config-context";
 import {
   ORACLE_ADDRESS,
+  USDG_ADDRESS,
   isWeth,
   oracleAdapterAbi,
   oracleReady,
@@ -56,6 +58,7 @@ import {
   useExistingPair,
   useLaunchPair,
   useOraclePrices,
+  usePoolConfig,
   usePairUniquenessPending,
   useTokenBalances,
   type TxStage,
@@ -73,6 +76,7 @@ import { DualLogoStack } from "@/components/launchpad/dual-logo-stack";
 import { AddressChip } from "@/components/launchpad/address-chip";
 import { StageProgressList, type ProgressStep } from "@/components/launchpad/stage-progress";
 import { PairPreviewCard } from "@/components/launchpad/pair-preview-card";
+import { PoolSeedOption } from "@/components/launchpad/pool-seed-option";
 import { ImageUploader } from "@/components/launchpad/image-uploader";
 import { DepositAmountField } from "@/components/launchpad/deposit-amount-field";
 
@@ -260,6 +264,8 @@ export default function LaunchContent() {
   const [feeBps, setFeeBps] = useState<number>(200);
   const [usdTarget, setUsdTarget] = useState<number>(LAUNCHPAD_CONFIG.defaultSeedUsd);
   const [payWithEth, setPayWithEth] = useState<boolean | null>(null);
+  const [poolOn, setPoolOn] = useState(false);
+  const [poolShareBps, setPoolShareBps] = useState<number>(LAUNCHPAD_CONFIG.pool.defaultShareBps);
   const [displayNameInput, setDisplayNameInput] = useState("");
   const [symbolInput, setSymbolInput] = useState("");
   const [description, setDescription] = useState("");
@@ -272,6 +278,7 @@ export default function LaunchContent() {
   const [success, setSuccess] = useState<{
     pair: Address;
     hash: `0x${string}`;
+    pool?: `0x${string}`;
     symbol: string;
     shares: number;
     profileError?: string;
@@ -324,6 +331,24 @@ export default function LaunchContent() {
   } = useTokenBalances(wallet.address, priceTokens);
   const balA = addrA ? (balances.get(addrA.toLowerCase()) ?? 0n) : 0n;
   const balB = addrB ? (balances.get(addrB.toLowerCase()) ?? 0n) : 0n;
+
+  // Optional DEX pool at launch (share token vs the factory's quote token, USDG).
+  const poolConfig = usePoolConfig();
+  const quoteToken = poolConfig.data?.enabled ? poolConfig.data.quoteToken : undefined;
+  const poolAvailable = Boolean(quoteToken);
+  const quoteSymbol = quoteToken && quoteToken.toLowerCase() === USDG_ADDRESS.toLowerCase() ? "USDG" : "quote token";
+  const quoteDecimals = USDG_DECIMALS;
+  const { balances: quoteBalances } = useTokenBalances(wallet.address, quoteToken ? [quoteToken] : []);
+  const quoteBalanceRaw = quoteToken ? (quoteBalances.get(quoteToken.toLowerCase()) ?? 0n) : 0n;
+  const quoteBalance = wallet.address ? Number(quoteBalanceRaw) / 10 ** quoteDecimals : undefined;
+  const poolActive = poolOn && poolAvailable && !!quoteToken;
+  const poolUsd = poolActive ? (usdTarget * poolShareBps) / 10_000 : 0;
+  const poolQuoteNeeded = poolUsd * (1 + LAUNCHPAD_CONFIG.pool.quoteBufferBps / 10_000);
+  const poolQuoteMaxRaw = BigInt(Math.ceil(poolQuoteNeeded * 10 ** quoteDecimals));
+  const poolBlocker =
+    poolActive && quoteBalance !== undefined && quoteBalance < poolQuoteNeeded
+      ? `Need ${formatUsd(poolQuoteNeeded)} ${quoteSymbol} for the pool`
+      : null;
 
   useEffect(() => {
     if (eligibleTokens.length === 0) return;
@@ -429,7 +454,7 @@ export default function LaunchContent() {
           ? `Not enough ${unitA}: need ${formatToken(amountA)}, wallet has ${formatToken(haveA)}.`
           : shortB
             ? `Not enough ${unitB}: need ${formatToken(amountB)}, wallet has ${formatToken(haveB)}.`
-            : null);
+            : poolBlocker);
 
   const stepsDone = [
     canPair && !alreadyExists,
@@ -501,6 +526,7 @@ export default function LaunchContent() {
         amountB,
         minShares,
         nativeLeg,
+        pool: poolActive && quoteToken ? { shareBps: poolShareBps, quoteToken, maxQuoteAmount: poolQuoteMaxRaw } : undefined,
       });
     } catch {
       return; // stage=error, message shown in the progress overlay
@@ -512,6 +538,7 @@ export default function LaunchContent() {
     setSuccess({
       pair: result.pair,
       hash: result.hash,
+      pool: result.pool,
       symbol: receiptSymbol,
       shares: usdTarget,
       profileError,
@@ -551,6 +578,7 @@ export default function LaunchContent() {
         receiptSymbol={success.symbol}
         sharesMinted={success.shares}
         seedTx={success.hash}
+        poolAddr={success.pool}
         pairAddr={success.pair}
         notice={
           success.profileError
@@ -1214,7 +1242,7 @@ export default function LaunchContent() {
           <Section
             n="05"
             title="Seed deposit"
-            hint="Your seed is split by the weights at on-chain prices. You deposit both tokens and receive pair shares at $1.00 each."
+            hint={`You launch by depositing your own ${tickerA} and ${tickerB} (USDG and ETH can't be used to launch). The value is split by your weights at on-chain prices, and you receive pair shares at $1.00 each.`}
             done={stepsDone[4]}
             last
             icon={Wallet}
@@ -1222,6 +1250,7 @@ export default function LaunchContent() {
             <div className="space-y-4">
               <DepositAmountField
                 id="usd-amount"
+                label={`Seed value (paid in ${tickerA} + ${tickerB})`}
                 value={usdTarget}
                 onChange={setUsdTarget}
                 maxUsd={wallet.address ? maxUsd : undefined}
@@ -1250,6 +1279,17 @@ export default function LaunchContent() {
                   connected={!!wallet.address}
                 />
               </div>
+
+              <PoolSeedOption
+                available={poolAvailable}
+                enabled={poolOn}
+                onToggle={setPoolOn}
+                shareBps={poolShareBps}
+                onShareChange={setPoolShareBps}
+                seedUsd={usdTarget}
+                quoteSymbol={quoteSymbol}
+                quoteBalance={quoteBalance}
+              />
 
               {wethLeg && (
                 <label className="flex cursor-pointer items-center justify-between gap-3 rounded-2xl border border-border bg-surface px-4 py-3 text-xs">
@@ -1375,9 +1415,12 @@ export default function LaunchContent() {
               <div className="relative bg-accent-subtle/70 px-5 py-4">
                 <HatchPattern className="opacity-40" />
                 <div className="relative">
-                  <p className="label-caps">You seed & mint</p>
+                  <p className="label-caps">Seed value · paid in stocks</p>
                   <p className="mt-1 font-mono text-3xl font-semibold tabular-nums text-accent-strong">
                     <NumberTicker value={usdTarget} prefix="$" decimals={0} startOnView={false} />
+                  </p>
+                  <p className="mt-1 font-mono text-xs text-muted-foreground">
+                    {formatToken(amountA, tokenA?.decimals)} {unitA} + {formatToken(amountB, tokenB?.decimals)} {unitB}
                   </p>
                   <dl className="mt-3 space-y-1 font-mono text-xs">
                     <div className="flex justify-between">
@@ -1457,7 +1500,7 @@ export default function LaunchContent() {
                       "Launching…"
                     ) : (
                       <>
-                        Launch & seed {formatUsd(usdTarget || 0)}
+                        Launch & seed with {unitA} + {unitB}
                         <Rocket size={16} weight="bold" />
                       </>
                     )}
@@ -1611,6 +1654,7 @@ function SuccessScreen({
   seedTx,
   launchTx,
   pairAddr,
+  poolAddr,
   colorA,
   colorB,
   onAnother,
@@ -1626,6 +1670,7 @@ function SuccessScreen({
   seedTx: `0x${string}`;
   launchTx?: `0x${string}`;
   pairAddr: `0x${string}`;
+  poolAddr?: `0x${string}`;
   colorA: string;
   colorB: string;
   onAnother: () => void;
@@ -1695,6 +1740,13 @@ function SuccessScreen({
             <span className="label-caps">Seed tx</span>
             <AddressChip address={seedTx} kind="tx" />
           </div>
+          {poolAddr && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="label-caps">DEX pool</span>
+              <span className="font-mono text-[11px]" title={poolAddr}>{poolAddr.slice(0, 10)}…{poolAddr.slice(-6)}</span>
+              <span className="text-[11px] text-muted-foreground">Uniswap v4 · shares vs USDG · indexed by terminals</span>
+            </div>
+          )}
         </div>
 
         <div className="mt-6 flex flex-wrap gap-2">

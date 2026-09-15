@@ -17,7 +17,8 @@ import {IWETH} from "./interfaces/IWETH.sol";
 ///         the target weight at oracle prices and mints 1e18 shares per $1.
 ///         Later deposits are proportional to current reserves, so share math
 ///         never depends on the oracle and redemptions can never be blocked by a
-///         stale price. The creator fee is paid as newly minted shares.
+///         stale price. The creator fee is paid as newly minted shares. Deposits
+///         pause while either stock token has a pending ERC-8056 multiplier change.
 contract PairVault is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -38,6 +39,8 @@ contract PairVault is ReentrancyGuard {
         address oracle;
         address emergency;
         address weth;
+        /// @dev Launching factory (its seed is fee-free); defaults to the deployer.
+        address factory;
     }
 
     address public immutable factory;
@@ -56,6 +59,9 @@ contract PairVault is ReentrancyGuard {
     /// @notice Total shares ever minted to the creator as deposit fees.
     uint256 public creatorFeeShares;
 
+    /// @notice owner => operator => may redeem the owner's shares (e.g. PairRouter).
+    mapping(address => mapping(address => bool)) public isOperator;
+
     event Deposited(
         address indexed user,
         uint256 amountA,
@@ -71,9 +77,10 @@ contract PairVault is ReentrancyGuard {
         uint256 amountB,
         uint256 valueUsd8
     );
+    event OperatorSet(address indexed owner, address indexed operator, bool approved);
 
     constructor(Config memory c) {
-        factory = msg.sender;
+        factory = c.factory == address(0) ? msg.sender : c.factory;
         creator = c.creator;
         tokenA = c.tokenA;
         tokenB = c.tokenB;
@@ -196,6 +203,10 @@ contract PairVault is ReentrancyGuard {
         returns (uint256 shares)
     {
         require(!emergency.depositsPaused(), "PairVault: deposits paused");
+        require(
+            !oracle.isMultiplierPending(tokenA) && !oracle.isMultiplierPending(tokenB),
+            "PairVault: multiplier pending"
+        );
         if (msg.value > 0) {
             require(weth != address(0) && (tokenA == weth || tokenB == weth), "PairVault: ETH not accepted");
         }
@@ -217,7 +228,8 @@ contract PairVault is ReentrancyGuard {
             require(ok, "PairVault: refund failed");
         }
 
-        uint256 fee = recipient == creator ? 0 : (gross * creatorFeeBps) / 10_000;
+        // No fee on the creator's own deposits, including the launch seed the factory places.
+        uint256 fee = (recipient == creator || msg.sender == factory) ? 0 : (gross * creatorFeeBps) / 10_000;
         shares = gross - fee;
         require(shares >= minShares, "PairVault: slippage");
 
@@ -287,16 +299,44 @@ contract PairVault is ReentrancyGuard {
         nonReentrant
         returns (uint256 amountA, uint256 amountB)
     {
+        return _redeem(msg.sender, shares, minAmountA, minAmountB, msg.sender);
+    }
+
+    /// @notice Let `operator` redeem your shares on your behalf (e.g. to sell
+    ///         them for ETH through PairRouter). Revoke with `approved = false`.
+    function setOperator(address operator, bool approved) external {
+        isOperator[msg.sender][operator] = approved;
+        emit OperatorSet(msg.sender, operator, approved);
+    }
+
+    /// @notice Burn `owner`'s shares and send both tokens to `to`. Callable by
+    ///         the owner or an operator the owner approved.
+    function redeemFrom(
+        address owner,
+        uint256 shares,
+        uint256 minAmountA,
+        uint256 minAmountB,
+        address to
+    ) external nonReentrant returns (uint256 amountA, uint256 amountB) {
+        require(msg.sender == owner || isOperator[owner][msg.sender], "PairVault: not operator");
+        require(to != address(0), "PairVault: zero recipient");
+        return _redeem(owner, shares, minAmountA, minAmountB, to);
+    }
+
+    function _redeem(address owner, uint256 shares, uint256 minAmountA, uint256 minAmountB, address to)
+        internal
+        returns (uint256 amountA, uint256 amountB)
+    {
         require(shares > 0, "PairVault: zero shares");
         uint256 valueUsd8;
         (amountA, amountB, valueUsd8) = quoteRedeem(shares);
         require(amountA >= minAmountA && amountB >= minAmountB, "PairVault: slippage");
 
-        receiptToken.burn(msg.sender, shares);
-        if (amountA > 0) IERC20(tokenA).safeTransfer(msg.sender, amountA);
-        if (amountB > 0) IERC20(tokenB).safeTransfer(msg.sender, amountB);
+        receiptToken.burn(owner, shares);
+        if (amountA > 0) IERC20(tokenA).safeTransfer(to, amountA);
+        if (amountB > 0) IERC20(tokenB).safeTransfer(to, amountB);
 
-        emit Redeemed(msg.sender, shares, amountA, amountB, valueUsd8);
+        emit Redeemed(owner, shares, amountA, amountB, valueUsd8);
     }
 
     // ─── Pricing helpers ────────────────────────────────────
