@@ -30,31 +30,42 @@ import {
 } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { loadRootEnv } from "./lib/load-env";
-import deployment from "../packages/config/src/testnet-deployments.json";
+import testnetDeployment from "../packages/config/src/testnet-deployments.json";
+import mainnetDeployment from "../packages/config/src/mainnet-deployments.json";
 
 loadRootEnv();
+
+// `--mainnet` runs the same flow on Robinhood Chain (4663) with real stocks the
+// wallet already holds; everything else defaults to testnet.
+const MAINNET = process.argv.includes("--mainnet");
+const positional = process.argv.slice(2).filter((a) => !a.startsWith("--"));
+const deployment = MAINNET ? mainnetDeployment : testnetDeployment;
 
 const rawKey = process.env.DEPLOYER_PRIVATE_KEY;
 if (!rawKey) throw new Error("DEPLOYER_PRIVATE_KEY missing in .env");
 const account = privateKeyToAccount(`0x${rawKey.replace(/^0x/, "")}` as Hex);
 
-const rpcUrl = process.env.ROBINHOOD_TESTNET_RPC_URL || deployment.rpcUrl;
+const rpcUrl = (MAINNET ? process.env.ROBINHOOD_RPC_URL : process.env.ROBINHOOD_TESTNET_RPC_URL) || deployment.rpcUrl;
 const chain = {
-  id: 46630,
-  name: "Robinhood Chain Testnet",
+  id: MAINNET ? 4663 : 46630,
+  name: MAINNET ? "Robinhood Chain" : "Robinhood Chain Testnet",
   nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
   rpcUrls: { default: { http: [rpcUrl] } },
 } as const;
 const client = createPublicClient({ chain, transport: http(rpcUrl) });
 const wallet = createWalletClient({ account, chain, transport: http(rpcUrl) });
 
-const tokens = deployment.tokens as Record<string, Address>;
+// Testnet config carries a ticker → address map; on mainnet it is read from the factory below.
+const tokens: Record<string, Address> = MAINNET ? {} : ((testnetDeployment as { tokens: Record<string, Address> }).tokens);
 const factory = deployment.contracts.pairFactory as Address;
 const oracle = deployment.contracts.oracle as Address;
 const curve = deployment.contracts.composeCurve as Address;
 const curveRouter = deployment.contracts.curveRouter as Address;
-const indexerUrl = (process.env.NEXT_PUBLIC_INDEXER_URL || "https://novex-indexer.onrender.com").replace(/\/$/, "");
-const explorer = "https://explorer.testnet.chain.robinhood.com/tx/";
+const indexerUrl = (
+  process.env.SMOKE_INDEXER_URL ||
+  (MAINNET ? "https://compose-indexer.onrender.com" : process.env.NEXT_PUBLIC_INDEXER_URL || "https://novex-indexer.onrender.com")
+).replace(/\/$/, "");
+const explorer = MAINNET ? "https://robinhoodchain.blockscout.com/tx/" : "https://explorer.testnet.chain.robinhood.com/tx/";
 
 const SUPPLY = 10n ** 27n;
 const POOL_FEE = 3000;
@@ -76,6 +87,7 @@ const factoryAbi = parseAbi([
   "function computePairKey(address, address) pure returns (bytes32)",
   "function isPair(address) view returns (bool)",
   "function weth() view returns (address)",
+  "function listedTokens() view returns (address[])",
 ]);
 const vaultAbi = parseAbi([
   "function tokenA() view returns (address)",
@@ -143,8 +155,17 @@ async function expectRevert(label: string, request: any, reason: string) {
 const balanceOf = (token: Address, owner: Address) =>
   client.readContract({ address: token, abi: erc20, functionName: "balanceOf", args: [owner] });
 
+async function loadListedTokens() {
+  const listed = await client.readContract({ address: factory, abi: factoryAbi, functionName: "listedTokens" });
+  for (const addr of listed) {
+    const symbol = await client.readContract({ address: addr, abi: erc20, functionName: "symbol" });
+    tokens[symbol.toUpperCase()] = addr;
+  }
+}
+
 async function pickPair(): Promise<[string, string]> {
-  if (process.argv[2] && process.argv[3]) return [process.argv[2].toUpperCase(), process.argv[3].toUpperCase()];
+  if (MAINNET) await loadListedTokens();
+  if (positional[0] && positional[1]) return [positional[0].toUpperCase(), positional[1].toUpperCase()];
   const tickers = Object.keys(tokens).filter((t) => t !== "WETH");
   for (let i = 0; i < tickers.length; i++) {
     for (let j = i + 1; j < tickers.length; j++) {
