@@ -15,8 +15,11 @@ import {
 } from "@phosphor-icons/react";
 import { TESTNET_FAUCET_URL, isTestnetMode } from "@compose/config";
 import { Button } from "@/components/ui/button";
+import { EthLogo, UsdgLogo } from "@/components/ui/asset-logo";
+import { DualLogoStack } from "@/components/launchpad/dual-logo-stack";
+import { AssetSelect, type AssetOption } from "@/components/token/asset-select";
 import { cn, explorerUrl, formatUsd } from "@/lib/utils";
-import { SWAP_ROUTER_ADDRESS, USDG_ADDRESS, WETH_ADDRESS, erc20Abi, usdgReady } from "@/lib/contracts";
+import { SWAP_ROUTER_ADDRESS, USDG_ADDRESS, WETH_ADDRESS, erc20Abi, pairVaultAbi, usdgReady } from "@/lib/contracts";
 import { useOraclePrices, useTokenBalances, type PairOnchainState } from "@/hooks/use-pair-launchpad";
 import {
   DEFAULT_SLIPPAGE_BPS,
@@ -31,6 +34,8 @@ import {
 import { useCurveQuoteBuy, useCurveQuoteSell, useCurveTrade } from "@/hooks/use-curve-token";
 
 const SLIPPAGE_OPTIONS = [100, 200, 300];
+/** ETH and USDG swap into the pair's stocks through Uniswap; Stocks deposit directly. */
+type TradeMethod = QuoteAsset | "STOCKS";
 const SELL_PRESETS = [25, 50, 75, 100];
 const ETH_GAS_RESERVE = 500_000_000_000_000n;
 const LAUNCH_WINDOW_SECONDS = 30;
@@ -90,12 +95,21 @@ export function TokenTradePanel(props: TokenTradePanelProps) {
   } = props;
 
   const [mode, setMode] = useState<"buy" | "sell">("buy");
-  const [asset, setAsset] = useState<QuoteAsset>("ETH");
+  const [method, setMethod] = useState<TradeMethod>("ETH");
   const [amount, setAmount] = useState("");
+  const [amountAText, setAmountAText] = useState("");
+  const [amountBText, setAmountBText] = useState("");
   const [sellPct, setSellPct] = useState(100);
   const [slippageBps, setSlippageBps] = useState(DEFAULT_SLIPPAGE_BPS);
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
-  useEffect(() => setAmount(""), [asset, mode]);
+  const stocks = method === "STOCKS";
+  // Quote asset for the ETH/USDG (swap) paths; unused while paying with stocks.
+  const asset: QuoteAsset = stocks ? "ETH" : method;
+  useEffect(() => {
+    setAmount("");
+    setAmountAText("");
+    setAmountBText("");
+  }, [method, mode]);
   useEffect(() => {
     const id = setInterval(() => setNow(Math.floor(Date.now() / 1000)), 1_000);
     return () => clearInterval(id);
@@ -136,6 +150,43 @@ export function TokenTradePanel(props: TokenTradePanelProps) {
   const amountUsd = Number(formatUnits(amountIn, decimals)) * assetPriceUsd;
   const sellTokens = (tokenBalance * BigInt(sellPct)) / 100n;
 
+  // ─── Stocks path: deposit tokenA + tokenB straight into the pair, no swap ───
+  const stockBalances = useTokenBalances(account, [chain.tokenA, chain.tokenB]);
+  const balanceA = stockBalances.balances.get(chain.tokenA.toLowerCase()) ?? 0n;
+  const balanceB = stockBalances.balances.get(chain.tokenB.toLowerCase()) ?? 0n;
+  const amountA = useMemo(() => {
+    try {
+      return amountAText ? parseUnits(amountAText, decA) : 0n;
+    } catch {
+      return 0n;
+    }
+  }, [amountAText, decA]);
+  const amountB = useMemo(() => {
+    try {
+      return amountBText ? parseUnits(amountBText, decB) : 0n;
+    } catch {
+      return 0n;
+    }
+  }, [amountBText, decB]);
+  const stocksIn = stocks && mode === "buy" && (amountA > 0n || amountB > 0n);
+  const stockPreview = useReadContract({
+    address: pair,
+    abi: pairVaultAbi,
+    functionName: "previewDeposit",
+    args: [amountA, amountB],
+    query: { enabled: stocksIn, refetchInterval: 15_000 },
+  });
+  const pv = stockPreview.data as readonly [bigint, bigint, bigint] | undefined;
+  // The router deposits as a non-creator, so the pair's creator fee applies.
+  const stockShares = pv ? pv[0] - (pv[0] * BigInt(chain.creatorFeeBps)) / 10_000n : undefined;
+  const usedA = pv?.[1];
+  const usedB = pv?.[2];
+  const stockUsd =
+    priceA8 && priceB8 && usedA !== undefined && usedB !== undefined
+      ? Number(formatUnits(usedA, decA)) * (Number(priceA8) / 1e8) + Number(formatUnits(usedB, decB)) * (Number(priceB8) / 1e8)
+      : undefined;
+  const stockBuyQuote = useCurveQuoteBuy(token, stocksIn ? stockShares : undefined);
+
   // Buy: ETH/USDG → pair shares → tokens
   const sharesQuote = useBuyQuote({
     pair,
@@ -160,9 +211,21 @@ export function TokenTradePanel(props: TokenTradePanelProps) {
     pair,
     tokenA: chain.tokenA,
     tokenB: chain.tokenB,
-    shares: mode === "sell" ? (sellCurve.sharesOut ?? 0n) : 0n,
+    shares: mode === "sell" && !stocks ? (sellCurve.sharesOut ?? 0n) : 0n,
     asset,
   });
+  const stockRedeem = useReadContract({
+    address: pair,
+    abi: pairVaultAbi,
+    functionName: "quoteRedeem",
+    args: [sellCurve.sharesOut ?? 0n],
+    query: { enabled: stocks && mode === "sell" && !!sellCurve.sharesOut && sellCurve.sharesOut > 0n, refetchInterval: 15_000 },
+  });
+  const rq = stockRedeem.data as readonly [bigint, bigint, bigint] | undefined;
+  const outA = rq?.[0];
+  const outB = rq?.[1];
+  const minOutA = outA !== undefined ? (outA * BigInt(10_000 - slippageBps)) / 10_000n : 0n;
+  const minOutB = outB !== undefined ? (outB * BigInt(10_000 - slippageBps)) / 10_000n : 0n;
 
   const venue = useTokenBalances(isTestnetMode() ? SWAP_ROUTER_ADDRESS : undefined, [chain.tokenA, chain.tokenB, quoteToken]);
   const venueHas = (t: Address) => venue.balances.get(t.toLowerCase()) ?? 0n;
@@ -171,14 +234,24 @@ export function TokenTradePanel(props: TokenTradePanelProps) {
   const faucet = useUsdgFaucet();
   const busy = trade.stage === "approve" || trade.stage === "submit";
 
-  const tokensOut = buyQuote.tokensOut;
+  const tokensOut = stocks ? stockBuyQuote.tokensOut : buyQuote.tokensOut;
   const minTokensOut = tokensOut !== undefined ? (tokensOut * BigInt(10_000 - slippageBps)) / 10_000n : 0n;
   const amountOut = sellQuote.amountOut;
   const minAmountOut = amountOut !== undefined ? (amountOut * BigInt(10_000 - slippageBps)) / 10_000n : 0n;
   const launchProtected = launchTime > 0 && now < launchTime + LAUNCH_WINDOW_SECONDS;
 
   let blocker: string | null = null;
-  if (mode === "buy") {
+  if (mode === "buy" && stocks) {
+    if (amountA === 0n && amountB === 0n) blocker = `Enter an amount of ${tickerA} or ${tickerB}`;
+    else if (account && (amountA > balanceA || amountB > balanceB)) blocker = `Not enough ${amountA > balanceA ? tickerA : tickerB} in your wallet.`;
+    else if (stockPreview.error || stockBuyQuote.error) blocker = "Quote unavailable. Prices may be stale; try again shortly.";
+    else if (stockPreview.isLoading || stockShares === undefined || tokensOut === undefined) blocker = "Fetching quote…";
+    else if (tokensOut === 0n) blocker = "Amount too small.";
+  } else if (mode === "sell" && stocks) {
+    if (tokenBalance === 0n) blocker = `You have no ${symbol} to sell.`;
+    else if (sellCurve.error || stockRedeem.error) blocker = "Quote unavailable. Prices may be stale; try again shortly.";
+    else if (sellCurve.loading || outA === undefined || outB === undefined) blocker = "Fetching quote…";
+  } else if (mode === "buy") {
     if (amountIn === 0n) blocker = `Enter an amount of ${asset}`;
     else if (account && amountIn > spendable)
       blocker = asset === "ETH" ? "Not enough ETH (0.0005 ETH is kept for gas)." : "Not enough USDG in your wallet.";
@@ -202,7 +275,13 @@ export function TokenTradePanel(props: TokenTradePanelProps) {
   async function submit() {
     trade.reset();
     try {
-      if (mode === "buy") {
+      if (stocks && mode === "buy") {
+        await trade.buyWithStocks({ token, tokenA: chain.tokenA, tokenB: chain.tokenB, amountA, amountB, minTokensOut });
+        setAmountAText("");
+        setAmountBText("");
+      } else if (stocks) {
+        await trade.sellForStocks({ token, tokensIn: sellTokens, minAmountA: minOutA, minAmountB: minOutB });
+      } else if (mode === "buy") {
         await trade.buy({ token, asset, amountIn, tokenA: chain.tokenA, tokenB: chain.tokenB, minTokensOut, slippageBps });
         setAmount("");
       } else {
@@ -219,6 +298,7 @@ export function TokenTradePanel(props: TokenTradePanelProps) {
       void native.refetch();
       void usdgBalance.refetch();
       void tokenBalanceRead.refetch();
+      stockBalances.refetch();
       venue.refetch();
       onDone();
     } catch {
@@ -227,16 +307,55 @@ export function TokenTradePanel(props: TokenTradePanelProps) {
   }
 
   const steps: Array<{ id: TradeStage; label: string }> =
-    mode === "buy"
+    stocks && mode === "buy"
       ? [
-          ...(asset === "USDG" ? [{ id: "approve" as const, label: "Approve USDG" }] : []),
-          { id: "submit", label: `Buy ${symbol} with ${asset}` },
+          ...(amountA > 0n ? [{ id: "approve-a" as const, label: `Approve ${tickerA}` }] : []),
+          ...(amountB > 0n ? [{ id: "approve-b" as const, label: `Approve ${tickerB}` }] : []),
+          { id: "submit", label: `Buy ${symbol} with ${tickerA} + ${tickerB}` },
         ]
-      : [
-          { id: "approve", label: `Approve ${symbol}` },
-          { id: "submit", label: `Sell ${symbol} for ${asset}` },
-        ];
-  const order: TradeStage[] = ["approve", "submit", "done"];
+      : stocks
+        ? [
+            { id: "approve", label: `Approve ${symbol}` },
+            { id: "submit", label: `Sell ${symbol} for ${tickerA} + ${tickerB}` },
+          ]
+        : mode === "buy"
+          ? [
+              ...(asset === "USDG" ? [{ id: "approve" as const, label: "Approve USDG" }] : []),
+              { id: "submit", label: `Buy ${symbol} with ${asset}` },
+            ]
+          : [
+              { id: "approve", label: `Approve ${symbol}` },
+              { id: "submit", label: `Sell ${symbol} for ${asset}` },
+            ];
+  const order: TradeStage[] = ["approve", "approve-a", "approve-b", "submit", "done"];
+
+  const noStocks = !!account && balanceA === 0n && balanceB === 0n;
+  const prefix = mode === "buy" ? "" : "Receive ";
+  const methodOptions: AssetOption<TradeMethod>[] = [
+    {
+      id: "ETH",
+      label: `${prefix}ETH`,
+      subtitle: mode === "buy" ? `Swapped into ${tickerA} + ${tickerB} automatically` : `${tickerA} + ${tickerB} swapped to ETH`,
+      logo: <EthLogo />,
+      balance: account ? `${formatAmount(native.data?.value ?? 0n, 18)} ETH` : undefined,
+    },
+    {
+      id: "USDG",
+      label: `${prefix}USDG`,
+      subtitle: mode === "buy" ? "Swapped into the pair's stocks" : "The pair's stocks swapped to USDG",
+      logo: <UsdgLogo />,
+      balance: account ? `${formatAmount((usdgBalance.data as bigint | undefined) ?? 0n, 6)} USDG` : undefined,
+    },
+    {
+      id: "STOCKS",
+      label: `${prefix}${tickerA} + ${tickerB}`,
+      subtitle: mode === "buy" ? "Pay with the pair's stocks you already hold" : "Get both stocks straight to your wallet",
+      logo: <DualLogoStack tickerA={tickerA} tickerB={tickerB} size="sm" />,
+      balance: account ? `${formatAmount(balanceA, decA)} / ${formatAmount(balanceB, decB)}` : undefined,
+      dimmed: mode === "buy" && noStocks,
+      dimmedNote: `No ${tickerA}/${tickerB} in wallet`,
+    },
+  ];
 
   return (
     <div className="overflow-hidden rounded-[1.75rem] border border-border bg-surface shadow-float">
@@ -261,25 +380,55 @@ export function TokenTradePanel(props: TokenTradePanelProps) {
       </div>
 
       <div className="p-5">
-        <div className="mb-4 flex gap-1 rounded-full border border-border bg-surface-muted p-1" role="radiogroup" aria-label={mode === "buy" ? "Pay with" : "Receive"}>
-          {(["ETH", "USDG"] as const).map((a) => (
-            <button
-              key={a}
-              type="button"
-              role="radio"
-              aria-checked={asset === a}
-              onClick={() => setAsset(a)}
-              className={cn(
-                "flex-1 rounded-full px-3 py-1.5 font-mono text-xs font-semibold transition-all",
-                asset === a ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {mode === "buy" ? `Pay ${a}` : `Get ${a}`}
-            </button>
-          ))}
-        </div>
+        <AssetSelect
+          className="mb-4"
+          label={mode === "buy" ? "Pay with" : "Receive"}
+          value={method}
+          onChange={setMethod}
+          options={methodOptions}
+        />
 
-        {mode === "buy" ? (
+        {mode === "buy" && stocks ? (
+          <div className="space-y-3">
+            {(
+              [
+                { ticker: tickerA, text: amountAText, set: setAmountAText, balance: balanceA, dec: decA, id: "token-trade-amount-a" },
+                { ticker: tickerB, text: amountBText, set: setAmountBText, balance: balanceB, dec: decB, id: "token-trade-amount-b" },
+              ] as const
+            ).map((leg) => (
+              <div key={leg.id}>
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <label htmlFor={leg.id}>You pay · {leg.ticker}</label>
+                  {account && (
+                    <button
+                      type="button"
+                      onClick={() => leg.set(formatUnits(leg.balance, leg.dec))}
+                      className="font-mono transition-colors hover:text-foreground"
+                    >
+                      Balance {formatAmount(leg.balance, leg.dec)} {leg.ticker}
+                    </button>
+                  )}
+                </div>
+                <div className="mt-2 flex items-center gap-2 rounded-2xl border border-border bg-surface px-4 transition-colors focus-within:border-accent">
+                  <input
+                    id={leg.id}
+                    inputMode="decimal"
+                    autoComplete="off"
+                    placeholder="0.0"
+                    value={leg.text}
+                    onChange={(e) => leg.set(e.target.value.replace(/[^0-9.]/g, ""))}
+                    className="h-12 w-full min-w-0 bg-transparent font-mono text-lg outline-none"
+                  />
+                  <span className="font-mono text-sm font-semibold">{leg.ticker}</span>
+                </div>
+              </div>
+            ))}
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              Both stocks are deposited at the pair&apos;s weights; whatever isn&apos;t needed on one leg comes straight back
+              to your wallet.{stockUsd !== undefined && ` ≈ ${formatUsd(stockUsd)} deposited.`}
+            </p>
+          </div>
+        ) : mode === "buy" ? (
           <div>
             <div className="flex items-center justify-between text-xs text-muted-foreground">
               <label htmlFor="token-trade-amount">You pay</label>
@@ -336,7 +485,21 @@ export function TokenTradePanel(props: TokenTradePanelProps) {
             <>
               <Row strong label="You receive" value={tokensOut !== undefined ? `≈ ${compactTokens(tokensOut)} ${symbol}` : "—"} />
               <Row label="Minimum received" value={tokensOut !== undefined ? `${compactTokens(minTokensOut)} ${symbol}` : "—"} />
-              <Row label="Route" value={`${asset} → ${tickerA} + ${tickerB} → ${symbol}`} />
+              <Row label="Route" value={stocks ? `${tickerA} + ${tickerB} → ${symbol}` : `${asset} → ${tickerA} + ${tickerB} → ${symbol}`} />
+            </>
+          ) : stocks ? (
+            <>
+              <Row
+                strong
+                label="You receive"
+                value={outA !== undefined && outB !== undefined ? `≈ ${formatAmount(outA, decA)} ${tickerA} + ${formatAmount(outB, decB)} ${tickerB}` : "—"}
+              />
+              {rq && <Row label="Value" value={formatUsd(Number(rq[2]) / 1e8)} />}
+              <Row
+                label="Minimum received"
+                value={outA !== undefined && outB !== undefined ? `${formatAmount(minOutA, decA)} ${tickerA} + ${formatAmount(minOutB, decB)} ${tickerB}` : "—"}
+              />
+              <Row label="Route" value={`${symbol} → ${tickerA} + ${tickerB}`} />
             </>
           ) : (
             <>
@@ -346,7 +509,7 @@ export function TokenTradePanel(props: TokenTradePanelProps) {
               <Row label="Route" value={`${symbol} → ${tickerA} + ${tickerB} → ${asset}`} />
             </>
           )}
-          <Row label="Fees" value="1% curve · 0.3% swaps" />
+          <Row label="Fees" value={stocks ? "1% curve · no swap" : "1% curve · 0.3% Uniswap swap per leg"} />
           <div className="flex items-center justify-between gap-3 pt-1">
             <dt className="text-muted-foreground">Max slippage</dt>
             <dd className="flex gap-1">
@@ -392,7 +555,7 @@ export function TokenTradePanel(props: TokenTradePanelProps) {
             {faucet.pending ? "Claiming test USDG…" : "Get 1,000 test USDG"}
           </button>
         )}
-        {isTestnetMode() && authenticated && asset === "ETH" && mode === "buy" && balance < ETH_GAS_RESERVE * 2n && (
+        {isTestnetMode() && authenticated && !stocks && asset === "ETH" && mode === "buy" && balance < ETH_GAS_RESERVE * 2n && (
           <p className="mt-3 flex items-start gap-1.5 text-xs text-muted-foreground">
             <Drop size={14} className="mt-0.5 shrink-0 text-accent-strong" />
             <span>
@@ -450,7 +613,7 @@ export function TokenTradePanel(props: TokenTradePanelProps) {
             disabled={blocker !== null || busy}
             onClick={submit}
           >
-            {busy ? "Processing…" : mode === "buy" ? `Buy ${symbol}` : `Sell ${sellPct}% for ${asset}`}
+            {busy ? "Processing…" : mode === "buy" ? `Buy ${symbol}` : `Sell ${sellPct}% for ${stocks ? `${tickerA} + ${tickerB}` : asset}`}
             {!busy && <ArrowRight size={16} weight="bold" />}
           </Button>
         ) : (

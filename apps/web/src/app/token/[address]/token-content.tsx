@@ -1,17 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { formatUnits, isAddress, type Address } from "viem";
 import { useReadContract } from "wagmi";
-import { CaretLeft, GraduationCap, RocketLaunch, SealCheck } from "@phosphor-icons/react";
+import { ArrowSquareOut, CaretLeft, GraduationCap, RocketLaunch, SealCheck } from "@phosphor-icons/react";
 import { getTokenByAddress, isTestnetMode } from "@compose/config";
-import type { PairCandleInterval } from "@/lib/api";
+import type { CurveTrade, PairHistoryPoint, PairHistoryRange } from "@/lib/api";
 import { receiptTokenAbi } from "@/lib/contracts";
 import { useWallet } from "@/hooks/use-wallet";
 import { useOraclePrices, usePairOnchain } from "@/hooks/use-pair-launchpad";
-import { useCurveOnchain, useCurveTokenDetail, useTokenCandles, useTokenLive } from "@/hooks/use-curve-token";
-import { PairCandleChart } from "@/components/pair/pair-candle-chart";
+import { useCurveOnchain, useCurveTokenDetail, useTokenHistory, useTokenLive } from "@/hooks/use-curve-token";
+import { PairAreaChart, type PairAreaMetric } from "@/components/pair/pair-area-chart";
 import { TokenTradePanel } from "@/components/token/token-trade-panel";
 import { CurveCreatorFees } from "@/components/token/curve-creator-fees";
 import { AddressChip } from "@/components/launchpad/address-chip";
@@ -44,17 +44,24 @@ function timeAgo(iso: string): string {
   return `${Math.floor(s / 86_400)}d`;
 }
 
+function shortHash(h: string): string {
+  return `${h.slice(0, 6)}…${h.slice(-4)}`;
+}
+
+const tradeKey = (t: CurveTrade) => `${t.txHash}-${t.logIndex ?? ""}`;
+
 export default function TokenDetailContent({ address }: { address: string }) {
   const token = isAddress(address) ? (address as Address) : undefined;
   const wallet = useWallet();
-  const [interval, setCandleInterval] = useState<PairCandleInterval>("1m");
+  const [range, setRange] = useState<PairHistoryRange>("24h");
+  const [metric, setMetric] = useState<PairAreaMetric>("navUsd");
 
   const detail = useCurveTokenDetail(token);
   const onchain = useCurveOnchain(token);
   const curve = onchain.data;
   const pairChain = usePairOnchain(curve?.pair);
   const chain = pairChain.data;
-  const candles = useTokenCandles(token, interval);
+  const history = useTokenHistory(token, range);
   const live = useTokenLive(token, () => {
     void onchain.refetch();
     void pairChain.refetch();
@@ -64,9 +71,28 @@ export default function TokenDetailContent({ address }: { address: string }) {
   const symbolRead = useReadContract({ address: token, abi: receiptTokenAbi, functionName: "symbol", query: { enabled: !!token } });
 
   const meta = detail.data?.token;
-  const trades = detail.data?.trades ?? [];
   const name = meta?.name ?? (nameRead.data as string | undefined) ?? "Creator token";
   const symbol = meta?.symbol ?? (symbolRead.data as string | undefined) ?? "TOKEN";
+
+  // Indexed trades plus anything pushed live since the last fetch, newest first.
+  const trades = useMemo(() => {
+    const list = detail.data?.trades ?? [];
+    if (!live.last) return list;
+    const seen = new Set(list.map(tradeKey));
+    return seen.has(tradeKey(live.last)) ? list : [live.last, ...list];
+  }, [detail.data?.trades, live.last]);
+
+  // Every trade is a point on the line (the indexer emits the launch, each trade, and "now").
+  const points = useMemo<PairHistoryPoint[]>(
+    () =>
+      (history.data?.points ?? []).map((p) => ({
+        timestamp: p.timestamp,
+        navUsd: p.marketCapUsd,
+        sharePrice: p.priceUsd,
+        totalShares: "0",
+      })),
+    [history.data],
+  );
 
   const tokenAMeta = chain ? getTokenByAddress(chain.tokenA) : undefined;
   const tokenBMeta = chain ? getTokenByAddress(chain.tokenB) : undefined;
@@ -107,12 +133,25 @@ export default function TokenDetailContent({ address }: { address: string }) {
         {meta?.pairName || `${tickerA} × ${tickerB} pair`}
       </Link>
 
+      {/* Banner — the token shares its pair's identity */}
+      {meta?.imageUrl && (
+        <div className="relative mt-5 h-40 overflow-hidden rounded-[1.75rem] border border-border md:h-52">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={meta.imageUrl} alt="" className="h-full w-full object-cover" />
+        </div>
+      )}
+
       {/* Header */}
       <div className="mt-5 flex flex-wrap items-start justify-between gap-4">
         <div className="flex items-start gap-4">
-          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-accent-subtle font-mono text-lg font-bold text-accent-strong">
-            {symbol.slice(0, 2)}
-          </div>
+          {meta?.logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={meta.logoUrl} alt="" className="h-14 w-14 shrink-0 rounded-2xl border border-border object-cover" />
+          ) : (
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-accent-subtle font-mono text-lg font-bold text-accent-strong">
+              {symbol.slice(0, 2)}
+            </div>
+          )}
           <div>
             <p className="label-caps flex items-center gap-2">
               <RocketLaunch size={12} weight="fill" />
@@ -120,6 +159,9 @@ export default function TokenDetailContent({ address }: { address: string }) {
             </p>
             <h1 className="mt-1 text-3xl font-semibold tracking-tight md:text-4xl">{name}</h1>
             <p className="mt-1 font-mono text-sm text-muted-foreground">${symbol}</p>
+            {meta?.pairDescription && (
+              <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted-foreground">{meta.pairDescription}</p>
+            )}
             <p className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
               Backed by
               <Link href={`/pair/${curve.pair}`} className="flex items-center gap-1.5 font-medium text-foreground hover:underline">
@@ -153,16 +195,8 @@ export default function TokenDetailContent({ address }: { address: string }) {
         <AddressChip address={curve.creator} label="Creator" />
       </div>
 
-      {/* Stats */}
-      <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Stat label="Market cap" value={formatUsd(marketCapUsd)} accent />
-        <Stat label="Price" value={formatPrice(priceUsd)} />
-        <Stat label="24h volume" value={meta?.volume24hUsd != null ? formatUsd(meta.volume24hUsd) : "—"} />
-        <Stat label="Trades" value={meta ? meta.tradesCount.toLocaleString() : "—"} />
-      </div>
-
       {/* Bonding progress */}
-      <section className="mt-4 rounded-[1.5rem] border border-border bg-surface p-5">
+      <section className="mt-6 rounded-[1.5rem] border border-border bg-surface p-5">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <p className="text-sm font-semibold">Bonding curve progress</p>
           <p className="font-mono text-sm tabular-nums">
@@ -186,24 +220,29 @@ export default function TokenDetailContent({ address }: { address: string }) {
 
       <div className="mt-8 grid gap-8 lg:grid-cols-12">
         <div className="lg:col-span-7">
-          <section className="rounded-[1.5rem] border border-border bg-surface p-5">
-            <div className="mb-2 flex items-center justify-end">
-              <span className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
-                <span className={cn("h-1.5 w-1.5 rounded-full", live.connected ? "animate-pulse bg-success" : "bg-muted-foreground/40")} />
-                {live.connected ? "Live" : "Connecting"}
-              </span>
-            </div>
-            <PairCandleChart
-              candles={candles.data?.candles ?? []}
-              metric="navUsd"
-              interval={interval}
-              onIntervalChange={setCandleInterval}
-              title="Market cap"
-              loading={candles.isLoading}
-              height={300}
-              live={live.last ? { timestamp: live.last.timestamp, value: live.last.marketCapUsd } : undefined}
-            />
-          </section>
+          <PairAreaChart
+            points={points}
+            metric={metric}
+            onMetricChange={setMetric}
+            metricLabels={{ navUsd: "MCap", sharePrice: "Price" }}
+            range={range}
+            onRangeChange={setRange}
+            stats={[
+              { label: "Market cap", value: formatUsd(marketCapUsd) },
+              { label: "Price", value: formatPrice(priceUsd) },
+              { label: "24h volume", value: meta?.volume24hUsd != null ? formatUsd(meta.volume24hUsd) : "—" },
+              { label: "Trades", value: meta ? meta.tradesCount.toLocaleString() : "—" },
+            ]}
+            live={
+              live.last
+                ? { timestamp: live.last.timestamp, value: metric === "navUsd" ? live.last.marketCapUsd : live.last.priceUsd }
+                : undefined
+            }
+            connected={live.connected}
+            loading={history.isLoading}
+            height={320}
+            emptyHint="The line starts at launch and adds a point for every trade."
+          />
 
           <section className="mt-6 rounded-[1.75rem] border border-border bg-surface p-6">
             <h2 className="text-base font-semibold">Trades</h2>
@@ -215,7 +254,7 @@ export default function TokenDetailContent({ address }: { address: string }) {
             )}
             {trades.length > 0 && (
               <div className="mt-4 overflow-x-auto">
-                <table className="w-full min-w-[520px] font-mono text-xs">
+                <table className="w-full min-w-[640px] font-mono text-xs">
                   <thead>
                     <tr className="text-left text-muted-foreground">
                       <th className="pb-2 font-normal">Age</th>
@@ -224,11 +263,12 @@ export default function TokenDetailContent({ address }: { address: string }) {
                       <th className="pb-2 text-right font-normal">{symbol}</th>
                       <th className="pb-2 text-right font-normal">MCap</th>
                       <th className="pb-2 text-right font-normal">Trader</th>
+                      <th className="pb-2 text-right font-normal">Tx</th>
                     </tr>
                   </thead>
                   <tbody>
                     {trades.map((t) => (
-                      <tr key={`${t.txHash}-${t.timestamp}-${t.trader}`} className="border-t border-border-subtle">
+                      <tr key={tradeKey(t)} className="border-t border-border-subtle">
                         <td className="py-2 text-muted-foreground">{timeAgo(t.timestamp)}</td>
                         <td className={cn("py-2 font-semibold", t.isBuy ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400")}>
                           {t.isBuy ? "Buy" : "Sell"}
@@ -237,8 +277,26 @@ export default function TokenDetailContent({ address }: { address: string }) {
                         <td className="py-2 text-right tabular-nums">{compactTokens(t.tokens)}</td>
                         <td className="py-2 text-right tabular-nums">{formatUsd(t.marketCapUsd)}</td>
                         <td className="py-2 text-right">
-                          <a href={explorerUrl("tx", t.txHash)} target="_blank" rel="noopener noreferrer" className="underline-offset-2 hover:underline">
-                            {t.trader.slice(0, 6)}…{t.trader.slice(-4)}
+                          <a
+                            href={explorerUrl("address", t.trader)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="Trader on Blockscout"
+                            className="underline-offset-2 hover:underline"
+                          >
+                            {shortHash(t.trader)}
+                          </a>
+                        </td>
+                        <td className="py-2 text-right">
+                          <a
+                            href={explorerUrl("tx", t.txHash)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="Transaction on Blockscout"
+                            className="inline-flex items-center gap-1 text-accent-strong underline-offset-2 hover:underline"
+                          >
+                            {shortHash(t.txHash)}
+                            <ArrowSquareOut size={12} />
                           </a>
                         </td>
                       </tr>
@@ -284,6 +342,7 @@ export default function TokenDetailContent({ address }: { address: string }) {
                   void onchain.refetch();
                   void pairChain.refetch();
                   void detail.refetch();
+                  void history.refetch();
                 }}
               />
             ) : (
@@ -292,21 +351,13 @@ export default function TokenDetailContent({ address }: { address: string }) {
               </div>
             )}
             <p className="mt-3 px-1 text-[11px] leading-relaxed text-muted-foreground">
-              1B fixed supply. Price follows a constant-product bonding curve quoted in {tickerA}+{tickerB} pair shares,
-              so the reserve is real stocks. 1% trade fee: 70% creator, 30% protocol.
+              1B fixed supply, all of it on the curve at launch. Price follows a constant-product bonding curve quoted in{" "}
+              {tickerA}+{tickerB} pair shares, so the reserve is real stocks. 1% trade fee: 60% token creator, 10% pair
+              creator, 30% protocol.
             </p>
           </div>
         </aside>
       </div>
-    </div>
-  );
-}
-
-function Stat({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
-  return (
-    <div className="rounded-2xl border border-border bg-surface p-4">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className={cn("mt-1 font-mono text-xl font-semibold tabular-nums", accent && "text-accent-strong")}>{value}</p>
     </div>
   );
 }

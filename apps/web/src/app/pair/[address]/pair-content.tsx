@@ -613,6 +613,11 @@ export default function PairDetailContent({ address }: { address: string }) {
               isCreator={isCreator}
               userShares={userShares}
               sharePriceUsd={sharePriceUsd}
+              sharePriceUsd8={chain.sharePriceUsd8}
+              logoUrl={meta?.logoUrl}
+              imageUrl={meta?.imageUrl}
+              displayName={displayName}
+              symbol={symbol}
             />
             {isCreator && (
               <CreatorRewards

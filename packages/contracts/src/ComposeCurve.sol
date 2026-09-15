@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -11,9 +12,12 @@ import {PairFactory} from "./PairFactory.sol";
 import {PairVault} from "./PairVault.sol";
 
 /// @title ComposeCurve — creator tokens on a stock-backed bonding curve
-/// @notice Any wallet can issue any number of 1B-supply tokens on any launched pair.
-///         Each trades on a constant-product curve quoted in the pair's share token, so every
-///         buy is backed by real stocks in the vault. The shape mirrors Pons: the
+/// @notice Every launched pair can carry exactly one 1B-supply token, issued by the
+///         pair's creator and carrying the pair's own name and symbol. The whole supply
+///         is minted to the curve (the creator receives nothing at launch; a dev buy is
+///         an ordinary curve purchase capped at 5% of supply). Each token trades on a
+///         constant-product curve quoted in the pair's share token, so every buy is
+///         backed by real stocks in the vault. The shape mirrors Pons: the
 ///         full supply sits on the curve against a virtual quote reserve worth
 ///         `startMarketCapUsd8`, and the token graduates once real shares paired
 ///         reach 3.0976x that reserve (Pons: 4.2 ETH over 1.3559 ETH), i.e. ~16.8x
@@ -31,8 +35,9 @@ contract ComposeCurve is Ownable, ReentrancyGuard {
     uint256 public constant SNIPE_WINDOW = 30;
     uint16 public constant SNIPE_MAX_TX_BPS = 550;
     uint16 public constant SNIPE_MAX_WALLET_BPS = 500;
-    uint256 public constant MAX_NAME_LENGTH = 32;
-    uint256 public constant MAX_SYMBOL_LENGTH = 12;
+    /// @dev Same limits as PairFactory, since the token inherits the pair's receipt name/symbol.
+    uint256 public constant MAX_NAME_LENGTH = 64;
+    uint256 public constant MAX_SYMBOL_LENGTH = 16;
 
     struct Curve {
         address pair;
@@ -55,6 +60,7 @@ contract ComposeCurve is Ownable, ReentrancyGuard {
     uint256 public startMarketCapUsd8;
 
     mapping(address => Curve) public curves;
+    /// @dev At most one entry per pair; kept as an array for ABI compatibility with `tokensOfPair`.
     mapping(address => address[]) internal _pairTokens;
     address[] public allTokens;
     /// @notice token => shares owed to its creator
@@ -124,35 +130,38 @@ contract ComposeCurve is Ownable, ReentrancyGuard {
 
     // ─── Launch ─────────────────────────────────────────────
 
-    /// @notice Issue a token on a launched pair. Open to any wallet; unlimited per pair.
+    /// @notice Issue the pair's token. Only the pair creator may call, and only once per pair.
+    ///         The token's ERC-20 name and symbol are copied from the pair's receipt token.
     /// @param devBuyShares Optional creator buy in the launch transaction (≤ 5% of supply)
-    function createToken(
-        address pair,
-        string calldata name,
-        string calldata symbol,
-        uint256 devBuyShares,
-        uint256 minDevTokens
-    ) external nonReentrant returns (address token, uint256 devTokens) {
-        token = _launchToken(pair, name, symbol);
+    /// @param minDevTokens Slippage floor for the dev buy
+    function createToken(address pair, uint256 devBuyShares, uint256 minDevTokens)
+        external
+        nonReentrant
+        returns (address token, uint256 devTokens)
+    {
+        token = _launchToken(pair);
         if (devBuyShares > 0) {
             devTokens = _buy(token, msg.sender, devBuyShares, minDevTokens, msg.sender);
             require(devTokens <= (TOTAL_SUPPLY * MAX_DEV_BUY_BPS) / 10_000, "ComposeCurve: dev buy too large");
         }
     }
 
-    function _launchToken(address pair, string calldata name, string calldata symbol)
-        internal
-        returns (address token)
-    {
+    function _launchToken(address pair) internal returns (address token) {
         require(factory.isPair(pair), "ComposeCurve: unknown pair");
         PairVault vault = PairVault(pair);
+        require(msg.sender == vault.creator(), "ComposeCurve: only pair creator");
+        require(_pairTokens[pair].length == 0, "ComposeCurve: pair already has a token");
+
+        IERC20Metadata receipt = IERC20Metadata(address(vault.receiptToken()));
+        string memory name = receipt.name();
+        string memory symbol = receipt.symbol();
         _checkMetadata(name, symbol);
         uint256 q0 = _startQuote(vault);
 
         token = address(new CreatorToken(name, symbol, TOTAL_SUPPLY, address(this)));
         Curve storage c = curves[token];
         c.pair = pair;
-        c.share = address(vault.receiptToken());
+        c.share = address(receipt);
         c.creator = msg.sender;
         c.virtualQuote = q0;
         c.tokenReserve = TOTAL_SUPPLY;
@@ -160,10 +169,10 @@ contract ComposeCurve is Ownable, ReentrancyGuard {
         c.launchTime = uint64(block.timestamp);
         _pairTokens[pair].push(token);
         allTokens.push(token);
-        _emitCreated(token, name, symbol);
+        emit TokenCreated(token, pair, msg.sender, address(receipt), name, symbol, q0, c.graduationQuote);
     }
 
-    function _checkMetadata(string calldata name, string calldata symbol) internal pure {
+    function _checkMetadata(string memory name, string memory symbol) internal pure {
         uint256 nameLen = bytes(name).length;
         uint256 symbolLen = bytes(symbol).length;
         require(nameLen > 0 && nameLen <= MAX_NAME_LENGTH, "ComposeCurve: invalid name");
@@ -177,11 +186,6 @@ contract ComposeCurve is Ownable, ReentrancyGuard {
         require(sharePrice8 > 0, "ComposeCurve: no share price");
         q0 = Math.mulDiv(startMarketCapUsd8, 1e18, sharePrice8);
         require(q0 > 0, "ComposeCurve: start mcap too small");
-    }
-
-    function _emitCreated(address token, string calldata name, string calldata symbol) internal {
-        Curve storage c = curves[token];
-        emit TokenCreated(token, c.pair, c.creator, c.share, name, symbol, c.virtualQuote, c.graduationQuote);
     }
 
     // ─── Trading ────────────────────────────────────────────
@@ -250,9 +254,15 @@ contract ComposeCurve is Ownable, ReentrancyGuard {
         return _pairTokens[pair].length;
     }
 
-    /// @notice Tokens launched on `pair`, oldest first.
+    /// @notice Tokens launched on `pair` (at most one).
     function tokensOfPair(address pair) external view returns (address[] memory) {
         return _pairTokens[pair];
+    }
+
+    /// @notice The pair's token, or address(0) if its creator has not launched one yet.
+    function tokenOfPair(address pair) external view returns (address) {
+        address[] storage list = _pairTokens[pair];
+        return list.length == 0 ? address(0) : list[0];
     }
 
     function quoteBuy(address token, uint256 sharesIn) external view returns (uint256 tokensOut, uint256 fee) {

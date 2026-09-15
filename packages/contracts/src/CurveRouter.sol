@@ -8,10 +8,12 @@ import {ComposeCurve} from "./ComposeCurve.sol";
 import {PairRouter} from "./PairRouter.sol";
 import {PairVault} from "./PairVault.sol";
 
-/// @title CurveRouter — buy and sell creator tokens with ETH or USDG
+/// @title CurveRouter — buy and sell creator tokens with ETH, USDG or the pair's stocks
 /// @notice Buy: ETH/USDG → PairRouter (swap into both stocks, mint pair shares)
 ///         → ComposeCurve. Sell: ComposeCurve → pair shares → PairRouter (redeem,
-///         swap back) → ETH/USDG. Holds nothing between transactions.
+///         swap back) → ETH/USDG. `buyWithStocks` / `sellForStocks` skip the swap
+///         and deposit or redeem the pair's two stocks directly (no DEX fee).
+///         Holds nothing between transactions.
 contract CurveRouter is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -44,7 +46,8 @@ contract CurveRouter is ReentrancyGuard {
         uint256 deadline;
     }
 
-    /// @dev `payToken` / `receiveToken` is address(0) for native ETH.
+    /// @dev `payToken` / `receiveToken` is address(0) for native ETH, and the pair
+    ///      address when the trade was settled directly in the pair's two stocks.
     event TokenBought(address indexed token, address indexed user, address payToken, uint256 amountIn, uint256 tokensOut);
     event TokenSold(address indexed token, address indexed user, address receiveToken, uint256 tokensIn, uint256 amountOut);
 
@@ -85,6 +88,59 @@ contract CurveRouter is ReentrancyGuard {
             IERC20(p.receiveToken).safeTransfer(msg.sender, amountOut);
         }
         emit TokenSold(p.token, msg.sender, p.unwrapEth ? address(0) : p.receiveToken, p.tokensIn, amountOut);
+    }
+
+    // ─── Stocks (no swap) ───────────────────────────────────
+
+    /// @notice Buy `token` by depositing the pair's own stocks. Only the proportional
+    ///         amounts (see PairVault.previewDeposit) are pulled from the caller.
+    function buyWithStocks(address token, uint256 maxA, uint256 maxB, uint256 minTokensOut)
+        external
+        nonReentrant
+        returns (uint256 tokensOut)
+    {
+        (address pair, address share) = _curveOf(token);
+        require(maxA > 0 || maxB > 0, "CurveRouter: zero amount");
+        PairVault vault = PairVault(pair);
+        address tokenA = vault.tokenA();
+        address tokenB = vault.tokenB();
+
+        (, uint256 usedA, uint256 usedB) = vault.previewDeposit(maxA, maxB);
+        if (usedA > 0) IERC20(tokenA).safeTransferFrom(msg.sender, address(this), usedA);
+        if (usedB > 0) IERC20(tokenB).safeTransferFrom(msg.sender, address(this), usedB);
+        IERC20(tokenA).forceApprove(address(vault), usedA);
+        IERC20(tokenB).forceApprove(address(vault), usedB);
+        uint256 shares = vault.depositFor(address(this), usedA, usedB, 0);
+        IERC20(tokenA).forceApprove(address(vault), 0);
+        IERC20(tokenB).forceApprove(address(vault), 0);
+
+        IERC20(share).forceApprove(address(curve), shares);
+        tokensOut = curve.buy(token, shares, minTokensOut, msg.sender);
+
+        _refund(tokenA);
+        _refund(tokenB);
+        _refund(share);
+        emit TokenBought(token, msg.sender, pair, usedA + usedB, tokensOut);
+    }
+
+    /// @notice Sell `tokensIn` of `token` and receive the pair's two stocks.
+    function sellForStocks(address token, uint256 tokensIn, uint256 minAmountA, uint256 minAmountB)
+        external
+        nonReentrant
+        returns (uint256 amountA, uint256 amountB)
+    {
+        (address pair, ) = _curveOf(token);
+        require(tokensIn > 0, "CurveRouter: zero amount");
+        PairVault vault = PairVault(pair);
+
+        IERC20(token).safeTransferFrom(msg.sender, address(this), tokensIn);
+        IERC20(token).forceApprove(address(curve), tokensIn);
+        uint256 shares = curve.sell(token, tokensIn, 0, address(this));
+        (amountA, amountB) = vault.redeem(shares, minAmountA, minAmountB);
+
+        if (amountA > 0) IERC20(vault.tokenA()).safeTransfer(msg.sender, amountA);
+        if (amountB > 0) IERC20(vault.tokenB()).safeTransfer(msg.sender, amountB);
+        emit TokenSold(token, msg.sender, pair, tokensIn, amountA + amountB);
     }
 
     // ─── Internals ──────────────────────────────────────────

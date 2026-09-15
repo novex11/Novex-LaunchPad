@@ -55,6 +55,7 @@ export interface TokenLiveTrade {
   marketCapUsd: number;
   valueUsd: number;
   txHash: string;
+  logIndex: number;
   timestamp: string;
 }
 

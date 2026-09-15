@@ -27,7 +27,7 @@ export const DEFAULT_SLIPPAGE_BPS = 100;
 const DEADLINE_SECONDS = 20 * 60;
 
 export type QuoteAsset = "ETH" | "USDG";
-export type TradeStage = "idle" | "approve" | "operator" | "submit" | "done" | "error";
+export type TradeStage = "idle" | "approve" | "approve-a" | "approve-b" | "operator" | "submit" | "done" | "error";
 
 export function quoteTokenAddress(asset: QuoteAsset): Address {
   return asset === "ETH" ? WETH_ADDRESS : USDG_ADDRESS;

@@ -280,11 +280,94 @@ export async function getTokenCandles(db: Db, token: CurveTokenRow, bucketMs: nu
   return candles;
 }
 
+export type TokenHistoryRange = "1h" | "24h" | "7d" | "30d" | "all";
+
+export const TOKEN_HISTORY_RANGE_MS: Record<Exclude<TokenHistoryRange, "all">, number> = {
+  "1h": 60 * 60 * 1000,
+  "24h": 24 * 60 * 60 * 1000,
+  "7d": 7 * 24 * 60 * 60 * 1000,
+  "30d": 30 * 24 * 60 * 60 * 1000,
+};
+
+export function isTokenHistoryRange(v: string): v is TokenHistoryRange {
+  return v === "1h" || v === "24h" || v === "7d" || v === "30d" || v === "all";
+}
+
+export interface TokenHistoryPoint {
+  timestamp: string;
+  marketCapUsd: number;
+  priceUsd: number;
+  isBuy?: boolean;
+  txHash?: string;
+  trader?: string;
+}
+
+const MAX_HISTORY_POINTS = 5000;
+
+/**
+ * Per-trade market-cap history: the launch (or the last trade before the
+ * window, carried forward), every trade inside the window as its own point,
+ * and a synthetic "now" point so the line reaches the right edge.
+ */
+export async function getTokenHistory(db: Db, token: CurveTokenRow, range: TokenHistoryRange): Promise<TokenHistoryPoint[]> {
+  const addr = token.tokenAddress;
+  const launchMs = token.createdAt.getTime();
+  const startMs = range === "all" ? launchMs : Math.max(launchMs, Date.now() - TOKEN_HISTORY_RANGE_MS[range]);
+  const cutoff = new Date(startMs);
+  const startMcap = Number(token.startMarketCapUsd);
+
+  const points: TokenHistoryPoint[] = [];
+  if (startMs <= launchMs) {
+    points.push({ timestamp: token.createdAt.toISOString(), marketCapUsd: startMcap, priceUsd: startMcap / TOKEN_SUPPLY });
+  } else {
+    const [before] = await db
+      .select()
+      .from(curveTrades)
+      .where(and(eq(curveTrades.tokenAddress, addr), lt(curveTrades.createdAt, cutoff)))
+      .orderBy(desc(curveTrades.createdAt), desc(curveTrades.logIndex))
+      .limit(1);
+    const mcap = before ? Number(before.marketCapUsd) : startMcap;
+    const price = before ? Number(before.priceUsd) : startMcap / TOKEN_SUPPLY;
+    points.push({ timestamp: cutoff.toISOString(), marketCapUsd: mcap, priceUsd: price });
+  }
+
+  // Newest first with a cap, then flipped: a busy token keeps its most recent trades.
+  const rows = await db
+    .select()
+    .from(curveTrades)
+    .where(and(eq(curveTrades.tokenAddress, addr), gte(curveTrades.createdAt, cutoff)))
+    .orderBy(desc(curveTrades.createdAt), desc(curveTrades.logIndex))
+    .limit(MAX_HISTORY_POINTS - 2);
+  rows.reverse();
+  for (const r of rows) {
+    points.push({
+      timestamp: r.createdAt.toISOString(),
+      marketCapUsd: Number(r.marketCapUsd),
+      priceUsd: Number(r.priceUsd),
+      isBuy: r.isBuy,
+      txHash: r.txHash,
+      trader: r.trader,
+    });
+  }
+
+  const last = points[points.length - 1]!;
+  points.push({ timestamp: new Date().toISOString(), marketCapUsd: last.marketCapUsd, priceUsd: last.priceUsd });
+  return points;
+}
+
 // ─── JSON ───────────────────────────────────────────────
 
 export function toTokenJson(
   row: CurveTokenRow,
-  extra: { tickerA?: string; tickerB?: string; pairName?: string; volume24hUsd?: number } = {},
+  extra: {
+    tickerA?: string;
+    tickerB?: string;
+    pairName?: string;
+    pairDescription?: string;
+    imageUrl?: string;
+    logoUrl?: string;
+    volume24hUsd?: number;
+  } = {},
 ) {
   const start = BigInt(row.startQuote);
   const virtualQuote = BigInt(row.virtualQuote);
@@ -324,6 +407,7 @@ export function toTradeJson(row: CurveTradeRow) {
     marketCapUsd: Number(row.marketCapUsd),
     valueUsd: Number(row.valueUsd),
     txHash: row.txHash,
+    logIndex: Number(row.logIndex),
     timestamp: row.createdAt.toISOString(),
   };
 }

@@ -82,6 +82,40 @@
   },
   {
     "type": "function",
+    "name": "buyWithStocks",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "maxA",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "maxB",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "minTokensOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "tokensOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "curve",
     "inputs": [],
     "outputs": [
@@ -166,6 +200,45 @@
     "outputs": [
       {
         "name": "amountOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "sellForStocks",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "tokensIn",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "minAmountA",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "minAmountB",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "amountA",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "amountB",
         "type": "uint256",
         "internalType": "uint256"
       }

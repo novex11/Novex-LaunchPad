@@ -17,6 +17,7 @@ import {PriceFeedUpdater} from "../src/PriceFeedUpdater.sol";
 import {OracleSwapRouter} from "../src/testnet/OracleSwapRouter.sol";
 import {TestUSDG} from "../src/testnet/TestUSDG.sol";
 import {FixedPriceFeed} from "../src/testnet/FixedPriceFeed.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {MockERC20} from "../src/mocks/MockERC20.sol";
 import {MockWRHT} from "../src/mocks/MockWRHT.sol";
 
@@ -116,8 +117,36 @@ contract ComposeCurveTest is Test {
     function _create(uint256 devBuyShares) internal returns (address token) {
         vm.startPrank(alice);
         share.approve(address(curve), devBuyShares);
-        (token, ) = curve.createToken(address(pair), "Tesla AMD Meme", "TAM", devBuyShares, 0);
+        (token, ) = curve.createToken(address(pair), devBuyShares, 0);
         vm.stopPrank();
+    }
+
+    /// @dev A second NFLX/AMD pair created by `creator`, seeded with $1,000 at $1/share.
+    function _secondPair(address creator) internal returns (PairVault p2, IERC20 share2) {
+        MockERC20 nflx = new MockERC20("Netflix", "NFLX");
+        oracle.setPriceFeed(address(nflx), address(new PushPriceFeed(address(this), address(updater), "NFLX / USD", 100e8)));
+        factory.setTokenListed(address(nflx), true);
+        nflx.mint(creator, 100 ether);
+        amd.mint(creator, 100 ether);
+        vm.startPrank(creator);
+        nflx.approve(address(factory), type(uint256).max);
+        amd.approve(address(factory), type(uint256).max);
+        (address addr, , ) = factory.launchPair(
+            PairFactory.LaunchParams({
+                tokenA: address(nflx),
+                tokenB: address(amd),
+                weightABps: 5000,
+                creatorFeeBps: 200,
+                receiptName: "Netflix x AMD",
+                receiptSymbol: "NXAMD",
+                amountA: 5 ether,
+                amountB: 5 ether,
+                minShares: 0
+            })
+        );
+        vm.stopPrank();
+        p2 = PairVault(addr);
+        share2 = IERC20(address(p2.receiptToken()));
     }
 
     function _state(address token)
@@ -169,24 +198,71 @@ contract ComposeCurveTest is Test {
         assertEq(curve.tokenCount(), 1);
     }
 
-    function test_AnyWalletLaunchesManyTokensPerPair() public {
+    function test_UnknownPairReverts() public {
+        vm.prank(alice);
         vm.expectRevert("ComposeCurve: unknown pair");
-        curve.createToken(address(0xDEAD), "X", "X", 0, 0);
+        curve.createToken(address(0xDEAD), 0, 0);
+    }
 
-        address first = _create(0);
+    function test_OneTokenPerPair() public {
+        address token = _create(0);
+        assertEq(curve.tokenOfPair(address(pair)), token);
+        assertEq(curve.pairTokenCount(address(pair)), 1);
+
+        vm.prank(alice);
+        vm.expectRevert("ComposeCurve: pair already has a token");
+        curve.createToken(address(pair), 0, 0);
+        assertEq(curve.pairTokenCount(address(pair)), 1, "still one token");
+    }
+
+    function test_OnlyPairCreatorLaunches() public {
         vm.prank(bob);
-        (address second, ) = curve.createToken(address(pair), "Bob Meme", "BOB", 0, 0);
+        vm.expectRevert("ComposeCurve: only pair creator");
+        curve.createToken(address(pair), 0, 0);
         vm.prank(carol);
-        (address third, ) = curve.createToken(address(pair), "Carol Meme", "CAR", 0, 0);
+        vm.expectRevert("ComposeCurve: only pair creator");
+        curve.createToken(address(pair), 0, 0);
+        assertEq(curve.tokenOfPair(address(pair)), address(0), "nothing launched");
 
-        assertEq(curve.pairTokenCount(address(pair)), 3);
-        address[] memory onPair = curve.tokensOfPair(address(pair));
-        assertEq(onPair[0], first);
-        assertEq(onPair[1], second);
-        assertEq(onPair[2], third);
-        (, , address creator, , , , , , ) = curve.curves(second);
-        assertEq(creator, bob, "launcher owns the token");
-        assertEq(curve.marketCapUsd8(third), 50e8, "every token starts at the same mcap");
+        address token = _create(0);
+        (, , address creator, , , , , , ) = curve.curves(token);
+        assertEq(creator, alice, "pair creator owns the token");
+    }
+
+    function test_TokenInheritsPairIdentity() public {
+        address token = _create(0);
+        assertEq(IERC20Metadata(token).name(), IERC20Metadata(address(share)).name());
+        assertEq(IERC20Metadata(token).symbol(), IERC20Metadata(address(share)).symbol());
+        assertEq(IERC20Metadata(token).name(), "Tesla x AMD");
+        assertEq(IERC20Metadata(token).symbol(), "TSAMD");
+    }
+
+    function test_CreatorGetsNoSupplyWithoutDevBuy() public {
+        address token = _create(0);
+        assertEq(IERC20(token).totalSupply(), SUPPLY);
+        assertEq(IERC20(token).balanceOf(alice), 0, "creator receives nothing at launch");
+        assertEq(IERC20(token).balanceOf(address(curve)), SUPPLY, "whole supply on the curve");
+        (, uint256 t, , , ) = _state(token);
+        assertEq(t, SUPPLY);
+    }
+
+    function test_DevBuyComesOutOfTheCurve() public {
+        address token = _create(2.1e18); // ~4% of supply
+        uint256 dev = IERC20(token).balanceOf(alice);
+        assertGt(dev, 0);
+        assertLe(dev, (SUPPLY * 5) / 100, "dev buy capped at 5%");
+        assertEq(IERC20(token).balanceOf(address(curve)), SUPPLY - dev, "curve holds the rest");
+        (, uint256 t, uint256 realQuote, , ) = _state(token);
+        assertEq(t, SUPPLY - dev);
+        assertEq(realQuote, 2.1e18 - 0.021e18, "dev buy paid the 1% fee like any buy");
+    }
+
+    function test_TokenOfPairEmptyBeforeLaunch() public {
+        assertEq(curve.tokenOfPair(address(pair)), address(0));
+        address[] memory none = curve.tokensOfPair(address(pair));
+        assertEq(none.length, 0);
+        (PairVault p2, ) = _secondPair(carol);
+        assertEq(curve.tokenOfPair(address(p2)), address(0));
     }
 
     // ─── Math & fees ────────────────────────────────────────
@@ -317,32 +393,14 @@ contract ComposeCurveTest is Test {
         assertGt(IERC20(token).balanceOf(alice), 0);
         assertLe(IERC20(token).balanceOf(alice), (SUPPLY * 5) / 100);
 
-        // A fresh pair so the creator can try an oversized dev buy.
-        vm.startPrank(alice);
-        MockERC20 nflx = new MockERC20("Netflix", "NFLX");
-        vm.stopPrank();
-        oracle.setPriceFeed(address(nflx), address(new PushPriceFeed(address(this), address(updater), "NFLX / USD", 100e8)));
-        factory.setTokenListed(address(nflx), true);
-        nflx.mint(alice, 100 ether);
-        vm.startPrank(alice);
-        nflx.approve(address(factory), type(uint256).max);
-        (address p2, , ) = factory.launchPair(
-            PairFactory.LaunchParams({
-                tokenA: address(nflx),
-                tokenB: address(amd),
-                weightABps: 5000,
-                creatorFeeBps: 200,
-                receiptName: "Netflix x AMD",
-                receiptSymbol: "NXAMD",
-                amountA: 5 ether,
-                amountB: 5 ether,
-                minShares: 0
-            })
-        );
-        IERC20(address(PairVault(p2).receiptToken())).approve(address(curve), 10e18);
+        // A fresh pair so its creator can try an oversized dev buy.
+        (PairVault p2, IERC20 share2) = _secondPair(carol);
+        vm.startPrank(carol);
+        share2.approve(address(curve), 10e18);
         vm.expectRevert();
-        curve.createToken(p2, "Too Big", "BIG", 10e18, 0); // ~16% of supply
+        curve.createToken(address(p2), 10e18, 0); // ~16% of supply
         vm.stopPrank();
+        assertEq(curve.tokenOfPair(address(p2)), address(0), "reverted launch leaves no token");
     }
 
     function test_SlippageGuards() public {
@@ -374,27 +432,34 @@ contract ComposeCurveTest is Test {
         curve.claimCreatorFees(token);
     }
 
-    function test_PairCreatorEarnsFromOtherLaunchersTokens() public {
-        vm.prank(bob);
-        (address bobToken, ) = curve.createToken(address(pair), "Bob Meme", "BOB", 0, 0);
+    function test_PairCreatorFeeAccruesPerPair() public {
+        address aliceToken = _create(0);
+        (PairVault p2, IERC20 share2) = _secondPair(carol);
         vm.prank(carol);
-        (address carolToken, ) = curve.createToken(address(pair), "Carol Meme", "CAR", 0, 0);
+        (address carolToken, ) = curve.createToken(address(p2), 0, 0);
         _pastLaunch();
-        _buy(bob, carolToken, 50e18);
-        _buy(carol, bobToken, 50e18);
 
-        assertEq(curve.creatorFees(bobToken), 0.3e18);
+        _buy(bob, aliceToken, 50e18);
+        vm.startPrank(carol);
+        share2.approve(address(curve), 50e18);
+        curve.buy(carolToken, 50e18, 0, carol);
+        vm.stopPrank();
+
+        assertEq(curve.creatorFees(aliceToken), 0.3e18);
         assertEq(curve.creatorFees(carolToken), 0.3e18);
-        assertEq(curve.pairCreatorFees(address(pair)), 0.1e18, "10% of both tokens' fees");
+        assertEq(curve.pairCreatorFees(address(pair)), 0.05e18, "10% of the pair's token fees");
+        assertEq(curve.pairCreatorFees(address(p2)), 0.05e18);
+        assertEq(curve.protocolFees(address(share)), 0.15e18);
+        assertEq(curve.protocolFees(address(share2)), 0.15e18);
 
         uint256 aliceBefore = share.balanceOf(alice);
-        uint256 bobBefore = share.balanceOf(bob);
-        vm.prank(carol); // anyone may trigger
-        assertEq(curve.claimPairCreatorFees(address(pair)), 0.1e18);
-        assertEq(share.balanceOf(alice) - aliceBefore, 0.1e18, "paid to the pair creator");
-
-        curve.claimCreatorFees(bobToken);
-        assertEq(share.balanceOf(bob) - bobBefore, 0.3e18, "paid to the token launcher");
+        uint256 carolBefore = share2.balanceOf(carol);
+        vm.prank(bob); // anyone may trigger
+        assertEq(curve.claimPairCreatorFees(address(pair)), 0.05e18);
+        assertEq(share.balanceOf(alice) - aliceBefore, 0.05e18, "paid to the pair creator");
+        curve.claimCreatorFees(carolToken);
+        curve.claimPairCreatorFees(address(p2));
+        assertEq(share2.balanceOf(carol) - carolBefore, 0.35e18, "token creator + pair creator cuts");
 
         vm.expectRevert("ComposeCurve: no fees");
         curve.claimPairCreatorFees(address(pair));
@@ -469,6 +534,94 @@ contract ComposeCurveTest is Test {
         assertEq(IERC20(token).balanceOf(bob), tokensOut);
         assertGt(tokensOut, 0);
         _assertRoutersEmpty(token);
+    }
+
+    // ─── CurveRouter (stocks, no swap) ──────────────────────
+
+    function _buyWithStocks(address token) internal returns (uint256 tokensOut, uint256 netShares) {
+        tsla.mint(bob, 10 ether);
+        amd.mint(bob, 10 ether);
+        // 10% of the reserves ($100); offer twice the needed B so only the proportional amount is pulled.
+        (uint256 balA, uint256 balB) = pair.reserves();
+        (uint256 grossShares, uint256 usedA, uint256 usedB) = pair.previewDeposit(balA / 10, balB / 5);
+        assertEq(usedA, balA / 10);
+        assertEq(usedB, balB / 10, "proportional B leg");
+        netShares = grossShares - (grossShares * 200) / 10_000; // 2% pair creator fee
+        (uint256 quoted, ) = curve.quoteBuy(token, netShares);
+
+        vm.startPrank(bob);
+        IERC20(pair.tokenA()).approve(address(curveRouter), balA / 10);
+        IERC20(pair.tokenB()).approve(address(curveRouter), balB / 5);
+        tokensOut = curveRouter.buyWithStocks(token, balA / 10, balB / 5, quoted);
+        vm.stopPrank();
+        assertEq(tokensOut, quoted);
+    }
+
+    function test_RouterBuyWithStocks() public {
+        address token = _create(0);
+        _pastLaunch();
+        (uint256 balA, uint256 balB) = pair.reserves();
+        (uint256 tokensOut, uint256 netShares) = _buyWithStocks(token);
+
+        assertEq(IERC20(token).balanceOf(bob), tokensOut);
+        assertEq(IERC20(pair.tokenA()).balanceOf(bob), 10 ether - balA / 10);
+        assertEq(IERC20(pair.tokenB()).balanceOf(bob), 10 ether - balB / 10, "unused B never left the wallet");
+        (, , uint256 realQuote, , ) = _state(token);
+        assertEq(realQuote, netShares - netShares / 100, "$100 of stock -> 2% pair fee -> 1% curve fee");
+        assertApproxEqRel(realQuote, 97.02e18, 0.001e18);
+        _assertRoutersEmpty(token);
+    }
+
+    function test_RouterSellForStocks() public {
+        address token = _create(0);
+        _pastLaunch();
+        (uint256 tokensOut, ) = _buyWithStocks(token);
+        IERC20 a = IERC20(pair.tokenA());
+        IERC20 b = IERC20(pair.tokenB());
+
+        (uint256 sharesBack, ) = curve.quoteSell(token, tokensOut);
+        (uint256 expectA, uint256 expectB, ) = pair.quoteRedeem(sharesBack);
+        uint256 aBefore = a.balanceOf(bob);
+        uint256 bBefore = b.balanceOf(bob);
+        vm.startPrank(bob);
+        IERC20(token).approve(address(curveRouter), tokensOut);
+        (uint256 outA, uint256 outB) = curveRouter.sellForStocks(token, tokensOut, expectA, expectB);
+        vm.stopPrank();
+
+        assertEq(outA, expectA);
+        assertEq(outB, expectB);
+        assertEq(a.balanceOf(bob) - aBefore, outA);
+        assertEq(b.balanceOf(bob) - bBefore, outB);
+        assertEq(IERC20(token).balanceOf(bob), 0);
+        // Round trip: 2% pair fee in, 1% curve fee each way -> ~96% of the stock comes back.
+        (uint256 balA, ) = pair.reserves();
+        assertLt(outA, balA / 10);
+        assertGt(outA, (balA / 10) * 95 / 100, "round trip loses only fees");
+        _assertRoutersEmpty(token);
+    }
+
+    function test_RouterStockMinOutGuards() public {
+        address token = _create(0);
+        _pastLaunch();
+        tsla.mint(bob, 1 ether);
+        amd.mint(bob, 1 ether);
+
+        vm.startPrank(bob);
+        tsla.approve(address(curveRouter), 1 ether);
+        amd.approve(address(curveRouter), 1 ether);
+        vm.expectRevert("ComposeCurve: slippage");
+        curveRouter.buyWithStocks(token, 0.24 ether, 0.24 ether, SUPPLY);
+        vm.expectRevert("CurveRouter: zero amount");
+        curveRouter.buyWithStocks(token, 0, 0, 0);
+
+        uint256 tokensOut = curveRouter.buyWithStocks(token, 0.24 ether, 0.24 ether, 0);
+        IERC20(token).approve(address(curveRouter), tokensOut);
+        vm.expectRevert("PairVault: slippage");
+        curveRouter.sellForStocks(token, tokensOut, 1 ether, 0);
+        vm.expectRevert("CurveRouter: zero amount");
+        curveRouter.sellForStocks(token, 0, 0, 0);
+        vm.stopPrank();
+        assertEq(IERC20(token).balanceOf(bob), tokensOut, "failed sells keep the tokens");
     }
 
     function _assertRoutersEmpty(address token) internal view {

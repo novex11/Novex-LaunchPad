@@ -25,6 +25,10 @@ export interface PairAreaChartProps {
   loading?: boolean;
   height?: number;
   className?: string;
+  /** Labels for the metric toggle (defaults TVL / Price). */
+  metricLabels?: { navUsd: string; sharePrice: string };
+  /** Message shown while there are fewer than two points. */
+  emptyHint?: string;
 }
 
 const RANGES: Array<{ id: PairHistoryRange; label: string }> = [
@@ -37,17 +41,31 @@ const RANGES: Array<{ id: PairHistoryRange; label: string }> = [
 
 const LINE = "var(--chart-line)";
 const PAD = { top: 24, right: 96, bottom: 44, left: 16 };
+/** Chrome animates a path's `d` when the segment count matches, so a new trade glides in. */
+const PATH_TRANSITION: React.CSSProperties = { transition: "d 400ms ease" };
+const DOT_TRANSITION: React.CSSProperties = { transition: "cx 400ms ease, cy 400ms ease" };
+
+/** Sub-cent values (bonding-curve token prices are ~1e-8) keep their significant digits. */
+function tiny(v: number): string {
+  if (v === 0) return "$0";
+  const exp = Math.floor(Math.log10(Math.abs(v)));
+  return `$${v.toFixed(Math.min(12, -exp + 3))}`;
+}
 
 function compact(v: number): string {
   const abs = Math.abs(v);
   if (abs >= 1_000_000) return `$${(v / 1_000_000).toFixed(abs >= 10_000_000 ? 0 : 1)}M`;
   if (abs >= 1_000) return `$${(v / 1_000).toFixed(abs >= 10_000 ? 0 : 1)}k`;
   if (abs >= 1) return `$${v.toFixed(2)}`;
-  return `$${v.toFixed(4)}`;
+  if (abs >= 0.01) return `$${v.toFixed(4)}`;
+  return tiny(v);
 }
 
 function headline(v: number, metric: PairAreaMetric): string {
-  if (metric === "sharePrice") return `$${v.toFixed(v >= 100 ? 2 : 4)}`;
+  if (metric === "sharePrice") {
+    if (v !== 0 && Math.abs(v) < 0.01) return tiny(v);
+    return `$${v.toFixed(v >= 100 ? 2 : 4)}`;
+  }
   return compact(v);
 }
 
@@ -119,6 +137,8 @@ export function PairAreaChart({
   loading,
   height = 360,
   className,
+  metricLabels,
+  emptyHint,
 }: PairAreaChartProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(900);
@@ -233,8 +253,8 @@ export function PairAreaChart({
             <div className="flex items-center rounded-full bg-surface-muted p-1">
               {(
                 [
-                  ["navUsd", "TVL"],
-                  ["sharePrice", "Price"],
+                  ["navUsd", metricLabels?.navUsd ?? "TVL"],
+                  ["sharePrice", metricLabels?.sharePrice ?? "Price"],
                 ] as const
               ).map(([id, label]) => (
                 <button
@@ -277,7 +297,9 @@ export function PairAreaChart({
         {!loading && series.length < 2 && (
           <div className="flex w-full flex-col items-center justify-center text-sm text-muted-foreground" style={{ height }}>
             <span>Waiting for the first price points…</span>
-            <span className="mt-1 text-xs text-muted-foreground/70">The line appears after the first deposit or tick.</span>
+            <span className="mt-1 text-xs text-muted-foreground/70">
+              {emptyHint ?? "The line appears after the first deposit or tick."}
+            </span>
           </div>
         )}
         {geo && last && (
@@ -317,8 +339,16 @@ export function PairAreaChart({
                 {t.label}
               </text>
             ))}
-            <path d={geo.area} fill="url(#pons-fill)" />
-            <path d={geo.line} fill="none" stroke={LINE} strokeWidth={3} strokeLinejoin="round" strokeLinecap="round" />
+            <path d={geo.area} fill="url(#pons-fill)" style={PATH_TRANSITION} />
+            <path
+              d={geo.line}
+              fill="none"
+              stroke={LINE}
+              strokeWidth={3}
+              strokeLinejoin="round"
+              strokeLinecap="round"
+              style={PATH_TRANSITION}
+            />
             {hovered && geo.pts[hoverIdx!] && (
               <>
                 <line
@@ -333,7 +363,13 @@ export function PairAreaChart({
                 <circle cx={geo.pts[hoverIdx!]![0]} cy={geo.pts[hoverIdx!]![1]} r={6} fill={LINE} stroke="var(--chart-panel)" strokeWidth={3} />
               </>
             )}
-            <circle cx={geo.pts[geo.pts.length - 1]![0]} cy={geo.pts[geo.pts.length - 1]![1]} r={7} fill={LINE} />
+            <circle
+              cx={geo.pts[geo.pts.length - 1]![0]}
+              cy={geo.pts[geo.pts.length - 1]![1]}
+              r={7}
+              fill={LINE}
+              style={DOT_TRANSITION}
+            />
             <rect
               x={PAD.left}
               y={PAD.top}

@@ -25,6 +25,23 @@ const CHUNK = BigInt(process.env.INDEXER_LOG_CHUNK ?? 5_000);
 const POLL_MS = Number(process.env.INDEXER_POLL_MS ?? 1_500);
 const DEFAULT_LOOKBACK = 100_000n;
 
+/**
+ * First block to scan when no cursor is stored for this curve address.
+ * `CURVE_START_BLOCK` (the curve's deploy block) wins; otherwise the launchpad
+ * start block, which a redeployed curve would rescan from unnecessarily.
+ */
+function curveStartBlock(): bigint {
+  const raw = process.env.CURVE_START_BLOCK;
+  if (raw) {
+    try {
+      return BigInt(raw);
+    } catch {
+      /* fall through */
+    }
+  }
+  return launchpadStartBlock();
+}
+
 const blockTimes = new Map<bigint, Date>();
 async function blockTime(client: PublicClient, blockNumber: bigint): Promise<Date> {
   const cached = blockTimes.get(blockNumber);
@@ -168,7 +185,7 @@ export function startCurveIndexer(): (() => void) | null {
   async function tick() {
     const latest = await client!.getBlockNumber();
     const cursor = await launchpadStore.getCursor(db!, cursorId);
-    const configuredStart = launchpadStartBlock();
+    const configuredStart = curveStartBlock();
     let from =
       cursor != null
         ? cursor + 1n

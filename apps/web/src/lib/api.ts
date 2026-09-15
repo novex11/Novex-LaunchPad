@@ -384,6 +384,11 @@ export interface CurveToken {
   tickerA?: string;
   tickerB?: string;
   pairName?: string;
+  pairDescription?: string;
+  /** Pair banner (wide cover) — the token shares the pair's identity. */
+  imageUrl?: string;
+  /** Pair logo (square avatar). */
+  logoUrl?: string;
   volume24hUsd?: number;
 }
 
@@ -396,7 +401,23 @@ export interface CurveTrade {
   marketCapUsd: number;
   valueUsd: number;
   txHash: string;
+  logIndex: number;
   timestamp: string;
+}
+
+/** One point of a token's market-cap line: the launch, every trade, and "now". */
+export interface TokenHistoryPoint {
+  timestamp: string;
+  marketCapUsd: number;
+  priceUsd: number;
+  isBuy?: boolean;
+  txHash?: string;
+  trader?: string;
+}
+
+export interface TokenHistoryResponse {
+  range: PairHistoryRange;
+  points: TokenHistoryPoint[];
 }
 
 /** Pushed by the indexer for every trade of a creator token. */
@@ -420,6 +441,17 @@ export async function fetchTokenCandles(
 ): Promise<{ interval: PairCandleInterval; candles: PairCandle[] }> {
   const res = await fetch(
     `${INDEXER_URL}/launchpad/token/${address.toLowerCase()}/candles?interval=${interval}`,
+    { cache: "no-store" },
+  );
+  return parseJson(res);
+}
+
+export async function fetchTokenHistory(
+  address: string,
+  range: PairHistoryRange = "24h",
+): Promise<TokenHistoryResponse> {
+  const res = await fetch(
+    `${INDEXER_URL}/launchpad/token/${address.toLowerCase()}/history?range=${range}`,
     { cache: "no-store" },
   );
   return parseJson(res);

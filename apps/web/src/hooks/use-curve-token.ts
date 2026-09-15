@@ -7,8 +7,12 @@ import { useReadContract, useReadContracts } from "wagmi";
 import {
   fetchCurveToken,
   fetchTokenCandles,
+  fetchTokenHistory,
   tokenStreamUrl,
+  type CurveTrade,
   type PairCandleInterval,
+  type PairHistoryRange,
+  type TokenHistoryResponse,
   type TokenLiveTrade,
 } from "@/lib/api";
 import {
@@ -24,6 +28,7 @@ import { useContractTx } from "@/lib/tx";
 import { quoteTokenAddress, swapPath, type QuoteAsset, type TradeStage } from "@/hooks/use-pair-trade";
 
 const REFRESH_MS = 10_000;
+type CurveTokenDetail = Awaited<ReturnType<typeof fetchCurveToken>>;
 const DEADLINE_SECONDS = 20 * 60;
 const deadline = () => BigInt(Math.floor(Date.now() / 1000) + DEADLINE_SECONDS);
 
@@ -43,6 +48,18 @@ export function useTokenCandles(address: string | undefined, interval: PairCandl
   return useQuery({
     queryKey: ["curve-candles", address?.toLowerCase(), interval],
     queryFn: () => fetchTokenCandles(address!, interval),
+    enabled: !!address,
+    refetchInterval: REFRESH_MS,
+    staleTime: 2_000,
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** Market-cap line: the launch, every trade as its own point, and "now". */
+export function useTokenHistory(address: string | undefined, range: PairHistoryRange) {
+  return useQuery<TokenHistoryResponse>({
+    queryKey: ["curve-history", address?.toLowerCase(), range],
+    queryFn: () => fetchTokenHistory(address!, range),
     enabled: !!address,
     refetchInterval: REFRESH_MS,
     staleTime: 2_000,
@@ -71,6 +88,36 @@ export function useTokenLive(address: string | undefined, onTrade?: (trade: Toke
       }
       setLast(trade);
       callback.current?.(trade);
+      // Draw the trade the second it lands: extend every range's line and prepend the row.
+      qc.setQueriesData<TokenHistoryResponse>({ queryKey: ["curve-history", addr] }, (prev) => {
+        if (!prev) return prev;
+        const point = {
+          timestamp: trade.timestamp,
+          marketCapUsd: trade.marketCapUsd,
+          priceUsd: trade.priceUsd,
+          isBuy: trade.isBuy,
+          txHash: trade.txHash,
+          trader: trade.trader,
+        };
+        if (prev.points.some((p) => p.txHash === trade.txHash && p.timestamp === trade.timestamp)) return prev;
+        const t = Date.parse(trade.timestamp);
+        const kept = prev.points.filter((p) => p.txHash || Date.parse(p.timestamp) <= t);
+        return { ...prev, points: [...kept, point] };
+      });
+      qc.setQueryData<CurveTokenDetail>(
+        ["curve-token", addr],
+        (prev) => {
+          if (!prev) return prev;
+          const key = (x: CurveTrade) => `${x.txHash}-${x.logIndex ?? ""}`;
+          if (prev.trades.some((x) => key(x) === key(trade))) return prev;
+          return {
+            ...prev,
+            token: { ...prev.token, marketCapUsd: trade.marketCapUsd, priceUsd: trade.priceUsd, tradesCount: prev.token.tradesCount + 1 },
+            trades: [trade, ...prev.trades].slice(0, 50),
+          };
+        },
+      );
+      qc.invalidateQueries({ queryKey: ["curve-history", addr] });
       qc.invalidateQueries({ queryKey: ["curve-token", addr] });
       qc.invalidateQueries({ queryKey: ["curve-candles", addr] });
       qc.invalidateQueries({ queryKey: ["curve-tokens"] });
@@ -159,6 +206,47 @@ export function usePairCurveTokens(pair: Address | undefined) {
   return { tokens: [...tokens].reverse(), isLoading: query.isLoading, refetch: query.refetch };
 }
 
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+
+/** The pair's single creator token (strictly one per pair); undefined while loading, null if none yet. */
+export function usePairCurveToken(pair: Address | undefined) {
+  const single = useReadContract({
+    address: COMPOSE_CURVE_ADDRESS,
+    abi: composeCurveAbi,
+    functionName: "tokenOfPair",
+    args: pair ? [pair] : undefined,
+    query: { enabled: !!pair && composeCurveReady, refetchInterval: REFRESH_MS, retry: 0 },
+  });
+  // Older curve deployments only expose tokensOfPair.
+  const list = useReadContract({
+    address: COMPOSE_CURVE_ADDRESS,
+    abi: composeCurveAbi,
+    functionName: "tokensOfPair",
+    args: pair ? [pair] : undefined,
+    query: { enabled: !!pair && composeCurveReady && single.isError, refetchInterval: REFRESH_MS },
+  });
+  let token: Address | null | undefined;
+  if (single.data !== undefined) {
+    token = (single.data as Address) === ZERO_ADDRESS ? null : (single.data as Address);
+  } else if (single.isError) {
+    const arr = list.data as readonly Address[] | undefined;
+    token = arr === undefined ? undefined : (arr[0] ?? null);
+  }
+  const refetch = useCallback(() => Promise.all([single.refetch(), list.refetch()]), [single, list]);
+  return { token, isLoading: token === undefined && (single.isLoading || list.isLoading), refetch };
+}
+
+/** Starting market cap (USD, 8 decimals) the curve gives every new token. */
+export function useCurveStartMarketCap() {
+  const query = useReadContract({
+    address: COMPOSE_CURVE_ADDRESS,
+    abi: composeCurveAbi,
+    functionName: "startMarketCapUsd8",
+    query: { enabled: composeCurveReady, staleTime: 60_000 },
+  });
+  return query.data as bigint | undefined;
+}
+
 /** Pair creator's unclaimed cut (pair shares) of trade fees from every token on the pair. */
 export function usePairCreatorCurveFees(pair: Address | undefined) {
   const query = useReadContract({
@@ -235,11 +323,89 @@ export interface CurveSellInput {
   slippageBps: number;
 }
 
-/** Buy/sell creator tokens with ETH or USDG through CurveRouter. */
+export interface CurveBuyWithStocksInput {
+  token: Address;
+  tokenA: Address;
+  tokenB: Address;
+  amountA: bigint;
+  amountB: bigint;
+  minTokensOut: bigint;
+}
+
+export interface CurveSellForStocksInput {
+  token: Address;
+  tokensIn: bigint;
+  minAmountA: bigint;
+  minAmountB: bigint;
+}
+
+/** Buy/sell creator tokens with ETH, USDG or the pair's own stocks through CurveRouter. */
 export function useCurveTrade() {
   const { send, approveIfNeeded } = useContractTx();
   const s = useStage();
   const { setStage, setError, setHash, fail } = s;
+
+  /** Stocks → pair shares → tokens, no swap. Approves each leg only if needed. */
+  const buyWithStocks = useCallback(
+    async (i: CurveBuyWithStocksInput): Promise<Hash> => {
+      setError(null);
+      setHash(undefined);
+      try {
+        if (!curveRouterReady) throw new Error("Creator tokens are not tradable on this network yet.");
+        if (i.amountA > 0n) {
+          setStage("approve-a");
+          await approveIfNeeded(i.tokenA, CURVE_ROUTER_ADDRESS, i.amountA, { onSubmitted: setHash });
+        }
+        if (i.amountB > 0n) {
+          setStage("approve-b");
+          await approveIfNeeded(i.tokenB, CURVE_ROUTER_ADDRESS, i.amountB, { onSubmitted: setHash });
+        }
+        setStage("submit");
+        const { hash } = await send(
+          {
+            address: CURVE_ROUTER_ADDRESS,
+            abi: curveRouterAbi,
+            functionName: "buyWithStocks",
+            args: [i.token, i.amountA, i.amountB, i.minTokensOut],
+          },
+          { onSubmitted: setHash },
+        );
+        setStage("done");
+        return hash;
+      } catch (e) {
+        return fail(e);
+      }
+    },
+    [approveIfNeeded, send, setStage, setError, setHash, fail],
+  );
+
+  /** Tokens → pair shares → both stocks to the wallet, no swap. */
+  const sellForStocks = useCallback(
+    async (i: CurveSellForStocksInput): Promise<Hash> => {
+      setError(null);
+      setHash(undefined);
+      try {
+        if (!curveRouterReady) throw new Error("Creator tokens are not tradable on this network yet.");
+        setStage("approve");
+        await approveIfNeeded(i.token, CURVE_ROUTER_ADDRESS, i.tokensIn, { onSubmitted: setHash });
+        setStage("submit");
+        const { hash } = await send(
+          {
+            address: CURVE_ROUTER_ADDRESS,
+            abi: curveRouterAbi,
+            functionName: "sellForStocks",
+            args: [i.token, i.tokensIn, i.minAmountA, i.minAmountB],
+          },
+          { onSubmitted: setHash },
+        );
+        setStage("done");
+        return hash;
+      } catch (e) {
+        return fail(e);
+      }
+    },
+    [approveIfNeeded, send, setStage, setError, setHash, fail],
+  );
 
   const buy = useCallback(
     async (i: CurveBuyInput): Promise<Hash> => {
@@ -323,7 +489,7 @@ export function useCurveTrade() {
     [approveIfNeeded, send, setStage, setError, setHash, fail],
   );
 
-  return { buy, sell, stage: s.stage, error: s.error, hash: s.hash, reset: s.reset };
+  return { buy, sell, buyWithStocks, sellForStocks, stage: s.stage, error: s.error, hash: s.hash, reset: s.reset };
 }
 
 /**
@@ -364,7 +530,10 @@ const TokenCreatedEvent = parseAbiItem(
   "event TokenCreated(address indexed token, address indexed pair, address indexed creator, address share, string name, string symbol, uint256 virtualQuote, uint256 graduationQuote)",
 );
 
-/** Pair creator issues the pair's creator token, with an optional dev buy in pair shares. */
+/**
+ * Pair creator issues the pair's one creator token. Name, symbol, logo and banner
+ * are the pair's; the only input is an optional dev buy paid in pair shares.
+ */
 export function useCreateCurveToken() {
   const { send, approveIfNeeded } = useContractTx();
   const s = useStage();
@@ -374,9 +543,8 @@ export function useCreateCurveToken() {
     async (i: {
       pair: Address;
       share: Address;
-      name: string;
-      symbol: string;
       devBuyShares: bigint;
+      minDevTokens: bigint;
     }): Promise<{ token: Address; hash: Hash }> => {
       setError(null);
       setHash(undefined);
@@ -392,7 +560,7 @@ export function useCreateCurveToken() {
             address: COMPOSE_CURVE_ADDRESS,
             abi: composeCurveAbi,
             functionName: "createToken",
-            args: [i.pair, i.name, i.symbol, i.devBuyShares, 0n],
+            args: [i.pair, i.devBuyShares, i.minDevTokens],
           },
           { onSubmitted: setHash },
         );
