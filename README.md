@@ -52,6 +52,24 @@ pnpm docker:ps      # container status
 pnpm docker:down    # stop the stack
 ```
 
+### Production on Render
+
+Every service builds from the root `Dockerfile`; the `SERVICE` build arg picks
+`web`, `allocator`, `quote`, or `indexer`. `render.yaml` describes the four
+web services as a Blueprint, and `scripts/render-create.sh` creates them from
+the CLI with secrets read from your local `.env`:
+
+```bash
+brew install render && render login
+scripts/render-create.sh all        # or: indexer | allocator | quote | web
+render services                     # watch the first deploys
+render logs -r novex-indexer --tail # follow a service
+```
+
+Postgres stays on Neon (`DATABASE_URL`) and images on Redis Cloud (`REDIS_*`).
+`NEXT_PUBLIC_*` values are inlined at build time, so changing one on the web
+service requires a redeploy.
+
 ## Packages
 
 | Path | Description |

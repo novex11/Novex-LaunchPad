@@ -1,0 +1,157 @@
+# Render Blueprint for the Novex platform.
+# One Dockerfile builds every service; SERVICE selects the target stage.
+# Secrets (sync: false) are entered once in the Render dashboard or via the CLI.
+# Docs: https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: novex-indexer
+    runtime: docker
+    repo: https://github.com/novex11/contract-v2
+    branch: main
+    region: oregon
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: SERVICE
+        value: indexer
+      - key: INDEXER_PORT
+        value: "10000"
+      - key: PORT
+        value: "10000"
+      - key: NEXT_PUBLIC_USE_TESTNET
+        value: "true"
+      - key: MARK_TO_MARKET_INTERVAL_MS
+        value: "60000"
+      - key: AUTO_VERIFY_CONTRACTS
+        value: "true"
+      - key: PUBLIC_INDEXER_URL
+        value: https://novex-indexer.onrender.com
+      - key: DATABASE_URL
+        sync: false
+      - key: ROBINHOOD_TESTNET_RPC_URL
+        sync: false
+      - key: ROBINHOOD_RPC_URL
+        sync: false
+      - key: ALCHEMY_API_KEY
+        sync: false
+      - key: REDIS_HOST
+        sync: false
+      - key: REDIS_PORT
+        sync: false
+      - key: REDIS_USERNAME
+        sync: false
+      - key: REDIS_PASSWORD
+        sync: false
+      - key: PAIR_FACTORY_ADDRESS
+        sync: false
+      - key: NEXT_PUBLIC_PAIR_FACTORY_ADDRESS
+        sync: false
+      - key: NEXT_PUBLIC_ORACLE_ADAPTER_ADDRESS
+        sync: false
+      - key: INDEXER_START_BLOCK
+        sync: false
+
+  - type: web
+    name: novex-allocator
+    runtime: docker
+    repo: https://github.com/novex11/contract-v2
+    branch: main
+    region: oregon
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: SERVICE
+        value: allocator
+      - key: ALLOCATOR_PORT
+        value: "10000"
+      - key: PORT
+        value: "10000"
+      - key: NEXT_PUBLIC_USE_TESTNET
+        value: "true"
+      - key: INDEXER_URL
+        value: https://novex-indexer.onrender.com
+      - key: ROBINHOOD_TESTNET_RPC_URL
+        sync: false
+      - key: ROBINHOOD_RPC_URL
+        sync: false
+      - key: ALCHEMY_API_KEY
+        sync: false
+
+  - type: web
+    name: novex-quote
+    runtime: docker
+    repo: https://github.com/novex11/contract-v2
+    branch: main
+    region: oregon
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: SERVICE
+        value: quote
+      - key: QUOTE_PORT
+        value: "10000"
+      - key: PORT
+        value: "10000"
+      - key: NEXT_PUBLIC_USE_TESTNET
+        value: "true"
+      - key: RIALTO_INTEGRATOR_FEE_BPS
+        value: "0"
+      - key: RIALTO_API_KEY
+        sync: false
+      - key: ROBINHOOD_TESTNET_RPC_URL
+        sync: false
+      - key: ROBINHOOD_RPC_URL
+        sync: false
+      - key: ALCHEMY_API_KEY
+        sync: false
+
+  - type: web
+    name: novex-web
+    runtime: docker
+    repo: https://github.com/novex11/contract-v2
+    branch: main
+    region: oregon
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: SERVICE
+        value: web
+      - key: PORT
+        value: "3000"
+      - key: NEXT_PUBLIC_USE_TESTNET
+        value: "true"
+      - key: NEXT_PUBLIC_EXPLORER_URL
+        value: https://explorer.testnet.chain.robinhood.com
+      - key: NEXT_PUBLIC_ALLOCATOR_URL
+        value: https://novex-allocator.onrender.com
+      - key: NEXT_PUBLIC_QUOTE_URL
+        value: https://novex-quote.onrender.com
+      - key: NEXT_PUBLIC_INDEXER_URL
+        value: https://novex-indexer.onrender.com
+      - key: NEXT_PUBLIC_PRIVY_APP_ID
+        sync: false
+      - key: NEXT_PUBLIC_ROBINHOOD_TESTNET_RPC_URL
+        sync: false
+      - key: ROBINHOOD_TESTNET_RPC_URL
+        sync: false
+      - key: ROBINHOOD_RPC_URL
+        sync: false
+      - key: ALCHEMY_API_KEY
+        sync: false
+      - key: NEXT_PUBLIC_PAIR_FACTORY_ADDRESS
+        sync: false
+      - key: NEXT_PUBLIC_ORACLE_ADAPTER_ADDRESS
+        sync: false

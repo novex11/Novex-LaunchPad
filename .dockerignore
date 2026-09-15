@@ -22,3 +22,4 @@ services/indexer/generated
 services/indexer/.ponder
 *.md
 !README.md
+.claude
