@@ -59,8 +59,39 @@ const DepositCostsSchema = z.object({
   allocation: z
     .array(z.object({ ticker: z.string(), usd: z.number() }))
     .optional(),
+  /** Ticker of the asset being deposited (the sell side of every swap leg). */
+  depositTicker: z.string().optional(),
   swapLegCount: z.number().int().min(1).optional(),
 });
+
+/** Base units → human decimal string, as Rialto's `sell_amount` expects. */
+function toHumanAmount(raw: bigint, decimals: number): string {
+  const base = 10n ** BigInt(decimals);
+  const whole = raw / base;
+  const frac = (raw % base).toString().padStart(decimals, "0").replace(/0+$/, "");
+  return frac ? `${whole}.${frac}` : whole.toString();
+}
+
+/** Latest USD price per token address from Rialto's public feed (60s cache). */
+let priceCache: { at: number; byAddress: Map<string, number> } | null = null;
+async function fetchRialtoPriceUsd(address: string): Promise<number | null> {
+  if (!priceCache || Date.now() - priceCache.at > 60_000) {
+    try {
+      const res = await fetch(`${RIALTO_API_URL}/prices`, { signal: AbortSignal.timeout(5000) });
+      if (!res.ok) return null;
+      const json = (await res.json()) as { prices?: Array<{ address: string; price: string }> };
+      const byAddress = new Map<string, number>();
+      for (const p of json.prices ?? []) {
+        const n = Number(p.price);
+        if (Number.isFinite(n) && n > 0) byAddress.set(p.address.toLowerCase(), n);
+      }
+      priceCache = { at: Date.now(), byAddress };
+    } catch {
+      return null;
+    }
+  }
+  return priceCache.byAddress.get(address.toLowerCase()) ?? null;
+}
 
 // ─── Rialto API helpers ─────────────────────────────────
 
@@ -80,10 +111,14 @@ interface RialtoQuote {
   permit2?: unknown;
 }
 
+/**
+ * Price a swap on Rialto. `sellAmountHuman` is a decimal token amount ("0.25"),
+ * per the live API; the response amounts come back in smallest units.
+ */
 async function fetchRialtoQuote(
   sellToken: string,
   buyToken: string,
-  sellAmount: string,
+  sellAmountHuman: string,
   taker: string,
   slippageBps: number,
 ): Promise<RialtoQuote | null> {
@@ -92,7 +127,7 @@ async function fetchRialtoQuote(
   const params = new URLSearchParams({
     sell_token: sellToken,
     buy_token: buyToken,
-    sell_amount: sellAmount,
+    sell_amount: sellAmountHuman,
     taker,
     slippage_bps: String(slippageBps),
     chain_id: String(activeChainId()),
@@ -185,7 +220,7 @@ app.post("/quote", async (c) => {
     const rialtoQuote = await fetchRialtoQuote(
       from.address,
       to.address,
-      amount,
+      toHumanAmount(amountIn, from.decimals),
       taker,
       slippageBps,
     );
@@ -242,7 +277,7 @@ app.post("/estimate-deposit-costs", async (c) => {
       return c.json({ error: parsed.error.flatten() }, 400);
     }
 
-    const { depositUsd, allocation, swapLegCount } = parsed.data;
+    const { depositUsd, allocation, depositTicker, swapLegCount } = parsed.data;
     const legs =
       swapLegCount ??
       (allocation
@@ -258,20 +293,21 @@ app.post("/estimate-deposit-costs", async (c) => {
       let totalGasCost = 0;
       let realQuoteCount = 0;
 
-      for (const leg of allocation) {
-        if (leg.usd <= 0) continue;
-        const token = getResolvedToken(leg.ticker);
-        if (!token) continue;
+      // Every leg sells the deposit asset; size each leg in deposit-token units.
+      const depositToken =
+        (depositTicker ? getResolvedToken(depositTicker) : undefined) ??
+        (allocation[0] ? getResolvedToken(allocation[0].ticker) : undefined);
+      const depositPrice = depositToken ? await fetchRialtoPriceUsd(depositToken.address) : null;
 
-        const depositToken = allocation[0]
-          ? getResolvedToken(allocation[0].ticker)
-          : undefined;
-        if (!depositToken || token.address === depositToken.address) continue;
+      for (const leg of allocation) {
+        if (leg.usd <= 0 || !depositToken || !depositPrice) continue;
+        const token = getResolvedToken(leg.ticker);
+        if (!token || token.address.toLowerCase() === depositToken.address.toLowerCase()) continue;
 
         const rq = await fetchRialtoQuote(
           depositToken.address,
           token.address,
-          String(leg.usd),
+          (leg.usd / depositPrice).toFixed(Math.min(depositToken.decimals, 8)),
           taker,
           50,
         );
