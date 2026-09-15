@@ -14,6 +14,7 @@ import {
   fetchRhjAssets,
   mergeRhjAssetsWithConfig,
   type StockToken,
+  corsOrigins,
 } from "@novex/config";
 import { QuoteRequestSchema } from "@novex/sdk";
 
@@ -120,7 +121,7 @@ async function fetchRialtoQuote(
 const app = new Hono();
 
 // ─── Global middleware ──────────────────────────────────
-app.use("/*", cors());
+app.use("/*", cors({ origin: corsOrigins() }));
 app.use("/*", logger());
 app.use("/*", requestId());
 app.use("/*", secureHeaders());

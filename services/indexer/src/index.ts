@@ -13,7 +13,7 @@ import * as launchpadStore from "./launchpad-store.js";
 import { createDb, type Db } from "./db.js";
 import { ensureSchema } from "./migrate.js";
 import { parseAbi } from "viem";
-import { pairMetadataMessage } from "@novex/config";
+import { pairMetadataMessage, corsOrigins } from "@novex/config";
 import { startChainListener } from "./chain-listener.js";
 import { ensurePairIndexed, startLaunchpadIndexer } from "./launchpad-indexer.js";
 import { getPublicClient, pairFactoryAddress } from "./chain-client.js";
@@ -144,7 +144,7 @@ async function verifyPairMetadata(
 const app = new Hono();
 
 // ─── Global middleware ──────────────────────────────────
-app.use("/*", cors());
+app.use("/*", cors({ origin: corsOrigins() }));
 app.use("/*", logger());
 app.use("/*", requestId());
 app.use(

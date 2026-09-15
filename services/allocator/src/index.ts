@@ -16,6 +16,7 @@ import {
   fetchRhjAssets,
   mergeRhjAssetsWithConfig,
   type StockToken,
+  corsOrigins,
 } from "@novex/config";
 
 const INDEXER_URL =
@@ -52,7 +53,7 @@ async function bootstrapTokens(): Promise<void> {
 const app = new Hono();
 
 // ─── Global middleware ──────────────────────────────────
-app.use("/*", cors());
+app.use("/*", cors({ origin: corsOrigins() }));
 app.use("/*", logger());
 app.use("/*", requestId());
 app.use("/*", secureHeaders());

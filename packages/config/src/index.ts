@@ -7,3 +7,4 @@ export * from "./basket.js";
 export * from "./launch.js";
 export * from "./launchpad.js";
 export * from "./rhj-api.js";
+export * from "./cors.js";
