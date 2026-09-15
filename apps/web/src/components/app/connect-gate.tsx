@@ -57,7 +57,7 @@ export function ConnectGate({ eyebrow, title, description }: ConnectGateProps) {
               Sample basket
             </span>
             <div className="flex items-center gap-5">
-              <AllocationDonut items={SAMPLE} size={132} thickness={14} centerValue="nNVDA-B" centerLabel="receipt" />
+              <AllocationDonut items={SAMPLE} size={132} thickness={14} centerValue="tNVDA-B" centerLabel="receipt" />
               <div className="min-w-0 flex-1">
                 <p className="label-caps">Basket value</p>
                 <p className="mt-1 font-mono text-3xl font-semibold tabular-nums">$1,007.58</p>

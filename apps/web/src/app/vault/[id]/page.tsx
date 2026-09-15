@@ -15,6 +15,7 @@ import { RowSkeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { MetricBand } from "@/components/app/metric-band";
 import { HatchPattern } from "@/components/motion/hatch-pattern";
+import { DEFAULT_VAULT_ID } from "@/lib/contracts";
 
 const spring = { type: "spring", stiffness: 100, damping: 20 } as const;
 
@@ -70,7 +71,7 @@ export default function VaultPage() {
           className="mt-10"
           action={
             <Button asChild variant="outline" size="sm">
-              <Link href="/vault/nNVDA-B">Open nNVDA-B</Link>
+              <Link href={`/vault/${DEFAULT_VAULT_ID}`}>Open {DEFAULT_VAULT_ID}</Link>
             </Button>
           }
         />

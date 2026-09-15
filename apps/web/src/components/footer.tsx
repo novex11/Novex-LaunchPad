@@ -5,6 +5,7 @@ import { motion, useReducedMotion } from "motion/react";
 import { ArrowUpRight } from "@phosphor-icons/react";
 import { Wordmark } from "@/components/navbar";
 import { HatchPattern } from "@/components/motion/hatch-pattern";
+import { DEFAULT_VAULT_ID } from "@/lib/contracts";
 
 const columns = [
   {
@@ -20,7 +21,7 @@ const columns = [
   {
     title: "Transparency",
     links: [
-      { href: "/vault/tNVDA-B", label: "Vault tNVDA-B" },
+      { href: `/vault/${DEFAULT_VAULT_ID}`, label: `Vault ${DEFAULT_VAULT_ID}` },
       { href: "/launchpad", label: "Launchpad" },
       { href: "/activity", label: "Activity" },
     ],

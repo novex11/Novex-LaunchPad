@@ -183,6 +183,14 @@ export const contractsReady =
 /** Managed baskets can be created on this network */
 export const basketsAvailable = contractsReady;
 
+/** A vault id that exists on this network, for "Vaults" links (tTSLA-B on testnet, tNVDA-B on mainnet). */
+export const DEFAULT_VAULT_ID = (() => {
+  const vaults = testnet?.vaults ?? mainnet?.vaults ?? {};
+  const tickers = Object.keys(vaults);
+  const ticker = tickers.includes("NVDA") ? "NVDA" : (tickers[0] ?? "NVDA");
+  return `t${ticker}-B`;
+})();
+
 export function isWeth(token: string | undefined): boolean {
   return !!token && WETH_ADDRESS !== ZERO && token.toLowerCase() === WETH_ADDRESS.toLowerCase();
 }

@@ -31,11 +31,11 @@ export const baskets: DocPage = {
     {
       id: "receipt-tokens",
       title: "Receipt tokens",
-      keywords: ["nNVDA-B", "shares", "non-transferable", "share price"],
+      keywords: ["tNVDA-B", "shares", "non-transferable", "share price"],
       body: (
         <>
           <p>
-            Each vault mints a receipt token named after its deposit asset and strategy, for example <C>nNVDA-B</C> for
+            Each vault mints a receipt token named after its deposit asset and strategy, for example <C>tNVDA-B</C> for
             NVDA on the Balanced strategy. Shares are <strong>non-transferable</strong>: they can only be minted on deposit and
             burned on redemption, which keeps the vault's accounting simple and auditable.
           </p>

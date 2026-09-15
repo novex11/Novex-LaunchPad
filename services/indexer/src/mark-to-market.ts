@@ -1,8 +1,8 @@
 import { createPublicClient, http, parseAbi, type PublicClient } from "viem";
-import { robinhoodTestnet, robinhoodChain } from "@compose/config";
+import { getTokenByAddress, robinhoodTestnet, robinhoodChain } from "@compose/config";
 import { createDb } from "./db.js";
 import { positions, tvlSnapshots, vaults as vaultsTable } from "./schema.js";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import * as launchpadStore from "./launchpad-store.js";
 import { recordAndPublishSnapshot } from "./pair-live.js";
 import { pairFactoryAddress } from "./chain-client.js";
@@ -32,6 +32,38 @@ const pairAbi = vaultAbi;
 const receiptAbi = parseAbi([
   "function balanceOf(address) view returns (uint256)",
 ]);
+
+const targetMixAbi = parseAbi([
+  "function targetMix() view returns (address[] tokens, uint256[] weightsBps)",
+]);
+
+/**
+ * A vault's fixed target mix as the holdings shape served by /vault/:id, so a
+ * vault that has never seen a deposit still shows what it buys.
+ */
+async function readTargetMixes(
+  client: PublicClient,
+  stats: VaultStats[],
+): Promise<Map<string, Array<{ ticker: string; weight: number; usd: number }>>> {
+  const out = new Map<string, Array<{ ticker: string; weight: number; usd: number }>>();
+  const results = await readContracts(
+    client,
+    stats.map((s) => ({ address: s.vault.vault, abi: targetMixAbi, functionName: "targetMix" as const })),
+  );
+  results.forEach((r, i) => {
+    if (!r) return;
+    const [tokens, weights] = r as [readonly `0x${string}`[], readonly bigint[]];
+    const s = stats[i]!;
+    out.set(
+      s.vault.vaultId,
+      tokens.map((t, j) => {
+        const weight = Number(weights[j] ?? 0n) / 10_000;
+        return { ticker: getTokenByAddress(t)?.ticker ?? t, weight, usd: s.navUsd * weight };
+      }),
+    );
+  });
+  return out;
+}
 
 const INTERVAL_MS = Number(process.env.MARK_TO_MARKET_INTERVAL_MS ?? 60_000);
 /** How often each pair's NAV / share price is sampled for live charts. */
@@ -136,16 +168,34 @@ async function updatePortfolioValues(): Promise<void> {
     );
 
     // Keep the vault summary rows (served by /vault/:id) marked to market.
+    // Every registered vault gets a row, so a vault is browsable before its
+    // first deposit; holdings are seeded from the on-chain target mix and then
+    // owned by the deposit ledger.
+    const mixes = await readTargetMixes(client, stats);
     for (const s of stats) {
+      const mix = mixes.get(s.vault.vaultId) ?? [];
       await db
-        .update(vaultsTable)
-        .set({
+        .insert(vaultsTable)
+        .values({
+          id: s.vault.vaultId,
+          strategy: s.vault.strategy,
+          depositAsset: s.vault.depositTicker,
           tvlUsd: String(s.navUsd.toFixed(4)),
           sharePrice: String(s.sharePrice.toFixed(8)),
           receiptSupply: (Number(s.totalShares) / RECEIPT_SHARE_SCALE).toFixed(3),
+          holdings: mix,
           contractAddress: s.vault.vault,
         })
-        .where(eq(vaultsTable.id, s.vault.vaultId));
+        .onConflictDoUpdate({
+          target: vaultsTable.id,
+          set: {
+            tvlUsd: String(s.navUsd.toFixed(4)),
+            sharePrice: String(s.sharePrice.toFixed(8)),
+            receiptSupply: (Number(s.totalShares) / RECEIPT_SHARE_SCALE).toFixed(3),
+            contractAddress: s.vault.vault,
+            holdings: sql`CASE WHEN jsonb_array_length(COALESCE(${vaultsTable.holdings}, '[]'::jsonb)) = 0 THEN ${JSON.stringify(mix)}::jsonb ELSE ${vaultsTable.holdings} END`,
+          },
+        });
     }
 
     const sharePriceById = new Map(stats.map((s) => [s.vault.vaultId, s.sharePrice]));

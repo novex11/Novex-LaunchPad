@@ -44,7 +44,7 @@ export function LandingCloseSection() {
         <div className="md:col-span-5">
           <BracketPanel>
             <MonoLabel index="05">Published ratio</MonoLabel>
-            <p className="mt-4 font-mono text-lg">NVDA → nNVDA-B</p>
+            <p className="mt-4 font-mono text-lg">NVDA → tNVDA-B</p>
             <p className="mt-2 font-mono text-3xl tabular-nums text-accent md:text-4xl">
               {formatUsd(CASHBACK_CONFIG.depositStockbackUsd)}
             </p>
