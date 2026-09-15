@@ -1,2 +1,2 @@
-export { cn, formatUsd, formatPercent, shortAddress } from "@novex/ui/lib/utils";
+export { cn, formatUsd, formatPercent, shortAddress } from "@compose/ui/lib/utils";
 export { explorerUrl } from "@/lib/explorer";

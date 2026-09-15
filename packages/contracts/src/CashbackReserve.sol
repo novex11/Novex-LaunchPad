@@ -5,7 +5,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-/// @title CashbackReserve — holds Novex-funded Stockback inventory
+/// @title CashbackReserve — holds Compose-funded Stockback inventory
 contract CashbackReserve is Ownable {
     using SafeERC20 for IERC20;
 

@@ -1,4 +1,4 @@
-name: novex
+name: compose
 
 # Backend stack: allocator, quote, indexer.
 # Database: uses DATABASE_URL from .env (Neon). Optional local Postgres via --profile local-db.
@@ -12,15 +12,15 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-novex}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-novex}
-      POSTGRES_DB: ${POSTGRES_DB:-novex}
+      POSTGRES_USER: ${POSTGRES_USER:-compose}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-compose}
+      POSTGRES_DB: ${POSTGRES_DB:-compose}
     ports:
       - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-novex} -d ${POSTGRES_DB:-novex}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-compose} -d ${POSTGRES_DB:-compose}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -62,7 +62,7 @@ services:
       INDEXER_PORT: "3003"
       # Docker stack uses local Postgres (Neon from .env is not reachable from containers).
       # For production/cloud indexer, set INDEXER_DATABASE_URL to your Neon URL.
-      DATABASE_URL: ${INDEXER_DATABASE_URL:-postgres://${POSTGRES_USER:-novex}:${POSTGRES_PASSWORD:-novex}@postgres:5432/${POSTGRES_DB:-novex}}
+      DATABASE_URL: ${INDEXER_DATABASE_URL:-postgres://${POSTGRES_USER:-compose}:${POSTGRES_PASSWORD:-compose}@postgres:5432/${POSTGRES_DB:-compose}}
       ROBINHOOD_RPC_URL: ${NEXT_PUBLIC_ROBINHOOD_RPC_URL:-${ROBINHOOD_RPC_URL:-}}
       ROBINHOOD_TESTNET_RPC_URL: ${NEXT_PUBLIC_ROBINHOOD_TESTNET_RPC_URL:-${ROBINHOOD_TESTNET_RPC_URL:-}}
       NEXT_PUBLIC_USE_TESTNET: ${NEXT_PUBLIC_USE_TESTNET:-false}

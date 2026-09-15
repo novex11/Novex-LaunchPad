@@ -1,7 +1,7 @@
 "use client";
 
 import { useReadContract } from "wagmi";
-import { getTokenByTicker, type StrategyId } from "@novex/config";
+import { getTokenByTicker, type StrategyId } from "@compose/config";
 import {
   FACTORY_ADDRESS,
   VAULT_ADDRESS,

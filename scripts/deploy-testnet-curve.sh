@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Deploy the bonding-curve launchpad (new PairFactory with transferable shares,
-# PairRouter, NovexCurve, CurveRouter) on Robinhood Chain Testnet, reusing the
+# PairRouter, ComposeCurve, CurveRouter) on Robinhood Chain Testnet, reusing the
 # live oracle, keeper, testnet swap router and TestUSDG, then sync addresses.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -48,7 +48,7 @@ forge script script/DeployTestnetCurve.s.sol:DeployTestnetCurve \
 
 cd "$ROOT"
 node scripts/sync-testnet-deployments.mjs
-pnpm --filter @novex/config build >/dev/null
+pnpm --filter @compose/config build >/dev/null
 
 echo ""
 echo "✅  Done. Keep the price keeper running: pnpm keeper:testnet"

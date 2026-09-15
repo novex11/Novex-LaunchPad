@@ -36,6 +36,9 @@
   --chart-6: #3f8a7a;
   --chart-7: #a3894a;
   --chart-8: #7a7f86;
+  /* Pons-style value chart */
+  --chart-line: #6f9a1f;
+  --chart-panel: #f4f5f0;
 }
 
 .dark {
@@ -72,4 +75,6 @@
   --chart-6: #6fc2ae;
   --chart-7: #d6bd7a;
   --chart-8: #9a9ea6;
+  --chart-line: #d6f24b;
+  --chart-panel: #151517;
 }

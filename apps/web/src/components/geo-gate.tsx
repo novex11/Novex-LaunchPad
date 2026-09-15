@@ -1,6 +1,6 @@
 "use client";
 
-import { EXCLUDED_JURISDICTIONS } from "@novex/config";
+import { EXCLUDED_JURISDICTIONS } from "@compose/config";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export function GeoGate({ countryCode }: { countryCode?: string }) {
@@ -15,7 +15,7 @@ export function GeoGate({ countryCode }: { countryCode?: string }) {
         </CardTitle>
       </CardHeader>
       <CardContent className="text-sm text-muted-foreground">
-        Robinhood Stock Tokens are not available in {countryCode}. Novex
+        Robinhood Stock Tokens are not available in {countryCode}. Compose
         requires eligible Stock Token access to deposit and redeem.
       </CardContent>
     </Card>

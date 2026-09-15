@@ -8,7 +8,7 @@ import {PairFactory} from "../src/PairFactory.sol";
 import {PairDeployer} from "../src/PairDeployer.sol";
 import {PairVault} from "../src/PairVault.sol";
 import {PairRouter} from "../src/PairRouter.sol";
-import {NovexCurve} from "../src/NovexCurve.sol";
+import {ComposeCurve} from "../src/ComposeCurve.sol";
 import {CurveRouter} from "../src/CurveRouter.sol";
 import {OracleAdapter} from "../src/OracleAdapter.sol";
 import {EmergencyRegistry} from "../src/EmergencyRegistry.sol";
@@ -20,7 +20,7 @@ import {FixedPriceFeed} from "../src/testnet/FixedPriceFeed.sol";
 import {MockERC20} from "../src/mocks/MockERC20.sol";
 import {MockWRHT} from "../src/mocks/MockWRHT.sol";
 
-contract NovexCurveTest is Test {
+contract ComposeCurveTest is Test {
     uint24 constant POOL_FEE = 3000;
     uint256 constant START_MCAP_USD8 = 50e8; // $50 at $1/share -> Q0 = 50 shares
     uint256 constant SUPPLY = 1_000_000_000e18;
@@ -31,7 +31,7 @@ contract NovexCurveTest is Test {
     PriceFeedUpdater updater;
     OracleSwapRouter swapRouter;
     PairRouter router;
-    NovexCurve curve;
+    ComposeCurve curve;
     CurveRouter curveRouter;
 
     MockERC20 tsla; // $250
@@ -69,7 +69,7 @@ contract NovexCurveTest is Test {
 
         swapRouter = new OracleSwapRouter(address(this), address(oracle));
         router = new PairRouter(address(factory), address(swapRouter), address(usdg));
-        curve = new NovexCurve(address(this), address(factory), treasury, START_MCAP_USD8);
+        curve = new ComposeCurve(address(this), address(factory), treasury, START_MCAP_USD8);
         curveRouter = new CurveRouter(address(curve), address(router));
 
         tsla.mint(address(swapRouter), 10_000 ether);
@@ -163,23 +163,30 @@ contract NovexCurveTest is Test {
         assertFalse(graduated);
         assertEq(IERC20(token).balanceOf(address(curve)), SUPPLY);
         assertEq(curve.marketCapUsd8(token), 50e8);
-        assertEq(curve.tokenOfPair(address(pair)), token);
+        address[] memory onPair = curve.tokensOfPair(address(pair));
+        assertEq(onPair.length, 1);
+        assertEq(onPair[0], token);
         assertEq(curve.tokenCount(), 1);
     }
 
-    function test_OnlyPairCreatorOncePerPair() public {
-        vm.prank(bob);
-        vm.expectRevert("NovexCurve: not pair creator");
-        curve.createToken(address(pair), "X", "X", 0, 0);
-
-        vm.prank(alice);
-        vm.expectRevert("NovexCurve: unknown pair");
+    function test_AnyWalletLaunchesManyTokensPerPair() public {
+        vm.expectRevert("ComposeCurve: unknown pair");
         curve.createToken(address(0xDEAD), "X", "X", 0, 0);
 
-        _create(0);
-        vm.prank(alice);
-        vm.expectRevert("NovexCurve: pair has token");
-        curve.createToken(address(pair), "Again", "AGN", 0, 0);
+        address first = _create(0);
+        vm.prank(bob);
+        (address second, ) = curve.createToken(address(pair), "Bob Meme", "BOB", 0, 0);
+        vm.prank(carol);
+        (address third, ) = curve.createToken(address(pair), "Carol Meme", "CAR", 0, 0);
+
+        assertEq(curve.pairTokenCount(address(pair)), 3);
+        address[] memory onPair = curve.tokensOfPair(address(pair));
+        assertEq(onPair[0], first);
+        assertEq(onPair[1], second);
+        assertEq(onPair[2], third);
+        (, , address creator, , , , , , ) = curve.curves(second);
+        assertEq(creator, bob, "launcher owns the token");
+        assertEq(curve.marketCapUsd8(third), 50e8, "every token starts at the same mcap");
     }
 
     // ─── Math & fees ────────────────────────────────────────
@@ -195,7 +202,8 @@ contract NovexCurveTest is Test {
         assertEq(out, expected);
         assertEq(quoted, out);
         assertEq(quotedFee, 0.1e18);
-        assertEq(curve.creatorFees(token), 0.07e18);
+        assertEq(curve.creatorFees(token), 0.06e18);
+        assertEq(curve.pairCreatorFees(address(pair)), 0.01e18);
         assertEq(curve.protocolFees(address(share)), 0.03e18);
         (, , uint256 realQuote, , ) = _state(token);
         assertEq(realQuote, 9.9e18);
@@ -216,7 +224,11 @@ contract NovexCurveTest is Test {
         assertEq(t, SUPPLY);
         assertLe(realQuote, 1, "reserve back to ~zero");
         assertGe(q, 50e18);
-        assertEq(share.balanceOf(address(curve)), realQuote + curve.creatorFees(token) + curve.protocolFees(address(share)));
+        assertEq(share.balanceOf(address(curve)), realQuote + _fees(token));
+    }
+
+    function _fees(address token) internal view returns (uint256) {
+        return curve.creatorFees(token) + curve.pairCreatorFees(address(pair)) + curve.protocolFees(address(share));
     }
 
     function testFuzz_BuySellNeverProfits(uint256 sharesIn) public {
@@ -239,7 +251,7 @@ contract NovexCurveTest is Test {
 
         (, uint256 t, uint256 realQuote, , ) = _state(token);
         assertEq(t, SUPPLY);
-        assertEq(share.balanceOf(address(curve)), realQuote + curve.creatorFees(token) + curve.protocolFees(address(share)));
+        assertEq(share.balanceOf(address(curve)), realQuote + _fees(token));
     }
 
     // ─── Graduation ─────────────────────────────────────────
@@ -277,7 +289,7 @@ contract NovexCurveTest is Test {
         address token = _create(0);
         vm.startPrank(bob);
         share.approve(address(curve), 1e18);
-        vm.expectRevert("NovexCurve: launch block is creator-only");
+        vm.expectRevert("ComposeCurve: launch block is creator-only");
         curve.buy(token, 1e18, 0, bob);
         vm.stopPrank();
     }
@@ -288,11 +300,11 @@ contract NovexCurveTest is Test {
 
         vm.startPrank(bob);
         share.approve(address(curve), type(uint256).max);
-        vm.expectRevert("NovexCurve: max buy during launch");
+        vm.expectRevert("ComposeCurve: max buy during launch");
         curve.buy(token, 3.3e18, 0, bob); // ~6% of supply
 
         curve.buy(token, 2.13e18, 0, bob); // ~4%
-        vm.expectRevert("NovexCurve: max wallet during launch");
+        vm.expectRevert("ComposeCurve: max wallet during launch");
         curve.buy(token, 2.13e18, 0, bob); // would exceed 5% per wallet
         vm.stopPrank();
 
@@ -338,7 +350,7 @@ contract NovexCurveTest is Test {
         _pastLaunch();
         vm.startPrank(bob);
         share.approve(address(curve), 10e18);
-        vm.expectRevert("NovexCurve: slippage");
+        vm.expectRevert("ComposeCurve: slippage");
         curve.buy(token, 10e18, SUPPLY, bob);
         vm.stopPrank();
     }
@@ -352,14 +364,40 @@ contract NovexCurveTest is Test {
         uint256 aliceBefore = share.balanceOf(alice);
 
         uint256 claimed = curve.claimCreatorFees(token); // anyone may trigger; pays the creator
-        assertEq(claimed, 0.7e18);
-        assertEq(share.balanceOf(alice) - aliceBefore, 0.7e18);
+        assertEq(claimed, 0.6e18);
+        assertEq(share.balanceOf(alice) - aliceBefore, 0.6e18);
 
         curve.withdrawProtocolFees(address(share));
         assertEq(share.balanceOf(treasury), 0.3e18);
 
-        vm.expectRevert("NovexCurve: no fees");
+        vm.expectRevert("ComposeCurve: no fees");
         curve.claimCreatorFees(token);
+    }
+
+    function test_PairCreatorEarnsFromOtherLaunchersTokens() public {
+        vm.prank(bob);
+        (address bobToken, ) = curve.createToken(address(pair), "Bob Meme", "BOB", 0, 0);
+        vm.prank(carol);
+        (address carolToken, ) = curve.createToken(address(pair), "Carol Meme", "CAR", 0, 0);
+        _pastLaunch();
+        _buy(bob, carolToken, 50e18);
+        _buy(carol, bobToken, 50e18);
+
+        assertEq(curve.creatorFees(bobToken), 0.3e18);
+        assertEq(curve.creatorFees(carolToken), 0.3e18);
+        assertEq(curve.pairCreatorFees(address(pair)), 0.1e18, "10% of both tokens' fees");
+
+        uint256 aliceBefore = share.balanceOf(alice);
+        uint256 bobBefore = share.balanceOf(bob);
+        vm.prank(carol); // anyone may trigger
+        assertEq(curve.claimPairCreatorFees(address(pair)), 0.1e18);
+        assertEq(share.balanceOf(alice) - aliceBefore, 0.1e18, "paid to the pair creator");
+
+        curve.claimCreatorFees(bobToken);
+        assertEq(share.balanceOf(bob) - bobBefore, 0.3e18, "paid to the token launcher");
+
+        vm.expectRevert("ComposeCurve: no fees");
+        curve.claimPairCreatorFees(address(pair));
     }
 
     // ─── CurveRouter (ETH / USDG) ───────────────────────────

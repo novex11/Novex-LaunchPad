@@ -4,8 +4,8 @@
  * both documents before a production launch.
  */
 export const LEGAL = {
-  brand: "Novex",
-  entityName: "[Novex legal entity name]",
+  brand: "Compose",
+  entityName: "[Compose legal entity name]",
   contactEmail: "[legal@your-domain]",
   privacyEmail: "[privacy@your-domain]",
   governingLaw: "[governing jurisdiction]",

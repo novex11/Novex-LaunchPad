@@ -9,7 +9,7 @@ import {
   uniqueIndex,
   index,
 } from "drizzle-orm/pg-core";
-import { receiptTokenName } from "@novex/config";
+import { receiptTokenName } from "@compose/config";
 
 const DEFAULT_VAULT_ID = receiptTokenName("NVDA", "balanced");
 
@@ -263,7 +263,8 @@ export const launchedPairs = pgTable(
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
   (table) => [
-    uniqueIndex("launched_pairs_key_idx").on(table.pairKey),
+    // The same token pair can be launched again on a newer factory.
+    uniqueIndex("launched_pairs_factory_key_idx").on(table.factoryAddress, table.pairKey),
     uniqueIndex("launched_pairs_address_idx").on(table.pairAddress),
   ],
 );

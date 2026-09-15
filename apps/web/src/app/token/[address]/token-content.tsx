@@ -5,7 +5,7 @@ import Link from "next/link";
 import { formatUnits, isAddress, type Address } from "viem";
 import { useReadContract } from "wagmi";
 import { CaretLeft, GraduationCap, RocketLaunch, SealCheck } from "@phosphor-icons/react";
-import { getTokenByAddress, isTestnetMode } from "@novex/config";
+import { getTokenByAddress, isTestnetMode } from "@compose/config";
 import type { PairCandleInterval } from "@/lib/api";
 import { receiptTokenAbi } from "@/lib/contracts";
 import { useWallet } from "@/hooks/use-wallet";
@@ -13,6 +13,7 @@ import { useOraclePrices, usePairOnchain } from "@/hooks/use-pair-launchpad";
 import { useCurveOnchain, useCurveTokenDetail, useTokenCandles, useTokenLive } from "@/hooks/use-curve-token";
 import { PairCandleChart } from "@/components/pair/pair-candle-chart";
 import { TokenTradePanel } from "@/components/token/token-trade-panel";
+import { CurveCreatorFees } from "@/components/token/curve-creator-fees";
 import { AddressChip } from "@/components/launchpad/address-chip";
 import { DualLogoStack } from "@/components/launchpad/dual-logo-stack";
 import { Badge } from "@/components/ui/badge";
@@ -91,7 +92,7 @@ export default function TokenDetailContent({ address }: { address: string }) {
   if (!curve) {
     return (
       <div className="container-page py-12 text-sm text-muted-foreground">
-        This address is not a Novex creator token on this network.
+        This address is not a Compose creator token on this network.
       </div>
     );
   }
@@ -251,6 +252,17 @@ export default function TokenDetailContent({ address }: { address: string }) {
 
         <aside className="lg:col-span-5">
           <div className="lg:sticky lg:top-24">
+            {wallet.address && wallet.address.toLowerCase() === curve.creator.toLowerCase() && (
+              <CurveCreatorFees
+                className="mb-4"
+                token={token}
+                pair={curve.pair}
+                symbol={symbol}
+                owedShares={curve.creatorFees}
+                sharePriceUsd={chain ? Number(chain.sharePriceUsd8) / 1e8 : meta?.sharePriceUsd}
+                onClaimed={() => void onchain.refetch()}
+              />
+            )}
             {chain ? (
               <TokenTradePanel
                 token={token}

@@ -28,7 +28,7 @@ import {
   getTokenByAddress,
   isTestnetMode,
   isUSMarketHours,
-} from "@novex/config";
+} from "@compose/config";
 import { fetchLaunchpadPair, type PairHistoryRange } from "@/lib/api";
 import {
   PAIR_FACTORY_ADDRESS,
@@ -350,7 +350,7 @@ export default function PairDetailContent({ address }: { address: string }) {
     );
   }
   if (!chain) {
-    return <NotFound message="This address is not a Novex pair on this network." />;
+    return <NotFound message="This address is not a Compose pair on this network." />;
   }
 
   const progressSteps: ProgressStep[] =
@@ -497,7 +497,7 @@ export default function PairDetailContent({ address }: { address: string }) {
               { label: "Price", value: sharePriceUsd !== undefined ? `$${sharePriceUsd.toFixed(4)}` : "—" },
               { label: "Market cap", value: formatUsd(navUsd) },
               { label: "Creator fee", value: `${(feeBps / 100).toFixed(1)}%` },
-              { label: "Market", value: poolAddress ? "Uniswap v3" : "Novex vault" },
+              { label: "Market", value: poolAddress ? "Uniswap v3" : "Compose vault" },
             ]}
             height={340}
           />

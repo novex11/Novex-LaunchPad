@@ -4,9 +4,9 @@ import { LegalDocument, type LegalSection } from "@/components/legal/legal-docum
 import { LEGAL } from "@/lib/legal";
 
 export const metadata: Metadata = {
-  title: "Privacy Policy — Novex",
+  title: "Privacy Policy — Compose",
   description:
-    "How Novex collects, uses, and protects information when you use the Novex interface on Robinhood Chain.",
+    "How Compose collects, uses, and protects information when you use the Compose interface on Robinhood Chain.",
 };
 
 const sections: LegalSection[] = [

@@ -66,7 +66,7 @@ const ERC20_APPROVAL_ABI = [
   },
 ] as const;
 
-/** Upper bound for any single Novex transaction. Anything above is a bug. */
+/** Upper bound for any single Compose transaction. Anything above is a bug. */
 const MAX_GAS = 30_000_000n;
 
 const REVERT_MESSAGES: Array<[string, string]> = [

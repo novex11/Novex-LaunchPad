@@ -5,7 +5,7 @@ import {
   CASHBACK_CONFIG,
   ALLOCATION_STOCKBACK_RATES,
   DEFAULT_ALLOCATION_RATE,
-} from "@novex/config";
+} from "@compose/config";
 import { cn, formatUsd } from "@/lib/utils";
 import { SectionFrame } from "./section-frame";
 import { WatermarkNumber } from "./watermark-number";

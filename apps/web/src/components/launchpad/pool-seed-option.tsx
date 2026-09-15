@@ -1,7 +1,7 @@
 "use client";
 
 import { ChartLineUp, Info } from "@phosphor-icons/react";
-import { LAUNCHPAD_CONFIG } from "@novex/config";
+import { LAUNCHPAD_CONFIG } from "@compose/config";
 import { cn, formatUsd } from "@/lib/utils";
 
 interface PoolSeedOptionProps {

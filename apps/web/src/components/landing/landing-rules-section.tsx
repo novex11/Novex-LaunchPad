@@ -15,7 +15,7 @@ export function LandingRulesSection() {
       id="rules"
       index="08"
       eyebrow="Rules"
-      title="What Novex will not do."
+      title="What Compose will not do."
       description="These are product constraints, not marketing. If a fill fails a rule, the swap can still exist. The credit does not."
     >
       <ul className="divide-y divide-border border-t border-border">

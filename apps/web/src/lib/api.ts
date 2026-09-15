@@ -1,4 +1,4 @@
-import type { PreviewResponse } from "@novex/sdk";
+import type { PreviewResponse } from "@compose/sdk";
 
 export const ALLOCATOR_URL =
   process.env.NEXT_PUBLIC_ALLOCATOR_URL ?? "http://localhost:3001";

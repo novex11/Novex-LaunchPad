@@ -192,6 +192,15 @@ export async function getTokenByPair(db: Db, pairAddress: string) {
   return row ?? null;
 }
 
+export async function listTokensByPair(db: Db, pairAddress: string) {
+  return db
+    .select()
+    .from(curveTokens)
+    .where(eq(curveTokens.pairAddress, pairAddress.toLowerCase()))
+    .orderBy(desc(curveTokens.createdAt))
+    .limit(200);
+}
+
 export async function listTokens(db: Db, opts: { sort: "new" | "mcap"; limit: number }) {
   return db
     .select()

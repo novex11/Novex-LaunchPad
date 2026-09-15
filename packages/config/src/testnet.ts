@@ -33,7 +33,7 @@ export interface TestnetDeployment {
     usdg?: string;
     usdgFeed?: string;
     /** Bonding-curve creator tokens (DeployTestnetCurve). */
-    novexCurve?: string;
+    composeCurve?: string;
     /** Buy/sell creator tokens with ETH or USDG. */
     curveRouter?: string;
   };

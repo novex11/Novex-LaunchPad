@@ -35,7 +35,7 @@ const RANGES: Array<{ id: PairHistoryRange; label: string }> = [
   { id: "all", label: "ALL" },
 ];
 
-const LINE = "#d6f24b";
+const LINE = "var(--chart-line)";
 const PAD = { top: 24, right: 96, bottom: 44, left: 16 };
 
 function compact(v: number): string {
@@ -195,13 +195,13 @@ export function PairAreaChart({
   }
 
   return (
-    <div className={cn("overflow-hidden rounded-[1.5rem] border border-border bg-[#0e0e10] text-[#f2f2f2]", className)}>
+    <div className={cn("overflow-hidden rounded-[1.5rem] border border-border bg-surface text-foreground", className)}>
       {/* Stats strip */}
       {stats && stats.length > 0 && (
-        <div className="grid grid-cols-2 divide-x divide-white/10 border-b border-white/10 md:grid-cols-4">
+        <div className="grid grid-cols-2 divide-x divide-border-subtle border-b border-border-subtle md:grid-cols-4">
           {stats.slice(0, 4).map((s) => (
             <div key={s.label} className="px-5 py-4 first:pl-6">
-              <p className="text-[13px] text-white/45">{s.label}</p>
+              <p className="text-[13px] text-muted-foreground">{s.label}</p>
               <p className="mt-1 text-[17px] font-medium tabular-nums">{s.value}</p>
             </div>
           ))}
@@ -215,14 +215,14 @@ export function PairAreaChart({
             {shown ? headline(shown.v, metric) : "—"}
           </p>
           <p className="mt-2 flex items-center gap-2 text-[15px] tabular-nums">
-            <span className={up ? "text-[#8fd67a]" : "text-[#f0594f]"}>
+            <span className={up ? "text-success" : "text-destructive"}>
               {up ? "+" : ""}
               {change.toFixed(2)}%
             </span>
-            <span className="text-white/45">{hovered ? xLabel(new Date(hovered.t), range) : rangeLabel}</span>
+            <span className="text-muted-foreground">{hovered ? xLabel(new Date(hovered.t), range) : rangeLabel}</span>
             {connected !== undefined && (
-              <span className="ml-1 inline-flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-white/35">
-                <span className={cn("h-1.5 w-1.5 rounded-full", connected ? "animate-pulse bg-[#d6f24b]" : "bg-white/25")} />
+              <span className="ml-1 inline-flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-muted-foreground">
+                <span className={cn("h-1.5 w-1.5 rounded-full", connected ? "animate-pulse bg-success" : "bg-muted-foreground/40")} />
                 {connected ? "Live" : "Connecting"}
               </span>
             )}
@@ -230,7 +230,7 @@ export function PairAreaChart({
         </div>
         <div className="flex items-center gap-2">
           {onMetricChange && (
-            <div className="flex items-center rounded-full bg-white/[0.06] p-1">
+            <div className="flex items-center rounded-full bg-surface-muted p-1">
               {(
                 [
                   ["navUsd", "TVL"],
@@ -243,7 +243,7 @@ export function PairAreaChart({
                   onClick={() => onMetricChange(id)}
                   className={cn(
                     "rounded-full px-3 py-1.5 text-[13px] font-medium transition-colors",
-                    metric === id ? "bg-white/[0.12] text-white" : "text-white/50 hover:text-white",
+                    metric === id ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground",
                   )}
                 >
                   {label}
@@ -251,7 +251,7 @@ export function PairAreaChart({
               ))}
             </div>
           )}
-          <div className="flex items-center rounded-full bg-white/[0.06] p-1" role="radiogroup" aria-label="Range">
+          <div className="flex items-center rounded-full bg-surface-muted p-1" role="radiogroup" aria-label="Range">
             {RANGES.map((r) => (
               <button
                 key={r.id}
@@ -261,7 +261,7 @@ export function PairAreaChart({
                 onClick={() => onRangeChange(r.id)}
                 className={cn(
                   "rounded-full px-3.5 py-1.5 text-[13px] font-medium transition-colors",
-                  range === r.id ? "bg-white/[0.14] text-white" : "text-white/50 hover:text-white",
+                  range === r.id ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground",
                 )}
               >
                 {r.label}
@@ -272,12 +272,12 @@ export function PairAreaChart({
       </div>
 
       {/* Plot */}
-      <div ref={hostRef} className="relative mx-4 mb-4 mt-4 rounded-[1.25rem] bg-[#151517]">
-        {loading && series.length < 2 && <div className="w-full animate-pulse rounded-[1.25rem] bg-white/[0.04]" style={{ height }} />}
+      <div ref={hostRef} className="relative mx-4 mb-4 mt-4 rounded-[1.25rem] bg-[var(--chart-panel)]">
+        {loading && series.length < 2 && <div className="w-full animate-pulse rounded-[1.25rem] bg-surface-muted" style={{ height }} />}
         {!loading && series.length < 2 && (
-          <div className="flex w-full flex-col items-center justify-center text-sm text-white/45" style={{ height }}>
+          <div className="flex w-full flex-col items-center justify-center text-sm text-muted-foreground" style={{ height }}>
             <span>Waiting for the first price points…</span>
-            <span className="mt-1 text-xs text-white/30">The line appears after the first deposit or tick.</span>
+            <span className="mt-1 text-xs text-muted-foreground/70">The line appears after the first deposit or tick.</span>
           </div>
         )}
         {geo && last && (
@@ -296,11 +296,11 @@ export function PairAreaChart({
                   x2={width - PAD.right + 8}
                   y1={geo.y(v)}
                   y2={geo.y(v)}
-                  stroke="rgba(255,255,255,0.16)"
+                  stroke="var(--border)"
                   strokeWidth={1}
                   strokeDasharray="6 8"
                 />
-                <text x={width - 12} y={geo.y(v) - 8} textAnchor="end" className="fill-white/50" fontSize={15}>
+                <text x={width - 12} y={geo.y(v) - 8} textAnchor="end" fill="var(--muted-foreground)" fontSize={15}>
                   {tickLabel(v)}
                 </text>
               </g>
@@ -311,7 +311,7 @@ export function PairAreaChart({
                 x={t.x}
                 y={height - 14}
                 textAnchor={i === 0 ? "start" : i === geo.xTicks.length - 1 ? "end" : "middle"}
-                className="fill-white/45"
+                fill="var(--muted-foreground)"
                 fontSize={14}
               >
                 {t.label}
@@ -326,10 +326,11 @@ export function PairAreaChart({
                   x2={geo.pts[hoverIdx!]![0]}
                   y1={PAD.top}
                   y2={PAD.top + geo.plotH}
-                  stroke="rgba(255,255,255,0.25)"
+                  stroke="var(--muted-foreground)"
+                  strokeOpacity={0.5}
                   strokeDasharray="3 4"
                 />
-                <circle cx={geo.pts[hoverIdx!]![0]} cy={geo.pts[hoverIdx!]![1]} r={6} fill={LINE} stroke="#151517" strokeWidth={3} />
+                <circle cx={geo.pts[hoverIdx!]![0]} cy={geo.pts[hoverIdx!]![1]} r={6} fill={LINE} stroke="var(--chart-panel)" strokeWidth={3} />
               </>
             )}
             <circle cx={geo.pts[geo.pts.length - 1]![0]} cy={geo.pts[geo.pts.length - 1]![1]} r={7} fill={LINE} />

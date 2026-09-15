@@ -5,4 +5,4 @@ See the in-app `/legal/risk` page and PRODUCT_PLAN.md Section 18 for full disclo
 Key points:
 - Market, relative performance, liquidity, smart contract, oracle, and cashback availability risks
 - No guaranteed profit or original stock quantity
-- Novex platform fee is $0.00; external costs apply
+- Compose platform fee is $0.00; external costs apply

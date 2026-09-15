@@ -5,7 +5,7 @@ import { usePublicClient, useReadContract } from "wagmi";
 import {
   getTokenByAddress,
   type StrategyId,
-} from "@novex/config";
+} from "@compose/config";
 import {
   FACTORY_ADDRESS,
   VAULT_ADDRESS,

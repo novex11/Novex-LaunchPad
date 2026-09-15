@@ -51,7 +51,7 @@ export default function RiskPage() {
             Cashback Availability
           </h2>
           <p>
-            Cashback is limited by Novex funded reward inventory. It is not
+            Cashback is limited by Compose funded reward inventory. It is not
             unlimited and stops when inventory is exhausted.
           </p>
         </section>

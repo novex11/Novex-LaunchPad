@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "motion/react";
-import { STRATEGIES, type StrategyId } from "@novex/config";
+import { STRATEGIES, type StrategyId } from "@compose/config";
 import { cn } from "@/lib/utils";
 import { RiskGauge } from "@/components/ui/risk-gauge";
 import { chartColor } from "@/components/ui/allocation-donut";

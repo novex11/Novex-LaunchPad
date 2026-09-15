@@ -13,12 +13,12 @@ import {
 } from "@/lib/api";
 import {
   CURVE_ROUTER_ADDRESS,
-  NOVEX_CURVE_ADDRESS,
+  COMPOSE_CURVE_ADDRESS,
   USDG_ADDRESS,
   curveRouterAbi,
   curveRouterReady,
-  novexCurveAbi,
-  novexCurveReady,
+  composeCurveAbi,
+  composeCurveReady,
 } from "@/lib/contracts";
 import { useContractTx } from "@/lib/tx";
 import { quoteTokenAddress, swapPath, type QuoteAsset, type TradeStage } from "@/hooks/use-pair-trade";
@@ -113,13 +113,13 @@ export function useCurveOnchain(token: Address | undefined): {
   const query = useReadContracts({
     contracts: token
       ? [
-          { address: NOVEX_CURVE_ADDRESS, abi: novexCurveAbi, functionName: "curves", args: [token] },
-          { address: NOVEX_CURVE_ADDRESS, abi: novexCurveAbi, functionName: "marketCapUsd8", args: [token] },
-          { address: NOVEX_CURVE_ADDRESS, abi: novexCurveAbi, functionName: "progressBps", args: [token] },
-          { address: NOVEX_CURVE_ADDRESS, abi: novexCurveAbi, functionName: "creatorFees", args: [token] },
+          { address: COMPOSE_CURVE_ADDRESS, abi: composeCurveAbi, functionName: "curves", args: [token] },
+          { address: COMPOSE_CURVE_ADDRESS, abi: composeCurveAbi, functionName: "marketCapUsd8", args: [token] },
+          { address: COMPOSE_CURVE_ADDRESS, abi: composeCurveAbi, functionName: "progressBps", args: [token] },
+          { address: COMPOSE_CURVE_ADDRESS, abi: composeCurveAbi, functionName: "creatorFees", args: [token] },
         ]
       : [],
-    query: { enabled: !!token && novexCurveReady, refetchInterval: REFRESH_MS },
+    query: { enabled: !!token && composeCurveReady, refetchInterval: REFRESH_MS },
   });
   const r = query.data;
   const curve =
@@ -146,30 +146,38 @@ export function useCurveOnchain(token: Address | undefined): {
   return { data, isLoading: query.isLoading, refetch: query.refetch };
 }
 
-/** Creator token for a pair (zero address when none). */
-export function usePairCurveToken(pair: Address | undefined) {
+/** Tokens launched on a pair, newest first. */
+export function usePairCurveTokens(pair: Address | undefined) {
   const query = useReadContract({
-    address: NOVEX_CURVE_ADDRESS,
-    abi: novexCurveAbi,
-    functionName: "tokenOfPair",
+    address: COMPOSE_CURVE_ADDRESS,
+    abi: composeCurveAbi,
+    functionName: "tokensOfPair",
     args: pair ? [pair] : undefined,
-    query: { enabled: !!pair && novexCurveReady, refetchInterval: REFRESH_MS },
+    query: { enabled: !!pair && composeCurveReady, refetchInterval: REFRESH_MS },
   });
-  const token = query.data as Address | undefined;
-  return {
-    token: token && token !== "0x0000000000000000000000000000000000000000" ? token : undefined,
-    isLoading: query.isLoading,
-    refetch: query.refetch,
-  };
+  const tokens = (query.data as readonly Address[] | undefined) ?? [];
+  return { tokens: [...tokens].reverse(), isLoading: query.isLoading, refetch: query.refetch };
+}
+
+/** Pair creator's unclaimed cut (pair shares) of trade fees from every token on the pair. */
+export function usePairCreatorCurveFees(pair: Address | undefined) {
+  const query = useReadContract({
+    address: COMPOSE_CURVE_ADDRESS,
+    abi: composeCurveAbi,
+    functionName: "pairCreatorFees",
+    args: pair ? [pair] : undefined,
+    query: { enabled: !!pair && composeCurveReady, refetchInterval: REFRESH_MS },
+  });
+  return { owed: (query.data as bigint | undefined) ?? 0n, refetch: query.refetch };
 }
 
 export function useCurveQuoteBuy(token: Address | undefined, shares: bigint | undefined) {
   const query = useReadContract({
-    address: NOVEX_CURVE_ADDRESS,
-    abi: novexCurveAbi,
+    address: COMPOSE_CURVE_ADDRESS,
+    abi: composeCurveAbi,
     functionName: "quoteBuy",
     args: token && shares ? [token, shares] : undefined,
-    query: { enabled: !!token && !!shares && shares > 0n && novexCurveReady, refetchInterval: REFRESH_MS },
+    query: { enabled: !!token && !!shares && shares > 0n && composeCurveReady, refetchInterval: REFRESH_MS },
   });
   const r = query.data as readonly [bigint, bigint] | undefined;
   return { tokensOut: r?.[0], fee: r?.[1], loading: query.isLoading, error: query.error?.message };
@@ -177,11 +185,11 @@ export function useCurveQuoteBuy(token: Address | undefined, shares: bigint | un
 
 export function useCurveQuoteSell(token: Address | undefined, tokens: bigint) {
   const query = useReadContract({
-    address: NOVEX_CURVE_ADDRESS,
-    abi: novexCurveAbi,
+    address: COMPOSE_CURVE_ADDRESS,
+    abi: composeCurveAbi,
     functionName: "quoteSell",
     args: token && tokens > 0n ? [token, tokens] : undefined,
-    query: { enabled: !!token && tokens > 0n && novexCurveReady, refetchInterval: REFRESH_MS },
+    query: { enabled: !!token && tokens > 0n && composeCurveReady, refetchInterval: REFRESH_MS },
   });
   const r = query.data as readonly [bigint, bigint] | undefined;
   return { sharesOut: r?.[0], fee: r?.[1], loading: query.isLoading, error: query.error?.message };
@@ -318,6 +326,40 @@ export function useCurveTrade() {
   return { buy, sell, stage: s.stage, error: s.error, hash: s.hash, reset: s.reset };
 }
 
+/**
+ * Pay accrued curve trading fees (in pair shares): `claim(token)` to the token's
+ * creator, `claimPair(pair)` to the pair's creator.
+ */
+export function useClaimCurveCreatorFees() {
+  const { send } = useContractTx();
+  const s = useStage();
+  const { setStage, setError, setHash, fail } = s;
+
+  const run = useCallback(
+    async (functionName: "claimCreatorFees" | "claimPairCreatorFees", target: Address): Promise<Hash> => {
+      setError(null);
+      setHash(undefined);
+      try {
+        if (!composeCurveReady) throw new Error("Creator tokens are not available on this network yet.");
+        setStage("submit");
+        const { hash } = await send(
+          { address: COMPOSE_CURVE_ADDRESS, abi: composeCurveAbi, functionName, args: [target] },
+          { onSubmitted: setHash },
+        );
+        setStage("done");
+        return hash;
+      } catch (e) {
+        return fail(e);
+      }
+    },
+    [send, setStage, setError, setHash, fail],
+  );
+  const claim = useCallback((token: Address) => run("claimCreatorFees", token), [run]);
+  const claimPair = useCallback((pair: Address) => run("claimPairCreatorFees", pair), [run]);
+
+  return { claim, claimPair, stage: s.stage, error: s.error, hash: s.hash, reset: s.reset };
+}
+
 const TokenCreatedEvent = parseAbiItem(
   "event TokenCreated(address indexed token, address indexed pair, address indexed creator, address share, string name, string symbol, uint256 virtualQuote, uint256 graduationQuote)",
 );
@@ -339,16 +381,16 @@ export function useCreateCurveToken() {
       setError(null);
       setHash(undefined);
       try {
-        if (!novexCurveReady) throw new Error("Creator tokens are not available on this network yet.");
+        if (!composeCurveReady) throw new Error("Creator tokens are not available on this network yet.");
         if (i.devBuyShares > 0n) {
           setStage("approve");
-          await approveIfNeeded(i.share, NOVEX_CURVE_ADDRESS, i.devBuyShares, { onSubmitted: setHash });
+          await approveIfNeeded(i.share, COMPOSE_CURVE_ADDRESS, i.devBuyShares, { onSubmitted: setHash });
         }
         setStage("submit");
         const { hash, receipt } = await send(
           {
-            address: NOVEX_CURVE_ADDRESS,
-            abi: novexCurveAbi,
+            address: COMPOSE_CURVE_ADDRESS,
+            abi: composeCurveAbi,
             functionName: "createToken",
             args: [i.pair, i.name, i.symbol, i.devBuyShares, 0n],
           },

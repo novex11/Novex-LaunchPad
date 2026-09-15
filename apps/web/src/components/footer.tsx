@@ -66,7 +66,7 @@ export function Footer() {
         };
 
   return (
-    <footer className="relative mt-24 overflow-hidden border-t border-border bg-surface">
+    <footer data-site-chrome className="relative mt-24 overflow-hidden border-t border-border bg-surface">
       <HatchPattern className="opacity-40 [mask-image:linear-gradient(to_bottom,transparent,black_70%)]" />
       <div className="container-page relative grid gap-12 py-16 md:grid-cols-12">
         <motion.div className="md:col-span-5" {...fadeUp(0)}>
@@ -125,7 +125,7 @@ export function Footer() {
         className="container-page relative select-none overflow-hidden pb-6"
       >
         <p className="flex text-[22vw] font-semibold leading-[0.8] tracking-[-0.06em] text-foreground opacity-[0.05] md:text-[13rem]">
-          {"Novex".split("").map((ch, i) => (
+          {"Compose".split("").map((ch, i) => (
             <motion.span
               key={i}
               className="inline-block"
@@ -142,7 +142,7 @@ export function Footer() {
 
       <motion.div className="relative border-t border-border-subtle" {...fadeUp(0.2)}>
         <div className="container-page flex flex-col items-start justify-between gap-2 py-5 font-mono text-[11px] text-muted-foreground md:flex-row md:items-center">
-          <p>© {new Date().getFullYear()} Novex · Platform fee $0.00</p>
+          <p>© {new Date().getFullYear()} Compose · Platform fee $0.00</p>
           <nav aria-label="Legal" className="flex flex-wrap items-center gap-x-4 gap-y-1">
             <Link href="/legal/terms" className="transition-colors hover:text-foreground">
               Terms

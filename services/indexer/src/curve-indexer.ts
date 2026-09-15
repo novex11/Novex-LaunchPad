@@ -1,6 +1,6 @@
 import { parseAbi, parseAbiItem, type Address, type Log, type PublicClient } from "viem";
 import { createDb } from "./db.js";
-import { getPublicClient, launchpadStartBlock, novexCurveAddress } from "./chain-client.js";
+import { getPublicClient, launchpadStartBlock, composeCurveAddress } from "./chain-client.js";
 import * as launchpadStore from "./launchpad-store.js";
 import * as curveStore from "./curve-store.js";
 import { publishTokenTrade } from "./pair-live.js";
@@ -51,13 +51,13 @@ async function sharePriceUsd(client: PublicClient, pair: Address, blockNumber: b
   }
 }
 
-/** Polls NovexCurve events with a persisted cursor (backfills anything missed). */
+/** Polls ComposeCurve events with a persisted cursor (backfills anything missed). */
 export function startCurveIndexer(): (() => void) | null {
   const client = getPublicClient();
-  const curve = novexCurveAddress();
+  const curve = composeCurveAddress();
   const db = createDb();
   if (!client || !curve) {
-    console.log("[curve-indexer] No RPC or NovexCurve configured, skipping");
+    console.log("[curve-indexer] No RPC or ComposeCurve configured, skipping");
     return null;
   }
   if (!db) {
@@ -193,7 +193,7 @@ export function startCurveIndexer(): (() => void) | null {
     if (!stopped) timer = setTimeout(run, POLL_MS);
   }
 
-  console.log(`[curve-indexer] Indexing NovexCurve ${curve}`);
+  console.log(`[curve-indexer] Indexing ComposeCurve ${curve}`);
   void run();
 
   return () => {

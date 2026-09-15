@@ -21,7 +21,7 @@ const geistMono = Geist_Mono({
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Novex — Managed Stock Baskets",
+  title: "Compose — Managed Stock Baskets",
   description:
     "Deposit one tokenized stock, receive a managed basket plus Stockback, and keep 100% of portfolio performance.",
 };

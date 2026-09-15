@@ -9,7 +9,7 @@ import {
   Trash,
   WarningCircle,
 } from "@phosphor-icons/react";
-import { LAUNCH_IMAGE_UPLOAD } from "@novex/config";
+import { LAUNCH_IMAGE_UPLOAD } from "@compose/config";
 import { uploadLaunchpadImage } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";

@@ -4,7 +4,7 @@ import {
   type StrategyId,
   strategyToChainEnum,
   receiptTokenName,
-} from "@novex/config";
+} from "@compose/config";
 
 const STRATEGY_IDS: StrategyId[] = ["defensive", "balanced", "aggressive"];
 

@@ -1,5 +1,5 @@
 {
-  "name": "@novex/indexer",
+  "name": "@compose/indexer",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -12,8 +12,8 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.13.7",
-    "@novex/config": "workspace:*",
-    "@novex/sdk": "workspace:*",
+    "@compose/config": "workspace:*",
+    "@compose/sdk": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.6.14",
     "postgres": "^3.4.9",

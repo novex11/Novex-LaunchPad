@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { motion, useReducedMotion } from "motion/react";
 import { ArrowRight } from "@phosphor-icons/react";
-import type { PreviewResponse } from "@novex/sdk";
+import type { PreviewResponse } from "@compose/sdk";
 import { useQuotes } from "@/hooks/use-quotes";
 import { cn, formatUsd } from "@/lib/utils";
 import { StockLogo } from "@/components/ui/stock-logo";

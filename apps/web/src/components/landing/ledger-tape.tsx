@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, useInView, useReducedMotion, AnimatePresence } from "motion/react";
-import { CASHBACK_CONFIG } from "@novex/config";
-import type { PreviewResponse } from "@novex/sdk";
+import { CASHBACK_CONFIG } from "@compose/config";
+import type { PreviewResponse } from "@compose/sdk";
 import { cn, formatUsd } from "@/lib/utils";
 import { NumberTicker } from "@/components/ui/number-ticker";
 

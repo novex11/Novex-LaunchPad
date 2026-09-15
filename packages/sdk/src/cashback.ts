@@ -2,7 +2,7 @@ import {
   ALLOCATION_STOCKBACK_RATES,
   CASHBACK_CONFIG,
   DEFAULT_ALLOCATION_RATE,
-} from "@novex/config";
+} from "@compose/config";
 
 export interface AllocationLine {
   ticker: string;

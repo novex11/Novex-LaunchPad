@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { ArrowRight, Rocket } from "@phosphor-icons/react";
-import { LAUNCHPAD_CONFIG } from "@novex/config";
+import { LAUNCHPAD_CONFIG } from "@compose/config";
 import { SectionFrame } from "./section-frame";
 import { LedgerCell, LedgerGrid } from "./ledger-cell";
 import { Button } from "@/components/ui/button";

@@ -15,10 +15,10 @@ import {
   mergeRhjAssetsWithConfig,
   type StockToken,
   corsOrigins,
-} from "@novex/config";
-import { QuoteRequestSchema } from "@novex/sdk";
+} from "@compose/config";
+import { QuoteRequestSchema } from "@compose/sdk";
 
-import { RIALTO_API_URL } from "@novex/config";
+import { RIALTO_API_URL } from "@compose/config";
 
 const RIALTO_API_KEY = process.env.RIALTO_API_KEY ?? "";
 /** Integrator fee in bps charged on top of Rialto's fee (max 50 bps) */

@@ -1,5 +1,5 @@
 /**
- * Novex Pair Launchpad configuration
+ * Compose Pair Launchpad configuration
  *
  * Any wallet can launch a unique 2-token pair vault from the tokens listed on
  * the PairFactory. Pairs are funded in kind: depositors add both tokens in the
@@ -89,10 +89,10 @@ export function pairReceiptSymbol(tickerA: string, tickerB: string): string {
   return `p${a}-${b}`;
 }
 
-/** ERC-20 full name shown in wallets, e.g. "Novex TSLA-AAPL Pair" */
+/** ERC-20 full name shown in wallets, e.g. "Compose TSLA-AAPL Pair" */
 export function pairReceiptFullName(tickerA: string, tickerB: string): string {
   const [a, b] = [tickerA.toUpperCase(), tickerB.toUpperCase()].sort();
-  return `Novex ${a}-${b} Pair`;
+  return `Compose ${a}-${b} Pair`;
 }
 
 /** Max lengths for launch metadata (on-chain + indexer). */
@@ -151,7 +151,7 @@ export function pairMetadataMessage(input: {
   issuedAt: string;
 }): string {
   return [
-    "Novex pair metadata",
+    "Compose pair metadata",
     `Pair: ${input.pairAddress.toLowerCase()}`,
     `Name: ${input.displayName ?? ""}`,
     `Description: ${input.description ?? ""}`,

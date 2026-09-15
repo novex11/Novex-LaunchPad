@@ -6,7 +6,7 @@ import {
   type Log,
   type PublicClient,
 } from "viem";
-import { getTokenByAddress } from "@novex/config";
+import { getTokenByAddress } from "@compose/config";
 import { fileURLToPath } from "node:url";
 import { createDb, type Db } from "./db.js";
 import { createVerificationQueue, verifyPairContracts } from "./contract-verifier.js";

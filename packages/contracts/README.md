@@ -1,4 +1,4 @@
-# Novex Smart Contracts
+# Compose Smart Contracts
 
 Foundry contracts for Robinhood Chain.
 

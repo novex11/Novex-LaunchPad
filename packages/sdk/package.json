@@ -1,5 +1,5 @@
 {
-  "name": "@novex/sdk",
+  "name": "@compose/sdk",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -18,7 +18,7 @@
     "dev": "tsc --watch"
   },
   "dependencies": {
-    "@novex/config": "workspace:*",
+    "@compose/config": "workspace:*",
     "zod": "^3.24.1"
   },
   "devDependencies": {

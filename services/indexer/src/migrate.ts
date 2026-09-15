@@ -187,7 +187,8 @@ export async function ensureSchema(): Promise<void> {
           updated_at timestamp NOT NULL DEFAULT now()
         )
       `;
-      await sql`CREATE UNIQUE INDEX IF NOT EXISTS launched_pairs_key_idx ON launched_pairs (pair_key)`;
+      // pair_key is unique per factory (created below once factory_address exists).
+      await sql`DROP INDEX IF EXISTS launched_pairs_key_idx`;
       await sql`CREATE UNIQUE INDEX IF NOT EXISTS launched_pairs_address_idx ON launched_pairs (pair_address)`;
 
       // Metadata columns (safe to re-run on existing Neon DBs)
@@ -248,6 +249,7 @@ export async function ensureSchema(): Promise<void> {
 
       // ─── In-kind launchpad (v2) ───────────────────────
       await sql`ALTER TABLE launched_pairs ADD COLUMN IF NOT EXISTS factory_address text NOT NULL DEFAULT ''`;
+      await sql`CREATE UNIQUE INDEX IF NOT EXISTS launched_pairs_factory_key_idx ON launched_pairs (factory_address, pair_key)`;
       await sql`ALTER TABLE pair_deposits ADD COLUMN IF NOT EXISTS log_index numeric NOT NULL DEFAULT '0'`;
       await sql`ALTER TABLE pair_deposits ADD COLUMN IF NOT EXISTS amount_a text NOT NULL DEFAULT '0'`;
       await sql`ALTER TABLE pair_deposits ADD COLUMN IF NOT EXISTS amount_b text NOT NULL DEFAULT '0'`;

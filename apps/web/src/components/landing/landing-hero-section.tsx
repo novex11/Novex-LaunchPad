@@ -6,7 +6,7 @@ import {
   CASHBACK_CONFIG,
   ALLOCATION_STOCKBACK_RATES,
   DEFAULT_ALLOCATION_RATE,
-} from "@novex/config";
+} from "@compose/config";
 import { ALL_MARKET_ASSETS } from "@/lib/markets";
 import { useBackendHealth } from "@/hooks/use-backend-health";
 import { useWallet } from "@/hooks/use-wallet";
