@@ -52,7 +52,7 @@ export OLD_FACTORY SWAP_ROUTER USDG CURVE_START_MCAP_USD8
 
 echo "🔁  $NETWORK: replacing factory $OLD_FACTORY (curve $OLD_CURVE, start mcap USD8 $CURVE_START_MCAP_USD8)"
 cd packages/contracts
-forge script script/UpgradeLaunchpad.s.sol:UpgradeLaunchpad --rpc-url "$RPC" --broadcast --slow -vv
+forge clean && rm -rf foundry-pp && forge script script/UpgradeLaunchpad.s.sol:UpgradeLaunchpad --rpc-url "$RPC" --broadcast --slow -vv
 cd "$ROOT"
 
 OUT="packages/contracts/deployments-launchpad-upgrade-$CHAIN_ID.json"
