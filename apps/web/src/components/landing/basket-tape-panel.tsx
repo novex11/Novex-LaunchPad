@@ -47,10 +47,27 @@ export function BasketTapePanel() {
           lines={lines.length ? lines : FALLBACK.map((t, i) => ({ ticker: t, weight: 0.2 - i * 0.02 }))}
           size={272}
         />
-        <p className="-mt-2 font-mono text-xs text-muted-foreground">
-          {DEMO.depositTicker} → n{DEMO.depositTicker}-B
+        <p className="-mt-2 flex items-center gap-1.5 font-mono text-xs text-muted-foreground">
+          {DEMO.depositTicker}
+          <motion.span
+            aria-hidden
+            className="inline-flex text-accent"
+            animate={reduced ? undefined : { x: [0, 4, 0], opacity: [0.6, 1, 0.6] }}
+            transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
+          >
+            <ArrowRight size={12} weight="bold" />
+          </motion.span>
+          n{DEMO.depositTicker}-B
         </p>
-        <p className="mt-1.5 font-mono text-3xl font-semibold tabular-nums text-accent md:text-4xl">
+        <p className="relative mt-1.5 font-mono text-3xl font-semibold tabular-nums text-accent md:text-4xl">
+          {!reduced && !loading && (
+            <motion.span
+              aria-hidden
+              className="pointer-events-none absolute inset-x-[-12%] inset-y-[-30%] -z-10 rounded-full bg-accent/15 blur-xl"
+              animate={{ opacity: [0.35, 0.8, 0.35], scale: [0.95, 1.05, 0.95] }}
+              transition={{ duration: 3.4, repeat: Infinity, ease: "easeInOut" }}
+            />
+          )}
           {loading ? (
             "—"
           ) : (
