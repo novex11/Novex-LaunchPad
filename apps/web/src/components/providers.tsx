@@ -51,29 +51,17 @@ export function Providers({
     <PrivyProvider
       appId={privyAppId}
       config={{
-        // Installed wallets (MetaMask, Rabby, …) render as buttons on the first
-        // screen of the modal, so connecting is a single click.
+        // Only wallets installed as browser extensions are listed, each as a
+        // one-click button on the first screen of the modal.
         loginMethodsAndOrder: {
-          primary: [
-            "detected_ethereum_wallets",
-            "metamask",
-            "coinbase_wallet",
-            "wallet_connect",
-          ],
-          overflow: ["rainbow"],
+          primary: ["detected_ethereum_wallets"],
         },
         appearance: {
           theme: "light",
           accentColor: "#C5D4C0",
           showWalletLoginFirst: true,
           logo: "/brand/compose-mark-dark.png",
-          walletList: [
-            "detected_ethereum_wallets",
-            "metamask",
-            "coinbase_wallet",
-            "rainbow",
-            "wallet_connect",
-          ],
+          walletList: ["detected_ethereum_wallets"],
         },
         embeddedWallets: {
           createOnLogin: "users-without-wallets",
