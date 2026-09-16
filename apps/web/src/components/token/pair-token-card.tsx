@@ -32,6 +32,17 @@ const MAX_DEV_BUY_BPS = 500n; // 5% of supply, enforced on-chain
 const CURVE_FEE_BPS = 100n; // 1% of every buy, in shares
 const DEV_BUY_PRESETS = [0, 1, 2, 3, 5];
 const PONS_MAX_EXEMPTIONS = 32; // Pons caps the snipe-tax exemption list per launch
+/** Creator tax presets (%), charged by Pons on every buy and sell and paid to the creator. */
+const PONS_TAX_PRESETS = [0, 1, 2, 3, 5];
+/** Pons's live cap (maxCreatorTaxBps) is read on-chain; this is only the fallback while it loads. */
+const PONS_MAX_CREATOR_TAX_BPS_FALLBACK = 1_000;
+
+/** "3" → 300, "2.5" → 250; undefined when not a valid percentage with at most 2 decimals. */
+function parseTaxBps(text: string): number | undefined {
+  if (text.trim() === "") return 0;
+  if (!/^\d{1,2}(\.\d{0,2})?$/.test(text.trim())) return undefined;
+  return Math.round(Number(text) * 100);
+}
 
 type Venue = "compose" | "pons";
 
@@ -477,7 +488,20 @@ function PonsLaunchForm({
   const quote = ponsQuotes.find((q) => q.address === quoteAddr) ?? ponsQuotes[0];
   const [devText, setDevText] = useState("");
   const [exemptText, setExemptText] = useState("");
+  const [taxText, setTaxText] = useState("0");
   const launcher = usePonsLaunch();
+
+  // Creator tax, exactly as on Pons: a % of every buy and sell, on top of the 1% curve fee,
+  // paid in the quote asset to the creator (swept + claimed from the token page).
+  const maxTaxRead = useReadContract({
+    address: PONS_FACTORY_ADDRESS,
+    abi: ponsV2LaunchFactoryAbi,
+    functionName: "maxCreatorTaxBps",
+    query: { staleTime: 60_000 },
+  });
+  const maxTaxBps = maxTaxRead.data !== undefined ? Number(maxTaxRead.data as bigint) : PONS_MAX_CREATOR_TAX_BPS_FALLBACK;
+  const taxBps = parseTaxBps(taxText);
+  const taxPct = taxBps !== undefined ? taxBps / 100 : undefined;
 
   // Wallets that may buy untaxed inside Pons's 3 s launch window (team, treasury, market maker).
   const exemptions = useMemo(() => {
@@ -514,15 +538,21 @@ function PonsLaunchForm({
   }, [devText, quote]);
   const devTokens = useMemo(() => {
     if (devBuy <= 0n || phantom === undefined || phantom === 0n) return 0n;
-    const net = devBuy - (devBuy * CURVE_FEE_BPS) / 10_000n;
+    // Conservative: assume the creator tax applies to the dev buy too (it is paid back to the creator).
+    const cut = CURVE_FEE_BPS + BigInt(taxBps ?? 0);
+    const net = devBuy - (devBuy * cut) / 10_000n;
     return (net * SUPPLY) / (phantom + net);
-  }, [devBuy, phantom]);
+  }, [devBuy, phantom, taxBps]);
   const startMcapUsd = phantom !== undefined && quote ? Number(formatUnits(phantom, quote.decimals)) * quoteUsd : undefined;
   const fee = ponsLaunchFee ?? info.launchFee;
 
   const blocker = !quote
     ? "Pons has not approved either of this pair's stocks as a quote asset yet."
-    : devBuy < 0n
+    : taxBps === undefined
+      ? "Creator tax must be a percentage like 3 or 2.5"
+      : taxBps > maxTaxBps
+        ? `Pons caps the creator tax at ${maxTaxBps / 100}%`
+        : devBuy < 0n
       ? "Dev buy must be a number"
       : devBuy > quoteBalance
         ? `Not enough ${quote.symbol} — you hold ${fmt(quoteBalance, quote.decimals)}`
@@ -535,11 +565,12 @@ function PonsLaunchForm({
               : null;
 
   async function launch() {
-    if (!quote || fee === undefined) return;
+    if (!quote || fee === undefined || taxBps === undefined || taxBps > maxTaxBps) return;
     try {
       const result = await launcher.launch({
         pair,
         quoteToken: quote.address,
+        creatorTaxBps: taxBps,
         launchFee: fee,
         expectedEconomics: info.expectedEconomics,
         devBuyQuote: devBuy,
@@ -559,8 +590,8 @@ function PonsLaunchForm({
     <>
       <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
         One shared market: on Pons the token is quoted in the stock you pick, on Compose it is quoted in this pair&apos;s
-        shares. Price and volume match on both. 1B supply on a Pons v2 curve, 1% trade fee; your share of it accrues
-        on the curve and you sweep and claim it from this token&apos;s page.
+        shares. Price and volume match on both. 1B supply on a Pons v2 curve, 1% trade fee plus the creator tax you
+        set below; your earnings accrue on the curve and you sweep and claim them from this token&apos;s page.
         {startMcapUsd !== undefined && startMcapUsd > 0 && ` Starts at ≈ ${formatUsd(startMcapUsd)} market cap.`}
       </p>
 
@@ -584,9 +615,52 @@ function PonsLaunchForm({
         </div>
       </div>
 
+      <div className="mt-4">
+        <p className="text-xs text-muted-foreground">
+          Creator tax · charged by Pons on every buy and sell, paid to you (max {maxTaxBps / 100}%)
+        </p>
+        <div className="mt-2 flex gap-1.5">
+          {PONS_TAX_PRESETS.map((p) => (
+            <button
+              key={p}
+              type="button"
+              onClick={() => setTaxText(String(p))}
+              className={cn(
+                "flex-1 rounded-full border px-2 py-1.5 font-mono text-xs transition-all",
+                taxPct === p ? "border-accent bg-accent-subtle text-accent-strong" : "border-border text-muted-foreground hover:border-accent/40",
+              )}
+            >
+              {p === 0 ? "None" : `${p}%`}
+            </button>
+          ))}
+        </div>
+        <div className="mt-2 flex items-center gap-2 rounded-xl border border-border bg-surface px-3 focus-within:border-accent">
+          <input
+            value={taxText}
+            inputMode="decimal"
+            aria-label="Creator tax percent"
+            onChange={(e) => setTaxText(e.target.value.replace(/[^0-9.]/g, "").slice(0, 5))}
+            placeholder="0"
+            className="h-10 w-full min-w-0 bg-transparent font-mono text-sm outline-none"
+          />
+          <span className="font-mono text-xs text-muted-foreground">%</span>
+        </div>
+        <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
+          {taxBps !== undefined && taxBps > 0 && taxBps <= maxTaxBps ? (
+            <>
+              Traders pay <span className="font-mono text-foreground">{((100 + taxBps) / 100).toFixed(2)}%</span> per
+              trade: 1% Pons curve fee + {taxPct}% to you, in {quote?.symbol ?? "the quote asset"}. Fixed at launch; it
+              cannot be changed later.
+            </>
+          ) : (
+            <>No creator tax: traders pay only the 1% curve fee, and you earn 70% of it.</>
+          )}
+        </p>
+      </div>
+
       {quote && (
         <div className="mt-4">
-          <p className="text-xs text-muted-foreground">Dev buy · {quote.symbol} (optional, untaxed, fills in the launch transaction)</p>
+          <p className="text-xs text-muted-foreground">Dev buy · {quote.symbol} (optional, no snipe tax, fills in the launch transaction)</p>
           <div className="mt-2 flex items-center gap-2 rounded-xl border border-border bg-surface px-3 focus-within:border-accent">
             <input
               value={devText}
@@ -640,6 +714,10 @@ function PonsLaunchForm({
         <div className="flex justify-between gap-3">
           <dt className="text-muted-foreground">Launch config</dt>
           <dd>#{PONS_LAUNCH_CONFIG_ID.toString()} · 1B supply · 1% curve fee</dd>
+        </div>
+        <div className="flex justify-between gap-3">
+          <dt className="text-muted-foreground">Creator tax</dt>
+          <dd>{taxBps !== undefined && taxBps > 0 ? `${taxPct}% on buys and sells · to you` : "none"}</dd>
         </div>
         <div className="flex justify-between gap-3">
           <dt className="text-muted-foreground">Launch protection</dt>

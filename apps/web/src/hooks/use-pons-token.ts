@@ -258,6 +258,10 @@ export interface PonsOnchainState {
   graduated: boolean;
   quoteSymbol: string;
   quoteDecimals: number;
+  /** Pons curve fee in bps (100 = 1%), charged on every buy and sell. */
+  curveFeeBps: number;
+  /** Creator tax in bps set at launch, charged on every buy and sell on top of the curve fee; 0 if none. */
+  creatorTaxBps: number;
 }
 
 /** A token's Pons market as seen through PonsRouter; undefined while loading, null if not a Pons token. */
@@ -289,6 +293,8 @@ export function usePonsOnchain(token: Address | undefined): {
             { address: curve, abi: ponsV2BondingCurveAbi, functionName: "graduated" },
             { address: quote, abi: erc20Abi, functionName: "symbol" },
             { address: quote, abi: erc20Abi, functionName: "decimals" },
+            { address: curve, abi: ponsV2BondingCurveAbi, functionName: "feeBps" },
+            { address: curve, abi: ponsV2BondingCurveAbi, functionName: "creatorTaxBps" },
           ]
         : [],
     [token, curve, quote],
@@ -321,6 +327,8 @@ export function usePonsOnchain(token: Address | undefined): {
       graduated: r?.[5]?.status === "success" ? (r[5].result as boolean) : false,
       quoteSymbol: r?.[6]?.status === "success" ? (r[6].result as string) : "",
       quoteDecimals: r?.[7]?.status === "success" ? Number(r[7].result as number | bigint) : 18,
+      curveFeeBps: r?.[8]?.status === "success" ? Number(r[8].result as bigint) : 100,
+      creatorTaxBps: r?.[9]?.status === "success" ? Number(r[9].result as bigint) : 0,
     };
   }
   const refetch = useCallback(() => Promise.all([launch.refetch(), views.refetch()]), [launch, views]);

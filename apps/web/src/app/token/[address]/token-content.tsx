@@ -207,6 +207,11 @@ export default function TokenDetailContent({ address }: { address: string }) {
               </Badge>
             </a>
           )}
+          {pons && pons.creatorTaxBps > 0 && (
+            <Badge variant="outline" title="Set at launch; charged by Pons on every buy and sell and paid to the creator">
+              {pons.creatorTaxBps / 100}% creator tax
+            </Badge>
+          )}
           {graduated ? (
             <Badge variant="success">
               <GraduationCap size={12} weight="fill" />
@@ -456,7 +461,9 @@ export default function TokenDetailContent({ address }: { address: string }) {
                 <>
                   1B fixed supply on a Pons v2 constant-product curve quoted in {quoteSym}. The same curve is listed on
                   ponsfamily.com; Compose routes every trade onto it and re-quotes the price in {tickerA}+{tickerB} pair
-                  shares. 1% curve fee, with the creator&apos;s share paid by Pons directly.
+                  shares. Every buy and sell pays the {pons.curveFeeBps / 100}% curve fee
+                  {pons.creatorTaxBps > 0 ? ` plus a ${pons.creatorTaxBps / 100}% creator tax set at launch` : ""}, in{" "}
+                  {quoteSym}. The creator sweeps and claims their share on this page.
                 </>
               ) : (
                 <>
