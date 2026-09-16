@@ -165,6 +165,8 @@ export interface PonsLaunchInput {
   logo?: string;
   description?: string;
   website?: string;
+  /** X profile URL (https://x.com/handle), as Pons stores it. */
+  twitter?: string;
   creatorTaxBps?: number;
   /** Extra wallets exempt from the 3 s snipe tax (max 32); the creator already is. */
   exemptions?: Address[];
@@ -204,7 +206,7 @@ export function usePonsLaunch() {
                 launchConfigId: PONS_LAUNCH_CONFIG_ID,
                 logo: i.logo ?? "",
                 description: i.description ?? "",
-                socials: { twitter: "", telegram: "", discord: "", website: i.website ?? "", farcaster: "" },
+                socials: { twitter: i.twitter ?? "", telegram: "", discord: "", website: i.website ?? "", farcaster: "" },
                 creatorTaxBps: i.creatorTaxBps ?? 0,
                 buybackEnabled: false,
                 expectedEconomics: i.expectedEconomics,

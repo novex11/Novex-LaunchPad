@@ -38,6 +38,21 @@ const PONS_TAX_PRESETS = [0, 1, 2, 3, 5];
 const PONS_MAX_CREATOR_TAX_BPS_FALLBACK = 1_000;
 
 /** "3" → 300, "2.5" → 250; undefined when not a valid percentage with at most 2 decimals. */
+/**
+ * X handle as Pons stores it: "https://x.com/handle". Accepts "handle", "@handle"
+ * or an x.com / twitter.com profile link; "" when empty, undefined when invalid.
+ */
+function parseXProfile(text: string): string | undefined {
+  const raw = text.trim();
+  if (!raw) return "";
+  const handle = raw
+    .replace(/^https?:\/\//i, "")
+    .replace(/^(www\.)?(x|twitter)\.com\//i, "")
+    .replace(/^@/, "")
+    .split(/[/?#]/)[0];
+  return /^[A-Za-z0-9_]{1,15}$/.test(handle) ? `https://x.com/${handle}` : undefined;
+}
+
 function parseTaxBps(text: string): number | undefined {
   if (text.trim() === "") return 0;
   if (!/^\d{1,2}(\.\d{0,2})?$/.test(text.trim())) return undefined;
@@ -489,6 +504,8 @@ function PonsLaunchForm({
   const [devText, setDevText] = useState("");
   const [exemptText, setExemptText] = useState("");
   const [taxText, setTaxText] = useState("0");
+  const [xText, setXText] = useState("");
+  const xProfile = parseXProfile(xText);
   const launcher = usePonsLaunch();
 
   // Creator tax, exactly as on Pons: a % of every buy and sell, on top of the 1% curve fee,
@@ -562,10 +579,12 @@ function PonsLaunchForm({
             ? `Not a wallet address: ${exemptions.invalid[0]}`
             : exemptions.list.length > PONS_MAX_EXEMPTIONS
               ? `Pons allows at most ${PONS_MAX_EXEMPTIONS} exempt wallets`
-              : null;
+              : xProfile === undefined
+                ? "X handle is not valid"
+                : null;
 
   async function launch() {
-    if (!quote || fee === undefined || taxBps === undefined || taxBps > maxTaxBps) return;
+    if (!quote || fee === undefined || taxBps === undefined || taxBps > maxTaxBps || xProfile === undefined) return;
     try {
       const result = await launcher.launch({
         pair,
@@ -578,6 +597,7 @@ function PonsLaunchForm({
         logo: logoUrl,
         description,
         website: websiteUrl,
+        twitter: xProfile,
         exemptions: exemptions.list,
       });
       onCreated(result.token);
@@ -685,6 +705,40 @@ function PonsLaunchForm({
           </p>
         </div>
       )}
+
+      <div className="mt-4">
+        <p className="text-xs text-muted-foreground">X account (optional) · shown on the token&apos;s Pons page</p>
+        <div className="mt-2 flex items-center gap-2 rounded-xl border border-border bg-surface px-3 focus-within:border-accent">
+          <span className="font-mono text-xs text-muted-foreground">@</span>
+          <input
+            value={xText}
+            aria-label="X handle"
+            onChange={(e) => setXText(e.target.value.slice(0, 80))}
+            placeholder="handle or x.com link"
+            spellCheck={false}
+            autoCapitalize="none"
+            className="h-10 w-full min-w-0 bg-transparent font-mono text-sm outline-none"
+          />
+        </div>
+        {xText.trim() !== "" && (
+          <p className={cn("mt-1.5 text-[11px]", xProfile ? "text-muted-foreground" : "text-destructive")}>
+            {xProfile ? (
+              <>
+                Links to <span className="font-mono text-foreground">{xProfile.replace("https://", "")}</span>. Fixed at
+                launch; Pons cannot change it later.
+              </>
+            ) : (
+              "Not an X handle: letters, numbers and _ only, up to 15 characters."
+            )}
+          </p>
+        )}
+        {websiteUrl && (
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Website from the pair profile also goes to Pons:{" "}
+            <span className="font-mono text-foreground">{websiteUrl.replace(/^https?:\/\//, "")}</span>
+          </p>
+        )}
+      </div>
 
       <div className="mt-4">
         <p className="text-xs text-muted-foreground">
