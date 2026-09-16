@@ -21,6 +21,8 @@ interface NumberTickerProps {
   /** Start from 0 when first scrolled into view (default true) */
   startOnView?: boolean;
   duration?: number;
+  /** Custom formatter for each frame; overrides decimals/prefix/suffix */
+  format?: (value: number) => string;
 }
 
 /** Spring-animated numeric display that tweens between value changes. */
@@ -32,6 +34,7 @@ export function NumberTicker({
   className,
   startOnView = true,
   duration = 1.1,
+  format,
 }: NumberTickerProps) {
   const ref = useRef<HTMLSpanElement>(null);
   const inView = useInView(ref, { once: true, margin: "-40px" });
@@ -40,7 +43,9 @@ export function NumberTicker({
   const started = useRef(false);
 
   const text = useTransform(mv, (v) =>
-    `${prefix}${v.toLocaleString(undefined, {
+    format
+      ? format(v)
+      : `${prefix}${v.toLocaleString(undefined, {
       minimumFractionDigits: decimals,
       maximumFractionDigits: decimals,
     })}${suffix}`,

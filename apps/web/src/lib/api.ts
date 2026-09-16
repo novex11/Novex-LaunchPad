@@ -465,6 +465,8 @@ export interface CurveTokenStats {
   tokens: number;
   totalMarketCapUsd: number;
   volume24hUsd: number;
+  /** Creator rewards claimed to date, USD at claim time (absent on older indexers) */
+  claimedCreatorRewardsUsd?: number;
 }
 
 export async function fetchCurveTokenStats(): Promise<CurveTokenStats> {

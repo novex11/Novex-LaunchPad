@@ -904,7 +904,7 @@ app.get("/launchpad/tokens", async (c) => {
 
 /** Launchpad header: token count, summed market cap, 24h volume. */
 app.get("/launchpad/tokens/stats", async (c) => {
-  if (!useDb) return c.json({ tokens: 0, totalMarketCapUsd: 0, volume24hUsd: 0 });
+  if (!useDb) return c.json({ tokens: 0, totalMarketCapUsd: 0, volume24hUsd: 0, claimedCreatorRewardsUsd: 0 });
   const stats = await curveStore.getTokenStats(db!, curveScope());
   return c.json(stats, 200, { "Cache-Control": "no-store" });
 });

@@ -276,6 +276,7 @@ export async function ensureSchema(): Promise<void> {
       `;
       await sql`CREATE UNIQUE INDEX IF NOT EXISTS creator_fee_claims_tx_idx ON creator_fee_claims (tx_hash)`;
       await sql`CREATE INDEX IF NOT EXISTS creator_fee_claims_pair_idx ON creator_fee_claims (pair_address)`;
+      await sql`ALTER TABLE creator_fee_claims ADD COLUMN IF NOT EXISTS value_usd numeric(18, 4)`;
 
       // ─── Bonding-curve creator tokens ─────────────────
       await sql`
@@ -333,6 +334,20 @@ export async function ensureSchema(): Promise<void> {
       `;
       await sql`CREATE UNIQUE INDEX IF NOT EXISTS curve_trades_tx_log_idx ON curve_trades (tx_hash, log_index)`;
       await sql`CREATE INDEX IF NOT EXISTS curve_trades_token_ts_idx ON curve_trades (token_address, created_at)`;
+      // ComposeCurve CreatorFeesClaimed events (share fees a token creator cashed out)
+      await sql`
+        CREATE TABLE IF NOT EXISTS curve_creator_claims (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          token_address text NOT NULL,
+          creator_wallet text NOT NULL,
+          shares text NOT NULL,
+          value_usd numeric(18, 4) NOT NULL,
+          tx_hash text NOT NULL,
+          log_index numeric NOT NULL DEFAULT '0',
+          created_at timestamp NOT NULL DEFAULT now()
+        )
+      `;
+      await sql`CREATE UNIQUE INDEX IF NOT EXISTS curve_creator_claims_tx_log_idx ON curve_creator_claims (tx_hash, log_index)`;
       await sql`
         CREATE TABLE IF NOT EXISTS indexer_cursor (
           id text PRIMARY KEY,
