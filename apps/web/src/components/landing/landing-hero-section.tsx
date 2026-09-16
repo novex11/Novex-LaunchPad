@@ -11,7 +11,9 @@ import {
   ALLOCATION_STOCKBACK_RATES,
   DEFAULT_ALLOCATION_RATE,
 } from "@compose/config";
+import { useQuery } from "@tanstack/react-query";
 import { useBasketVolume } from "@/hooks/use-basket-volume";
+import { fetchCurveTokenStats } from "@/lib/api";
 import { useBackendHealth } from "@/hooks/use-backend-health";
 import { useWallet } from "@/hooks/use-wallet";
 import { formatUsd } from "@/lib/utils";
@@ -33,6 +35,8 @@ const floors = strategies.map((s) => stockbackTier(s).minDepositUsd);
 export function LandingHeroSection() {
   const { health, allUp } = useBackendHealth();
   const basketVolume = useBasketVolume();
+  // Same query the launchpad page uses, so both show the same 24h volume.
+  const launchpadStats = useQuery({ queryKey: ["curve-token-stats"], queryFn: fetchCurveTokenStats, refetchInterval: 15_000, retry: 1 });
   const wallet = useWallet();
 
   return (
@@ -63,7 +67,7 @@ export function LandingHeroSection() {
               },
               { label: "Lifetime cap", value: formatUsd(CASHBACK_CONFIG.perWalletLifetimeCapUsd) },
               { label: "Basket volume", value: basketVolume.data?.ready ? formatUsd(basketVolume.data.volumeUsd) : "—" },
-              { label: "Quote refresh", value: "15s" },
+              { label: "Launchpad volume", value: launchpadStats.data ? formatUsd(launchpadStats.data.volume24hUsd) : "—" },
               {
                 label: "Allocator",
                 value: allUp ? "Online" : health.allocator ? "Partial" : "Offline",
