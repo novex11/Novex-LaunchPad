@@ -82,6 +82,22 @@ export function Footer() {
             </span>
             All systems nominal
           </div>
+          <a
+            href="https://x.com/composedotxyz"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Follow Compose on X"
+            className="group mt-4 flex w-fit items-center gap-2 rounded-full border border-border bg-background px-3.5 py-2 text-sm text-muted-foreground transition-all hover:-translate-y-0.5 hover:border-foreground/40 hover:text-foreground"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden className="h-3.5 w-3.5 fill-current">
+              <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+            </svg>
+            Follow @composedotxyz
+            <ArrowUpRight
+              size={12}
+              className="-translate-x-1 opacity-0 transition-all group-hover:translate-x-0 group-hover:opacity-100"
+            />
+          </a>
         </motion.div>
 
         <div className="grid grid-cols-2 gap-8 sm:grid-cols-4 md:col-span-7">
