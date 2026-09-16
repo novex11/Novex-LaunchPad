@@ -22,7 +22,8 @@ import {
 } from "@compose/config";
 import { formatUnits, parseUnits } from "viem";
 import { fetchDepositCosts, recordDeposit, type DepositCosts } from "@/lib/api";
-import { basketsAvailable, contractsReady } from "@/lib/contracts";
+import { basketsAvailable, contractsReady, erc20Abi } from "@/lib/contracts";
+import { useReadContract } from "wagmi";
 import {
   minSharesFor,
   useApproveAndDeposit,
@@ -178,6 +179,28 @@ export default function CreateBasketContent() {
   const pricingReady = Boolean(
     depositTokenPriceUsd8 && depositTokenPriceUsd8 > 0n && vaultSharePrice != null,
   );
+  // The wallet's balance of the chosen deposit stock, so the user never has to open
+  // their wallet to know how much they can put in.
+  const depositTokenInfo = getTokenByTicker(depositTicker);
+  const depositTokenAddress = (resolvedVault.depositAsset ?? depositTokenInfo?.address) as `0x${string}` | undefined;
+  const walletBalance = useReadContract({
+    address: depositTokenAddress,
+    abi: erc20Abi,
+    functionName: "balanceOf",
+    args: wallet.address ? [wallet.address as `0x${string}`] : undefined,
+    query: {
+      enabled: Boolean(wallet.authenticated && wallet.address && depositTokenAddress && !isPlaceholderAddress(depositTokenAddress)),
+      refetchInterval: 15_000,
+    },
+  });
+  const balanceTokens =
+    walletBalance.data != null ? Number(formatUnits(walletBalance.data, depositTokenInfo?.decimals ?? 18)) : undefined;
+  const balancePrice = depositTokenPriceUsd ?? byTicker.get(depositTicker)?.price;
+  const balanceUsd = balanceTokens != null && balancePrice ? balanceTokens * balancePrice : undefined;
+  // Max stays a cent under the balance so rounding in the token conversion can never exceed it.
+  const maxDepositUsd = balanceUsd != null ? Math.max(0, Math.floor((balanceUsd - 0.01) * 100) / 100) : undefined;
+  const exceedsBalance = balanceUsd != null && depositUsd > balanceUsd;
+
   const canConfirm = Boolean(
     wallet.authenticated &&
       data &&
@@ -189,6 +212,7 @@ export default function CreateBasketContent() {
       pricingReady &&
       mixLines.length > 0 &&
       !hasViolations &&
+      !exceedsBalance &&
       previewIsLive,
   );
   const busy = confirming || (stage !== "idle" && stage !== "done" && stage !== "error");
@@ -256,6 +280,7 @@ export default function CreateBasketContent() {
       qc.invalidateQueries({ queryKey: ["portfolio"] });
       qc.invalidateQueries({ queryKey: ["activity"] });
       qc.invalidateQueries({ queryKey: ["basket-volume"] });
+      void walletBalance.refetch();
       qc.invalidateQueries({ queryKey: ["receipt-positions"] });
       setStage("done");
       setSuccess({
@@ -435,7 +460,33 @@ export default function CreateBasketContent() {
         {/* Left: stacked sections */}
         <div className="lg:col-span-7">
           <Section n="01" title="Deposit asset" hint="The tokenized stock you send in.">
-            <AssetPicker assets={DEPOSIT_TOKENS} value={depositTicker} onChange={setDepositTicker} quotes={byTicker} />
+            <AssetPicker
+              assets={DEPOSIT_TOKENS}
+              value={depositTicker}
+              onChange={setDepositTicker}
+              quotes={byTicker}
+              selectedFooter={
+                wallet.authenticated ? (
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                    <span className="text-muted-foreground">Available in your wallet</span>
+                    <span className="flex items-center gap-2 font-mono tabular-nums">
+                      {balanceTokens != null ? (
+                        <>
+                          <span className="font-semibold text-foreground">
+                            {balanceTokens.toLocaleString(undefined, { maximumFractionDigits: 6 })} {depositTicker}
+                          </span>
+                          {balanceUsd != null && <span className="text-muted-foreground">≈ {formatUsd(balanceUsd)}</span>}
+                        </>
+                      ) : walletBalance.isLoading ? (
+                        <span className="text-muted-foreground">loading…</span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </span>
+                  </div>
+                ) : undefined
+              }
+            />
           </Section>
 
           <Section
@@ -448,7 +499,38 @@ export default function CreateBasketContent() {
             }
           >
             <label className="block">
-              <span className="text-sm font-medium">Deposit value (USD)</span>
+              <span className="flex flex-wrap items-baseline justify-between gap-2">
+                <span className="text-sm font-medium">Deposit value (USD)</span>
+                {wallet.authenticated && (
+                  <span className="flex items-center gap-2 font-mono text-xs tabular-nums text-muted-foreground">
+                    Wallet:{" "}
+                    {balanceTokens != null ? (
+                      <>
+                        <span className="text-foreground">
+                          {balanceTokens.toLocaleString(undefined, { maximumFractionDigits: 6 })} {depositTicker}
+                        </span>
+                        {balanceUsd != null && <>≈ {formatUsd(balanceUsd)}</>}
+                        {maxDepositUsd != null && maxDepositUsd > 0 && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              setAmountStr(maxDepositUsd.toFixed(2));
+                            }}
+                            className="rounded-full border border-accent/40 px-2 py-0.5 text-[11px] font-medium text-accent-strong hover:bg-accent-subtle"
+                          >
+                            Max
+                          </button>
+                        )}
+                      </>
+                    ) : walletBalance.isLoading ? (
+                      "loading…"
+                    ) : (
+                      "—"
+                    )}
+                  </span>
+                )}
+              </span>
               <div className="relative mt-2">
                 <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 font-mono text-lg text-muted-foreground">
                   $
@@ -486,6 +568,13 @@ export default function CreateBasketContent() {
                 </button>
               ))}
             </div>
+            {exceedsBalance && (
+              <p className="mt-3 flex items-center gap-1.5 text-xs text-destructive">
+                <WarningCircle size={14} />
+                You have {balanceUsd != null ? formatUsd(balanceUsd) : "less"} of {depositTicker} in your wallet. Lower the amount
+                {maxDepositUsd != null && maxDepositUsd > 0 ? ` or use Max (${formatUsd(maxDepositUsd)})` : ""}.
+              </p>
+            )}
             {belowBasketMin && (
               <p className="mt-3 flex items-center gap-1.5 text-xs text-destructive">
                 <WarningCircle size={14} />

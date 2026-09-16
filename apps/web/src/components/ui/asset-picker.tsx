@@ -27,6 +27,8 @@ interface AssetPickerProps {
   featuredCount?: number;
   /** Tickers that cannot be chosen right now (no vault, etc.). */
   unavailable?: Set<string>;
+  /** Shown on the selected tile, e.g. the connected wallet's available balance. */
+  selectedFooter?: React.ReactNode;
   className?: string;
 }
 
@@ -41,6 +43,7 @@ export function AssetPicker({
   quotes,
   featuredCount = 6,
   unavailable,
+  selectedFooter,
   className,
 }: AssetPickerProps) {
   const [query, setQuery] = useState("");
@@ -90,6 +93,9 @@ export function AssetPicker({
               )}
             </div>
           </div>
+          {selectedFooter && (
+            <div className="relative mt-3 border-t border-accent/20 pt-3">{selectedFooter}</div>
+          )}
         </div>
       )}
 
