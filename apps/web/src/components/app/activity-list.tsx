@@ -96,12 +96,19 @@ export function ActivityList({
             <div className="text-right md:text-left">
               <p className="font-mono text-sm tabular-nums">{formatUsd(r.valueUsd)}</p>
               <p className="font-mono text-[11px] tabular-nums text-accent-strong md:hidden">
-                {r.stockbackUsd > 0 ? `+${formatUsd(r.stockbackUsd)}` : ""}
+                {r.stockbackUsd > 0 ? `+${formatUsd(r.stockbackUsd)} to wallet` : ""}
               </p>
             </div>
-            <p className="hidden font-mono text-sm tabular-nums text-accent-strong md:block">
-              {r.stockbackUsd > 0 ? `+${formatUsd(r.stockbackUsd)}` : <span className="text-muted-foreground">—</span>}
-            </p>
+            <div className="hidden md:block">
+              {r.stockbackUsd > 0 ? (
+                <>
+                  <p className="font-mono text-sm tabular-nums text-accent-strong">+{formatUsd(r.stockbackUsd)}</p>
+                  <p className="text-[11px] text-muted-foreground">in your wallet</p>
+                </>
+              ) : (
+                <p className="font-mono text-sm text-muted-foreground">—</p>
+              )}
+            </div>
             <div className="hidden items-center justify-end gap-2 md:flex">
               <Badge variant={r.status === "confirmed" ? "success" : "secondary"}>{r.status}</Badge>
               <a

@@ -20,7 +20,7 @@ import {
   stockbackTier,
   stockbackTopBand,
 } from "@compose/config";
-import { parseUnits } from "viem";
+import { formatUnits, parseUnits } from "viem";
 import { fetchDepositCosts, recordDeposit, type DepositCosts } from "@/lib/api";
 import { basketsAvailable, contractsReady } from "@/lib/contracts";
 import {
@@ -127,6 +127,8 @@ export default function CreateBasketContent() {
     stockbackUsd: number;
     /** USD value the vault credited after swaps, from the Deposited event. */
     creditedUsd?: number;
+    /** Stockback tokens forwarded to the wallet (deposit-token base units). */
+    stockbackTokenAmount?: bigint;
   } | null>(null);
 
   const depositUsd = Number(amountStr) || 0;
@@ -255,7 +257,13 @@ export default function CreateBasketContent() {
       qc.invalidateQueries({ queryKey: ["activity"] });
       qc.invalidateQueries({ queryKey: ["receipt-positions"] });
       setStage("done");
-      setSuccess({ txHash: hash, ledgerPending, stockbackUsd: outcome.stockbackUsd, creditedUsd });
+      setSuccess({
+        txHash: hash,
+        ledgerPending,
+        stockbackUsd: outcome.stockbackUsd,
+        stockbackTokenAmount: outcome.stockbackTokenAmount,
+        creditedUsd,
+      });
     } catch (e) {
       setFailedAt(current);
       setStage("error");
@@ -296,15 +304,30 @@ export default function CreateBasketContent() {
             <p className="mt-2 text-muted-foreground">
               {success.stockbackUsd > 0 ? (
                 <>
-                  Stockback of{" "}
-                  <span className="font-mono font-semibold text-accent-strong">{formatUsd(success.stockbackUsd)}</span>{" "}
-                  was paid on-chain to your wallet in {depositTicker}.
+                  Your Stockback is already in your wallet, nothing to claim. It isn&apos;t part of your{" "}
+                  <span className="font-mono">{receipt}</span> shares.
                 </>
               ) : (
                 <>No Stockback was paid on-chain for this deposit.</>
               )}
               {success.ledgerPending && <> The activity ledger will catch up from the chain shortly.</>}
             </p>
+            {success.stockbackUsd > 0 && (
+              <div className="mt-4 flex items-center gap-3 rounded-2xl border border-accent/30 bg-accent-subtle px-4 py-3">
+                <StockLogo ticker={depositTicker} size="md" />
+                <div>
+                  <p className="font-mono text-lg font-semibold tabular-nums text-accent-strong">
+                    +{formatUsd(success.stockbackUsd)} Stockback
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {success.stockbackTokenAmount
+                      ? `${Number(formatUnits(success.stockbackTokenAmount, getTokenByTicker(depositTicker)?.decimals ?? 18)).toFixed(6)} ${depositTicker}`
+                      : depositTicker}{" "}
+                    sent to your wallet in this transaction
+                  </p>
+                </div>
+              </div>
+            )}
             <div className="mt-4 flex flex-wrap gap-1.5">
               {(data?.allocation ?? []).map((a, i) => (
                 <span key={a.ticker} className="inline-flex items-center gap-1 rounded-md bg-surface-muted px-1.5 py-0.5 font-mono text-[10px] tabular-nums">

@@ -20,6 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { ConnectGate } from "@/components/app/connect-gate";
 import { MetricBand } from "@/components/app/metric-band";
 import { ActivityList } from "@/components/app/activity-list";
+import { StockbackInWallet } from "@/components/app/stockback-in-wallet";
 import { OnChainVerifiedBadge } from "@/components/receipt/on-chain-verified-badge";
 
 const spring = { type: "spring", stiffness: 100, damping: 20 } as const;
@@ -85,6 +86,11 @@ export default function PortfolioPage() {
           </p>
         </div>
         <div className="flex gap-2 md:col-span-4 md:justify-end">
+          {hasBasket && (
+            <Button asChild variant="outline">
+              <Link href="/redeem">Redeem</Link>
+            </Button>
+          )}
           <Button asChild variant="outline">
             <Link href="/markets">Trade</Link>
           </Button>
@@ -107,7 +113,7 @@ export default function PortfolioPage() {
             value: `${netPerf >= 0 ? "+" : "−"}${formatUsd(Math.abs(netPerf))}`,
             tone: netPerf >= 0 ? "success" : "destructive",
           },
-          { label: "Stockback earned", value: formatUsd(data?.totalStockbackUsd ?? 0), tone: "accent" },
+          { label: "Stockback earned", value: formatUsd(data?.totalStockbackUsd ?? 0), tone: "accent", hint: (data?.totalStockbackUsd ?? 0) > 0 ? "Already in your wallet" : undefined },
           {
             label: "Receipt tokens",
             value: Number(receiptBalance).toLocaleString(undefined, { maximumFractionDigits: 3 }),
@@ -119,6 +125,8 @@ export default function PortfolioPage() {
           },
         ]}
       />
+
+      <StockbackInWallet records={activity.data ?? []} className="mt-4" />
 
       {isError && (
         <p className="mt-4 text-sm text-destructive">
@@ -173,12 +181,17 @@ export default function PortfolioPage() {
                       <p className="text-xs capitalize text-muted-foreground">{pos.strategy}</p>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <p className="font-mono text-sm tabular-nums">{formatUsd(pos.valueUsd)}</p>
-                    <p className="font-mono text-[11px] tabular-nums text-muted-foreground">
-                      {Number(formatUnits(pos.receiptBalance, RECEIPT_SHARE_DECIMALS)).toFixed(3)} · share{" "}
-                      {pos.sharePriceUsd.toFixed(4)}
-                    </p>
+                  <div className="flex items-center gap-4">
+                    <div className="text-right">
+                      <p className="font-mono text-sm tabular-nums">{formatUsd(pos.valueUsd)}</p>
+                      <p className="font-mono text-[11px] tabular-nums text-muted-foreground">
+                        {Number(formatUnits(pos.receiptBalance, RECEIPT_SHARE_DECIMALS)).toFixed(3)} · share{" "}
+                        {pos.sharePriceUsd.toFixed(4)}
+                      </p>
+                    </div>
+                    <Button asChild size="sm">
+                      <Link href="/redeem">Redeem</Link>
+                    </Button>
                   </div>
                 </div>
               ))}
@@ -248,9 +261,12 @@ export default function PortfolioPage() {
                     </span>
                     {onChainVerified && " · on-chain NAV"}
                   </span>
-                  <Link href="/redeem" className="font-medium text-accent-strong hover:underline">
-                    Redeem
-                  </Link>
+                  <Button asChild size="sm" variant="outline">
+                    <Link href="/redeem">
+                      Redeem
+                      <ArrowRight size={14} weight="bold" />
+                    </Link>
+                  </Button>
                 </div>
               </>
             )}

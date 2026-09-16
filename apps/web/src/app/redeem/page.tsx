@@ -18,6 +18,8 @@ import {
   type OnChainReceiptPosition,
 } from "@/hooks/use-receipt-positions";
 import { useWallet } from "@/hooks/use-wallet";
+import { useActivity } from "@/hooks/use-portfolio";
+import { StockbackInWallet } from "@/components/app/stockback-in-wallet";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { StockLogo } from "@/components/ui/stock-logo";
@@ -39,6 +41,7 @@ export default function RedeemPage() {
   const router = useRouter();
   const qc = useQueryClient();
   const positions = useReceiptPositions(wallet.address);
+  const activity = useActivity(wallet.address);
 
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [mode, setMode] = useState<RedeemMode>("original");
@@ -272,6 +275,11 @@ export default function RedeemPage() {
                 );
               })}
             </div>
+            <StockbackInWallet
+              records={(activity.data ?? []).filter((r) => r.vaultId === active?.receiptSymbol)}
+              compact
+              className="mt-4"
+            />
             <div className="mt-4 flex gap-3 rounded-2xl border border-border bg-surface-muted p-4 text-sm text-muted-foreground">
               <Info size={16} className="mt-0.5 shrink-0" />
               <p>
