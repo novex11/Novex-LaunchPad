@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { isForexPair } from "@/lib/markets";
+import { EthLogo, UsdgLogo } from "@/components/ui/asset-logo";
 
 type LogoSize = "xs" | "sm" | "md" | "lg" | "xl";
 
@@ -20,8 +21,8 @@ interface StockLogoProps {
   className?: string;
 }
 
-/** Crypto symbols the stock logo CDN lacks; served locally (sourced from CoinGecko). */
-const LOCAL_LOGO = new Set(["USDG", "USDC", "USDT", "DAI", "ETH", "WETH"]);
+/** Stablecoins the stock logo CDN lacks; served locally (sourced from CoinGecko). */
+const LOCAL_LOGO = new Set(["USDC", "USDT", "DAI"]);
 
 /** Tickers whose CDN logo already failed this session, so we don't refetch. */
 const failedLogos = new Set<string>();
@@ -41,10 +42,18 @@ export function logoUrl(ticker: string) {
 
 /**
  * Brand logo by ticker from a free CDN, with a styled monogram fallback.
- * Stablecoins and ETH use bundled logos; forex pairs and tickers that
+ * ETH/WETH and USDG use the Robinhood Chain-badged marks, other stablecoins
+ * use bundled logos; forex pairs and tickers that
  * already 404'd skip the CDN entirely and render a monogram.
  */
 export function StockLogo({ ticker, size = "md", className }: StockLogoProps) {
+  const upper = ticker.toUpperCase();
+  if (upper === "ETH" || upper === "WETH") return <EthLogo size={size} className={className} />;
+  if (upper === "USDG") return <UsdgLogo size={size} className={className} />;
+  return <CdnStockLogo ticker={ticker} size={size} className={className} />;
+}
+
+function CdnStockLogo({ ticker, size = "md", className }: StockLogoProps) {
   const forex = isForexPair(ticker);
   const [failed, setFailed] = useState(() => skipCdn(ticker));
   const base = SIZE[size];

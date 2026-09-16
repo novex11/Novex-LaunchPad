@@ -2,9 +2,9 @@
 
 import { cn } from "@/lib/utils";
 
-const SIZE = { sm: "h-8 w-8", md: "h-10 w-10" } as const;
+const SIZE = { xs: "h-6 w-6", sm: "h-8 w-8", md: "h-10 w-10", lg: "h-14 w-14", xl: "h-20 w-20" } as const;
 
-/** Robinhood Chain badge: the feather on Robinhood green, overlaid on a wrapped asset. */
+/** Robinhood Chain badge: the official Robinhood symbol on Robinhood green, overlaid on an asset. */
 function RobinhoodChainBadge() {
   return (
     <span
@@ -12,8 +12,8 @@ function RobinhoodChainBadge() {
       className="absolute -bottom-0.5 -right-0.5 flex h-[46%] w-[46%] items-center justify-center rounded-full bg-[#00C805] ring-2 ring-surface"
       title="Robinhood Chain"
     >
-      <svg viewBox="0 0 24 24" className="h-[70%] w-[70%]" fill="#ffffff">
-        <path d="M18.6 4.2c-4.9.4-8.7 3.2-10.6 7.5-.7 1.6-1 3.4-1.1 5.4 1.2-2.6 2.9-4.7 5.2-6.4-2.7 2.7-4.4 6-5.1 9.7 1.3-.4 2.5-.6 3.6-1.1 5.1-2.1 8.2-6.4 8.7-12.1.1-1.1.1-2.1-.7-3z" />
+      <svg viewBox="0 0 115.87 149.53" className="h-[62%] w-[62%]" fill="#ffffff">
+        <path d="m.86,149.53h3.3c.6,0,1.2-.3,1.4-.8C30.46,85.33,57.56,53.93,74.56,35.13c.7-.8.4-1.4-.6-1.4h-30.4c-1.1,0-2.03.44-2.8,1.4l-21.8,27c-3.2,4-4,7.7-4,13v27.6C7.86,122.63,3.36,136.13.06,148.33c-.2.78.1,1.2.8,1.2ZM110.56,4.03c-4.7-5-25.9-5.2-35.7-1.4-2.04.79-4,2.13-4.9,2.9-9,7.7-15,13.8-20.7,19.8-.7.7-.4,1.4.6,1.4h33.7c3.1,0,4.9,1.8,4.9,4.9v38c0,1,.8,1.3,1.4.4l20.3-26.5c3.3-4.3,4.3-5.6,5.2-11.6,1.2-8.8.5-22.3-4.8-27.9Zm-43.5,100.8l13.9-22.9c.3-.6.4-1.3.4-1.8v-38.2c0-1-.7-1.4-1.4-.6-20.9,23.3-37.2,47.8-52.3,77.3-.38.74.1,1.4,1,1.1l31.2-9.6c3.52-1.08,5.5-2.5,7.2-5.3Z" />
       </svg>
     </span>
   );
@@ -39,22 +39,12 @@ export function EthLogo({ size = "sm", className }: { size?: keyof typeof SIZE; 
   );
 }
 
-/** USDG mark: dark coin with a Robinhood-green "G", badged with Robinhood Chain. */
+/** USDG (Global Dollar) mark, sourced from CoinGecko, badged with Robinhood Chain. */
 export function UsdgLogo({ size = "sm", className }: { size?: keyof typeof SIZE; className?: string }) {
   return (
     <span aria-hidden className={cn("relative flex shrink-0 items-center justify-center", SIZE[size], className)}>
-      <svg viewBox="0 0 32 32" className="h-full w-full">
-        <circle cx="16" cy="16" r="16" fill="#1c1f26" />
-        <circle cx="16" cy="16" r="13.5" fill="none" stroke="#00C805" strokeWidth="1.6" strokeOpacity="0.55" />
-        <path
-          d="M21.6 11.6A7.2 7.2 0 1 0 22.9 18H16.6"
-          fill="none"
-          stroke="#00C805"
-          strokeWidth="3"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src="/tokens/usdg.png" alt="" className="h-full w-full rounded-full" />
       <RobinhoodChainBadge />
     </span>
   );
