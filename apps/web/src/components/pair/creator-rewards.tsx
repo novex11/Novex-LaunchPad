@@ -6,6 +6,7 @@ import { formatUnits, type Address } from "viem";
 import { useReadContract } from "wagmi";
 import { CheckCircle, CircleNotch, Coin, WarningCircle } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
+import { EthLogo, UsdgLogo } from "@/components/ui/asset-logo";
 import { cn, explorerUrl, formatUsd } from "@/lib/utils";
 import { fetchCreatorClaims, recordCreatorClaim } from "@/lib/api";
 import { pairRouterReady, pairVaultAbi } from "@/lib/contracts";
@@ -196,10 +197,12 @@ export function CreatorRewards({
               aria-checked={active === m}
               onClick={() => setMethod(m)}
               className={cn(
-                "flex-1 rounded-full px-3 py-1.5 font-mono text-xs font-semibold transition-all",
+                "flex flex-1 items-center justify-center gap-1.5 rounded-full px-3 py-1.5 font-mono text-xs font-semibold transition-all",
                 active === m ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground",
               )}
             >
+              {m === "ETH" && <EthLogo className="h-4 w-4" />}
+              {m === "USDG" && <UsdgLogo className="h-4 w-4" />}
               {m === "STOCKS" ? "Stocks" : m}
             </button>
           ))}

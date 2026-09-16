@@ -14,6 +14,7 @@ import {
 } from "@phosphor-icons/react";
 import { TESTNET_FAUCET_URL, depositAmountError, isTestnetMode } from "@compose/config";
 import { Button } from "@/components/ui/button";
+import { EthLogo, UsdgLogo } from "@/components/ui/asset-logo";
 import { cn, explorerUrl, formatUsd } from "@/lib/utils";
 import {
   erc20Abi,
@@ -89,10 +90,12 @@ export function TradeMethodPicker({
             aria-checked={value === o.id}
             onClick={() => onChange(o.id)}
             className={cn(
-              "flex-1 rounded-full px-3 py-1.5 font-mono text-xs font-semibold transition-all",
+              "flex flex-1 items-center justify-center gap-1.5 rounded-full px-3 py-1.5 font-mono text-xs font-semibold transition-all",
               value === o.id ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground",
             )}
           >
+            {o.id === "ETH" && <EthLogo className="h-4 w-4" />}
+            {o.id === "USDG" && <UsdgLogo className="h-4 w-4" />}
             {o.label}
           </button>
         ))}
