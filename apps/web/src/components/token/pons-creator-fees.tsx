@@ -4,7 +4,12 @@ import { formatUnits } from "viem";
 import { ArrowSquareOut, CheckCircle, CircleNotch, Coins, WarningCircle } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { cn, explorerUrl, formatUsd } from "@/lib/utils";
-import { usePonsCreatorFeeActions, usePonsCreatorFees, type PonsOnchainState } from "@/hooks/use-pons-token";
+import {
+  usePonsCreatorFeeActions,
+  usePonsCreatorFeeHistory,
+  usePonsCreatorFees,
+  type PonsOnchainState,
+} from "@/hooks/use-pons-token";
 
 export interface PonsCreatorFeesProps {
   pons: PonsOnchainState;
@@ -26,6 +31,14 @@ function fmt(amount: bigint, decimals: number): string {
  */
 export function PonsCreatorFees({ pons, symbol, ponsUrl, className }: PonsCreatorFeesProps) {
   const fees = usePonsCreatorFees({ curve: pons.curve, quoteToken: pons.quoteToken, creator: pons.creator });
+  const history = usePonsCreatorFeeHistory({
+    curve: pons.curve,
+    quoteToken: pons.quoteToken,
+    creator: pons.creator,
+    escrow: fees.data?.escrow,
+    launchTime: pons.launchTime,
+    claimable: fees.data?.claimable,
+  });
   const actions = usePonsCreatorFeeActions();
   const busy = actions.stage === "submit";
   const data = fees.data;
@@ -41,14 +54,18 @@ export function PonsCreatorFees({ pons, symbol, ponsUrl, className }: PonsCreato
 
   const sweepable = data?.sweepable ?? 0n;
   const claimable = data?.claimable ?? 0n;
-  const totalUsd = usd(sweepable + claimable);
+  const claimed = history.data?.claimed;
+  // Lifetime: everything swept for this token plus what still waits on the curve.
+  const earned = history.data ? history.data.earned + sweepable : undefined;
+  const earnedUsd = earned != null ? usd(earned) : undefined;
+  const sweeps = history.data?.sweeps ?? 0;
   const creatorFeeSharePct = data ? (100 - data.protocolShareBps / 100).toFixed(0) : "70";
 
   async function sweep() {
     actions.reset();
     try {
       await actions.sweep(pons.curve);
-      await fees.refetch();
+      await Promise.all([fees.refetch(), history.refetch()]);
     } catch {
       /* shown below */
     }
@@ -59,7 +76,7 @@ export function PonsCreatorFees({ pons, symbol, ponsUrl, className }: PonsCreato
     try {
       if (!data) return;
       await actions.claim(data.escrow, pons.quoteToken);
-      await fees.refetch();
+      await Promise.all([fees.refetch(), history.refetch()]);
     } catch {
       /* shown below */
     }
@@ -72,13 +89,18 @@ export function PonsCreatorFees({ pons, symbol, ponsUrl, className }: PonsCreato
         Creator trading fees
       </div>
       <p className="mt-3 text-xs text-muted-foreground">Earned from ${symbol} trades on Pons, paid in {quoteSym}</p>
-      <p className="mt-1 font-mono text-3xl font-semibold tabular-nums">{totalUsd != null ? formatUsd(totalUsd) : "—"}</p>
+      <p className="mt-1 font-mono text-3xl font-semibold tabular-nums">{earnedUsd != null ? formatUsd(earnedUsd) : "—"}</p>
       <p className="mt-0.5 font-mono text-xs text-muted-foreground">
-        {fmt(sweepable + claimable, dec)} {quoteSym} · {creatorFeeSharePct}% of the 1% curve fee
+        {earned != null
+          ? `${fmt(earned, dec)} ${quoteSym} earned${sweeps > 0 ? ` across ${sweeps} sweep${sweeps === 1 ? "" : "s"}` : ""}`
+          : history.isError
+            ? "Lifetime total unavailable"
+            : "Loading…"}{" "}
+        · {creatorFeeSharePct}% of the 1% curve fee
         {data && data.creatorTax > 0n ? " + creator tax" : ""}
       </p>
 
-      <dl className="mt-4 grid grid-cols-2 gap-3 text-xs">
+      <dl className="mt-4 grid grid-cols-2 gap-3 text-xs sm:grid-cols-3">
         <div className="rounded-2xl border border-border bg-surface p-3">
           <dt className="text-muted-foreground">On the curve</dt>
           <dd className="mt-1 font-mono tabular-nums">
@@ -92,6 +114,13 @@ export function PonsCreatorFees({ pons, symbol, ponsUrl, className }: PonsCreato
             {fmt(claimable, dec)} {quoteSym}
           </dd>
           <dd className="text-muted-foreground">{usd(claimable) != null ? formatUsd(usd(claimable)!) : ""}</dd>
+        </div>
+        <div className="col-span-2 rounded-2xl border border-border bg-surface p-3 sm:col-span-1">
+          <dt className="text-muted-foreground">Claimed</dt>
+          <dd className="mt-1 font-mono tabular-nums">
+            {claimed != null ? `${fmt(claimed, dec)} ${quoteSym}` : history.isError ? "—" : "Loading…"}
+          </dd>
+          <dd className="text-muted-foreground">{claimed != null && usd(claimed) != null ? formatUsd(usd(claimed)!) : ""}</dd>
         </div>
       </dl>
 

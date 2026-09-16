@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { decodeEventLog, parseAbiItem, type Address, type Hash, type Hex } from "viem";
-import { useReadContract, useReadContracts } from "wagmi";
+import { useQuery } from "@tanstack/react-query";
+import { decodeEventLog, parseAbiItem, type Address, type Hash, type Hex, type PublicClient } from "viem";
+import { usePublicClient, useReadContract, useReadContracts } from "wagmi";
 import {
   PONS_FACTORY_ADDRESS,
   PONS_LAUNCHER_ADDRESS,
@@ -658,6 +659,134 @@ export function usePonsCreatorFees(i: { curve?: Address; quoteToken?: Address; c
   }
   const refetch = useCallback(() => Promise.all([escrow.refetch(), reads.refetch()]), [escrow, reads]);
   return { data, isLoading: !data && (escrow.isLoading || reads.isLoading), refetch };
+}
+
+// The escrow logs each sweep as a credit to the creator per (token, source
+// curve), and each claim per token only, because one escrow balance serves every
+// launch that shares a quote token. Pons's token page reports "earned across N
+// sweeps" from the same credit logs, so both sites show the same total.
+
+const CreditedTokenEvent = parseAbiItem(
+  "event CreditedToken(address indexed account, address indexed token, address indexed source, uint256 amount)",
+);
+const ClaimedTokenEvent = parseAbiItem("event ClaimedToken(address indexed account, address indexed token, uint256 amount)");
+
+/** Blocks per eth_getLogs call; the public RPC times out on much wider filtered ranges. */
+const LOG_CHUNK_BLOCKS = 200_000n;
+/** Sample window for the average block time. */
+const BLOCK_TIME_SAMPLE = 1_000_000n;
+
+/**
+ * A block at or before `timestamp` (seconds), from the average block time over
+ * the last `BLOCK_TIME_SAMPLE` blocks plus a 25% margin. Two RPC calls instead of
+ * a binary search, which trips the public RPC's rate limit; starting a little
+ * early only adds empty log ranges.
+ */
+async function blockBefore(client: PublicClient, timestamp: bigint): Promise<{ from: bigint; latest: bigint }> {
+  const head = await client.getBlock({ blockTag: "latest" });
+  const back = head.number > BLOCK_TIME_SAMPLE ? BLOCK_TIME_SAMPLE : head.number;
+  const sample = await client.getBlock({ blockNumber: head.number - back });
+  const span = head.timestamp - sample.timestamp;
+  const age = head.timestamp > timestamp ? head.timestamp - timestamp : 0n;
+  const blocks = span > 0n ? (age * back * 5n) / (span * 4n) : head.number;
+  return { from: head.number > blocks ? head.number - blocks : 0n, latest: head.number };
+}
+
+async function withRetry<T>(fn: () => Promise<T>, attempts = 4): Promise<T> {
+  for (let i = 1; ; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      if (i >= attempts) throw e;
+      await new Promise((r) => setTimeout(r, 1_000 * 2 ** i));
+    }
+  }
+}
+
+export interface PonsCreatorFeeHistory {
+  /** Swept from this token's curve into the escrow for the creator, all time (quote units). */
+  earned: bigint;
+  /** Number of sweeps that credited the creator. */
+  sweeps: number;
+  /** Earned from this token and already claimed out of the escrow (quote units). */
+  claimed: bigint;
+  /** Everything the creator claimed in this quote token, across all their launches (quote units). */
+  claimedAllLaunches: bigint;
+}
+
+/**
+ * Lifetime creator fees of a Pons token from the escrow's logs: what was swept
+ * (earned) and what was already claimed. Claims are logged per quote token, not
+ * per launch, so this launch's claimed part is its earnings minus what still
+ * waits in the escrow, capped at the total claimed.
+ */
+export function usePonsCreatorFeeHistory(i: {
+  curve?: Address;
+  quoteToken?: Address;
+  creator?: Address;
+  escrow?: Address;
+  launchTime?: number;
+  /** The creator's escrow balance in the quote token (claimable now). */
+  claimable?: bigint;
+}) {
+  const client = usePublicClient();
+  const enabled = !!client && !!i.curve && !!i.quoteToken && !!i.creator && !!i.escrow && !!i.launchTime;
+
+  const logs = useQuery({
+    queryKey: ["pons-creator-fee-history", i.escrow, i.curve, i.quoteToken, i.creator],
+    enabled,
+    staleTime: 60_000,
+    refetchInterval: 120_000,
+    queryFn: async () => {
+      const c = client as PublicClient;
+      const { from, latest } = await withRetry(() => blockBefore(c, BigInt(i.launchTime!)));
+      let earned = 0n;
+      let sweeps = 0;
+      let claimedAllLaunches = 0n;
+      // Sequential on purpose: the public RPC rate-limits parallel log queries.
+      for (let start = from; start <= latest; start += LOG_CHUNK_BLOCKS) {
+        const end = start + LOG_CHUNK_BLOCKS - 1n < latest ? start + LOG_CHUNK_BLOCKS - 1n : latest;
+        const credits = await withRetry(() =>
+          c.getLogs({
+            address: i.escrow!,
+            event: CreditedTokenEvent,
+            args: { account: i.creator!, token: i.quoteToken!, source: i.curve! },
+            fromBlock: start,
+            toBlock: end,
+          }),
+        );
+        const claims = await withRetry(() =>
+          c.getLogs({
+            address: i.escrow!,
+            event: ClaimedTokenEvent,
+            args: { account: i.creator!, token: i.quoteToken! },
+            fromBlock: start,
+            toBlock: end,
+          }),
+        );
+        for (const log of credits) {
+          earned += log.args.amount ?? 0n;
+          sweeps++;
+        }
+        for (const log of claims) claimedAllLaunches += log.args.amount ?? 0n;
+      }
+      return { earned, sweeps, claimedAllLaunches };
+    },
+  });
+
+  let data: PonsCreatorFeeHistory | undefined;
+  if (logs.data && i.claimable !== undefined) {
+    const { earned, sweeps, claimedAllLaunches } = logs.data;
+    const leftInEscrow = i.claimable < earned ? i.claimable : earned;
+    const fromThisLaunch = earned - leftInEscrow;
+    data = {
+      earned,
+      sweeps,
+      claimed: fromThisLaunch < claimedAllLaunches ? fromThisLaunch : claimedAllLaunches,
+      claimedAllLaunches,
+    };
+  }
+  return { data, isLoading: enabled && logs.isLoading, isError: logs.isError, refetch: logs.refetch };
 }
 
 /** Sweep a Pons curve's fees into the escrow and claim them; both must be sent by the creator fee recipient. */
