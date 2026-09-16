@@ -421,9 +421,17 @@ export default function PairDetailContent({ address }: { address: string }) {
               {displayName}
             </h1>
             <p className="mt-1 font-mono text-sm text-muted-foreground">{symbol}</p>
-            <p className="mt-0.5 text-sm text-muted-foreground">
-              {tokenAMeta?.name ?? tickerA} × {tokenBMeta?.name ?? tickerB}
-            </p>
+            <div className="mt-1.5 flex items-center gap-1.5 text-sm text-muted-foreground">
+              <span className="inline-flex" title={tokenAMeta?.name ?? tickerA}>
+                <StockLogo ticker={tickerA} size="sm" />
+                <span className="sr-only">{tokenAMeta?.name ?? tickerA}</span>
+              </span>
+              <span aria-hidden>×</span>
+              <span className="inline-flex" title={tokenBMeta?.name ?? tickerB}>
+                <StockLogo ticker={tickerB} size="sm" />
+                <span className="sr-only">{tokenBMeta?.name ?? tickerB}</span>
+              </span>
+            </div>
             {meta?.description && (
               <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground">
                 {meta.description}

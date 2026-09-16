@@ -216,6 +216,8 @@ export function ImageUploader({
             <>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
+                // Keyed by URL so a failed earlier URL's hidden style does not stick to the next one.
+                key={value.trim()}
                 src={value.trim()}
                 alt={copy.previewAlt}
                 className={cn(
