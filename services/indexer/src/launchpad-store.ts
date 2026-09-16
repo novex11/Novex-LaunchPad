@@ -1,4 +1,5 @@
-import { and, asc, desc, eq, gte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, notInArray, sql } from "drizzle-orm";
+import { HIDDEN_LAUNCHPAD_PAIRS } from "@compose/config";
 import type { Db } from "./db.js";
 import {
   indexerCursor,
@@ -245,12 +246,21 @@ function factoryFilter(factoryAddress?: string) {
     : undefined;
 }
 
+/** Leaves out pairs hidden from the public launchpad lists. */
+function visibleFilter() {
+  return HIDDEN_LAUNCHPAD_PAIRS.length > 0
+    ? notInArray(launchedPairs.pairAddress, [...HIDDEN_LAUNCHPAD_PAIRS])
+    : undefined;
+}
+
 export async function listPairs(
   db: Db,
   opts: {
     sort?: "tvl" | "new" | "depositors" | "volume";
     limit?: number;
     factoryAddress?: string;
+    /** Drop hidden pairs (public list); internal readers keep them. */
+    visibleOnly?: boolean;
   } = {},
 ) {
   const sort = opts.sort ?? "tvl";
@@ -266,7 +276,7 @@ export async function listPairs(
   return await db
     .select()
     .from(launchedPairs)
-    .where(factoryFilter(opts.factoryAddress))
+    .where(and(factoryFilter(opts.factoryAddress), opts.visibleOnly ? visibleFilter() : undefined))
     .orderBy(orderBy)
     .limit(opts.limit ?? 100);
 }
@@ -342,7 +352,7 @@ export async function getLaunchpadStats(db: Db, factoryAddress?: string) {
       totalVolume24hUsd: sql<string>`COALESCE(SUM(CAST(volume_24h_usd AS numeric)), 0)`,
     })
     .from(launchedPairs)
-    .where(factoryFilter(factoryAddress));
+    .where(and(factoryFilter(factoryAddress), visibleFilter()));
   return {
     totalPairs: Number(aggs?.totalPairs ?? 0),
     totalTvlUsd: Number(aggs?.totalTvlUsd ?? 0),

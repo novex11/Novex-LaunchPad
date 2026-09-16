@@ -7,6 +7,16 @@
  * seed is valued at on-chain oracle prices (1 share = $1 at launch).
  */
 
+/**
+ * Pairs left out of the public launchpad lists and stats (lowercase addresses).
+ * They stay on-chain and remain reachable by address; the factory still treats
+ * their token combination as taken.
+ */
+export const HIDDEN_LAUNCHPAD_PAIRS: readonly string[] = [
+  // PTNT: Pons launch test pair (TSLA/NVDA) on mainnet
+  "0x1f9e35a83c7f8cbfb66a9cd5730469d995c38372",
+];
+
 export const LAUNCHPAD_CONFIG = {
   /** Minimum weight per token in basis points (10%) */
   minWeightBps: 1_000,

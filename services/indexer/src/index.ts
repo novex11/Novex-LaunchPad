@@ -654,6 +654,7 @@ app.get("/launchpad/pairs", async (c) => {
     sort,
     limit,
     factoryAddress: pairFactoryAddress(),
+    visibleOnly: true,
   });
   return c.json({
     pairs: rows.map((r) => ({

@@ -1,4 +1,5 @@
-import { and, asc, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lt, notInArray, sql } from "drizzle-orm";
+import { HIDDEN_LAUNCHPAD_PAIRS } from "@compose/config";
 import { boolean, index, numeric, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import type { Db } from "./db.js";
 
@@ -233,6 +234,13 @@ function curveFilter(scope: CurveScope) {
   return eq(curveTokens.curveAddress, scope.toLowerCase());
 }
 
+/** Leaves out tokens of pairs hidden from the public launchpad lists. */
+function visibleFilter() {
+  return HIDDEN_LAUNCHPAD_PAIRS.length > 0
+    ? notInArray(curveTokens.pairAddress, [...HIDDEN_LAUNCHPAD_PAIRS])
+    : undefined;
+}
+
 /** Every Pons-launched token row (to bootstrap the Pons indexer's curve set). */
 export async function listPonsTokens(db: Db, launcherAddress: string) {
   return db
@@ -338,7 +346,7 @@ export async function listTokens(
   opts: { sort: TokenListSort; limit: number },
 ): Promise<TokenListRow[]> {
   const [volumes, holders] = await Promise.all([volume24hByToken(db, curveAddress), holderCounts(db, curveAddress)]);
-  const query = db.select().from(curveTokens).where(curveFilter(curveAddress));
+  const query = db.select().from(curveTokens).where(and(curveFilter(curveAddress), visibleFilter()));
   let rows: CurveTokenRow[];
   if (opts.sort === "volume") {
     // Volume lives in the trades table; rank in memory over the curve's tokens.
@@ -376,12 +384,12 @@ export async function getTokenStats(db: Db, curveAddress: CurveScope): Promise<T
         totalMarketCapUsd: sql<string>`COALESCE(SUM(${curveTokens.marketCapUsd}), 0)`,
       })
       .from(curveTokens)
-      .where(curveFilter(curveAddress)),
+      .where(and(curveFilter(curveAddress), visibleFilter())),
     db
       .select({ volume24hUsd: sql<string>`COALESCE(SUM(${curveTrades.valueUsd}), 0)` })
       .from(curveTrades)
       .innerJoin(curveTokens, eq(curveTokens.tokenAddress, curveTrades.tokenAddress))
-      .where(and(curveFilter(curveAddress), gte(curveTrades.createdAt, cutoff))),
+      .where(and(curveFilter(curveAddress), visibleFilter(), gte(curveTrades.createdAt, cutoff))),
   ]);
   return {
     tokens: Number(totals?.tokens ?? 0),
