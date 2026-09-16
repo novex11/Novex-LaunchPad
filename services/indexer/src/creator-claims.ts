@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { numeric, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { decodeEventLog, parseAbi, parseAbiItem, type Address, type Hash, type PublicClient } from "viem";
 import type { Db } from "./db.js";
 
@@ -16,6 +16,8 @@ export const creatorFeeClaims = pgTable(
     pairAddress: text("pair_address").notNull(),
     creatorWallet: text("creator_wallet").notNull(),
     shares: text("shares").notNull(),
+    /** USD value of the claimed shares at redeem time; null on rows recorded before it existed */
+    valueUsd: numeric("value_usd", { precision: 18, scale: 4 }),
     txHash: text("tx_hash").notNull(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
@@ -57,11 +59,15 @@ export async function recordCreatorClaim(
   ]);
 
   let burned = 0n;
+  let burnedValueUsd8 = 0n;
   for (const log of receipt.logs) {
     if (log.address.toLowerCase() !== pair) continue;
     try {
       const decoded = decodeEventLog({ abi: [RedeemedEvent], data: log.data, topics: log.topics });
-      if (decoded.args.user.toLowerCase() === creator.toLowerCase()) burned += decoded.args.sharesBurned;
+      if (decoded.args.user.toLowerCase() === creator.toLowerCase()) {
+        burned += decoded.args.sharesBurned;
+        burnedValueUsd8 += decoded.args.valueUsd8;
+      }
     } catch {
       // not a Redeemed event
     }
@@ -78,6 +84,7 @@ export async function recordCreatorClaim(
         pairAddress: pair,
         creatorWallet: creator.toLowerCase(),
         shares: recordedShares.toString(),
+        valueUsd: (Number((burnedValueUsd8 * recordedShares) / burned) / 1e8).toFixed(4),
         txHash: txHash.toLowerCase(),
       })
       .onConflictDoNothing();

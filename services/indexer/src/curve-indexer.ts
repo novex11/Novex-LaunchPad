@@ -15,9 +15,14 @@ const GraduatedEvent = parseAbiItem(
   "event Graduated(address indexed token, uint256 realQuote, uint256 marketCapShares)",
 );
 
+const CreatorFeesClaimedEvent = parseAbiItem(
+  "event CreatorFeesClaimed(address indexed token, address indexed creator, uint256 shares)",
+);
+
 type CreatedLog = Log<bigint, number, false, typeof TokenCreatedEvent>;
 type TradeLog = Log<bigint, number, false, typeof TradeEvent>;
 type GraduatedLog = Log<bigint, number, false, typeof GraduatedEvent>;
+type ClaimLog = Log<bigint, number, false, typeof CreatorFeesClaimedEvent>;
 
 const vaultAbi = parseAbi(["function sharePrice() view returns (uint256)"]);
 
@@ -84,6 +89,8 @@ export function startCurveIndexer(): (() => void) | null {
 
   const curveAddr: string = curve;
   const cursorId = `curve:${curve.toLowerCase()}`;
+  // Claims keep their own cursor so an existing deployment backfills them from the start block.
+  const claimsCursorId = `curve-claims:${curve.toLowerCase()}`;
   const pairOfToken = new Map<string, Address>();
   let stopped = false;
   let timer: NodeJS.Timeout | null = null;
@@ -156,6 +163,33 @@ export function startCurveIndexer(): (() => void) | null {
     );
   }
 
+  async function handleClaim(log: ClaimLog) {
+    const { token, creator, shares } = log.args;
+    if (!token || !creator || !shares || log.blockNumber == null || !log.transactionHash) return;
+    const pair = await pairFor(token);
+    if (!pair) return;
+    const [createdAt, price] = await Promise.all([
+      blockTime(client!, log.blockNumber),
+      sharePriceUsd(client!, pair, log.blockNumber),
+    ]);
+    await curveStore.recordCreatorClaim(db!, {
+      tokenAddress: token,
+      creator,
+      shares,
+      sharePriceUsd: price,
+      txHash: log.transactionHash,
+      logIndex: log.logIndex ?? 0,
+      createdAt,
+    });
+    console.log(`[curve-indexer] CreatorFeesClaimed ${token} ${(Number(shares) / 1e18).toFixed(4)} shares`);
+  }
+
+  async function processClaims(from: bigint, to: bigint) {
+    const logs = await client!.getLogs({ address: curve!, event: CreatorFeesClaimedEvent, fromBlock: from, toBlock: to });
+    for (const log of logs) await handleClaim(log as unknown as ClaimLog);
+    await launchpadStore.setCursor(db!, claimsCursorId, to);
+  }
+
   async function processRange(from: bigint, to: bigint) {
     const logs = await client!.getLogs({
       address: curve!,
@@ -188,18 +222,23 @@ export function startCurveIndexer(): (() => void) | null {
     const latest = await client!.getBlockNumber();
     const cursor = await launchpadStore.getCursor(db!, cursorId);
     const configuredStart = curveStartBlock();
-    let from =
-      cursor != null
-        ? cursor + 1n
-        : configuredStart > 0n
-          ? configuredStart
-          : latest > DEFAULT_LOOKBACK
-            ? latest - DEFAULT_LOOKBACK
-            : 0n;
+    const firstBlock = configuredStart > 0n ? configuredStart : latest > DEFAULT_LOOKBACK ? latest - DEFAULT_LOOKBACK : 0n;
+    let from = cursor != null ? cursor + 1n : firstBlock;
     while (!stopped && from <= latest) {
       const to = from + CHUNK - 1n < latest ? from + CHUNK - 1n : latest;
       await processRange(from, to);
       from = to + 1n;
+    }
+
+    // Claims run behind the token cursor so a claim's token row always exists first.
+    const tokensDone = await launchpadStore.getCursor(db!, cursorId);
+    if (tokensDone == null) return;
+    const claimsCursor = await launchpadStore.getCursor(db!, claimsCursorId);
+    let claimFrom = claimsCursor != null ? claimsCursor + 1n : firstBlock;
+    while (!stopped && claimFrom <= tokensDone) {
+      const to = claimFrom + CHUNK - 1n < tokensDone ? claimFrom + CHUNK - 1n : tokensDone;
+      await processClaims(claimFrom, to);
+      claimFrom = to + 1n;
     }
   }
 

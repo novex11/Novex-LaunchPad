@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, gte, inArray, lt, notInArray, sql } from "drizzle-orm";
 import { HIDDEN_LAUNCHPAD_PAIRS } from "@compose/config";
 import { boolean, index, numeric, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { creatorFeeClaims } from "./creator-claims.js";
 import type { Db } from "./db.js";
 
 export const TOKEN_SUPPLY = 1_000_000_000;
@@ -72,6 +73,22 @@ export const curveTrades = pgTable(
     uniqueIndex("curve_trades_tx_log_idx").on(t.txHash, t.logIndex),
     index("curve_trades_token_ts_idx").on(t.tokenAddress, t.createdAt),
   ],
+);
+
+/** ComposeCurve CreatorFeesClaimed events, valued at the pair share price of the claim block. */
+export const curveCreatorClaims = pgTable(
+  "curve_creator_claims",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    tokenAddress: text("token_address").notNull(),
+    creatorWallet: text("creator_wallet").notNull(),
+    shares: text("shares").notNull(),
+    valueUsd: numeric("value_usd", { precision: 18, scale: 4 }).notNull(),
+    txHash: text("tx_hash").notNull(),
+    logIndex: numeric("log_index").notNull().default("0"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex("curve_creator_claims_tx_log_idx").on(t.txHash, t.logIndex)],
 );
 
 export type CurveTokenRow = typeof curveTokens.$inferSelect;
@@ -372,12 +389,40 @@ export interface TokenStats {
   tokens: number;
   totalMarketCapUsd: number;
   volume24hUsd: number;
+  /** Creator rewards cashed out to date: curve fee claims plus pair fee-share claims (USD at claim time) */
+  claimedCreatorRewardsUsd: number;
+}
+
+export interface CurveClaimInput {
+  tokenAddress: string;
+  creator: string;
+  shares: bigint;
+  sharePriceUsd: number;
+  txHash: string;
+  logIndex: number;
+  createdAt: Date;
+}
+
+/** Stores a CreatorFeesClaimed event once. */
+export async function recordCreatorClaim(db: Db, i: CurveClaimInput) {
+  await db
+    .insert(curveCreatorClaims)
+    .values({
+      tokenAddress: i.tokenAddress.toLowerCase(),
+      creatorWallet: i.creator.toLowerCase(),
+      shares: i.shares.toString(),
+      valueUsd: ((Number(i.shares) / 1e18) * i.sharePriceUsd).toFixed(4),
+      txHash: i.txHash.toLowerCase(),
+      logIndex: String(i.logIndex),
+      createdAt: i.createdAt,
+    })
+    .onConflictDoNothing();
 }
 
 /** Launchpad header numbers for one curve. */
 export async function getTokenStats(db: Db, curveAddress: CurveScope): Promise<TokenStats> {
   const cutoff = new Date(Date.now() - DAY_MS);
-  const [[totals], [vol]] = await Promise.all([
+  const [[totals], [vol], [curveClaims], [pairClaims]] = await Promise.all([
     db
       .select({
         tokens: sql<string>`COUNT(*)`,
@@ -390,11 +435,28 @@ export async function getTokenStats(db: Db, curveAddress: CurveScope): Promise<T
       .from(curveTrades)
       .innerJoin(curveTokens, eq(curveTokens.tokenAddress, curveTrades.tokenAddress))
       .where(and(curveFilter(curveAddress), visibleFilter(), gte(curveTrades.createdAt, cutoff))),
+    db
+      .select({ usd: sql<string>`COALESCE(SUM(${curveCreatorClaims.valueUsd}), 0)` })
+      .from(curveCreatorClaims)
+      .innerJoin(curveTokens, eq(curveTokens.tokenAddress, curveCreatorClaims.tokenAddress))
+      .where(and(curveFilter(curveAddress), visibleFilter())),
+    // Rows recorded before value_usd existed count shares at the $1 launch price.
+    db
+      .select({
+        usd: sql<string>`COALESCE(SUM(COALESCE(${creatorFeeClaims.valueUsd}, ${creatorFeeClaims.shares}::numeric / 1e18)), 0)`,
+      })
+      .from(creatorFeeClaims)
+      .where(
+        HIDDEN_LAUNCHPAD_PAIRS.length > 0
+          ? notInArray(creatorFeeClaims.pairAddress, [...HIDDEN_LAUNCHPAD_PAIRS])
+          : undefined,
+      ),
   ]);
   return {
     tokens: Number(totals?.tokens ?? 0),
     totalMarketCapUsd: Number(totals?.totalMarketCapUsd ?? 0),
     volume24hUsd: Number(vol?.volume24hUsd ?? 0),
+    claimedCreatorRewardsUsd: Number(curveClaims?.usd ?? 0) + Number(pairClaims?.usd ?? 0),
   };
 }
 

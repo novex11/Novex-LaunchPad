@@ -6,6 +6,7 @@ import { motion } from "motion/react";
 import {
   ArrowRight,
   ChartLineUp,
+  Coins,
   GraduationCap,
   Rocket,
   Sparkle,
@@ -20,6 +21,7 @@ import { cn, formatUsd } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DualLogoStack } from "@/components/launchpad/dual-logo-stack";
+import { NumberTicker } from "@/components/ui/number-ticker";
 
 const spring = { type: "spring", stiffness: 100, damping: 20 } as const;
 
@@ -82,6 +84,7 @@ export default function LaunchpadPage() {
       marketCap: stats.data?.totalMarketCapUsd ?? all.reduce((sum, t) => sum + (t.marketCapUsd || 0), 0),
       volume24h: stats.data?.volume24hUsd ?? all.reduce((sum, t) => sum + (t.volume24hUsd ?? 0), 0),
       creators: new Set(all.map((t) => t.creatorWallet.toLowerCase())).size,
+      claimedRewards: stats.data?.claimedCreatorRewardsUsd ?? 0,
     }),
     [all, stats.data],
   );
@@ -122,11 +125,20 @@ export default function LaunchpadPage() {
       </div>
 
       {/* Stats strip */}
-      <div className="mt-8 grid grid-cols-2 gap-3 md:grid-cols-4">
-        <StatCard label="Tokens" value={totals.count} icon={Rocket} />
-        <StatCard label="Total market cap" value={compactUsd(totals.marketCap)} icon={TrendUp} />
-        <StatCard label="24h volume" value={compactUsd(totals.volume24h)} icon={ChartLineUp} />
-        <StatCard label="Creators" value={totals.creators} icon={Users} />
+      <div className="mt-8 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
+        <StatCard label="Tokens" value={totals.count} format={formatCount} icon={Rocket} index={0} />
+        <StatCard label="Total market cap" value={totals.marketCap} format={compactUsd} icon={TrendUp} index={1} />
+        <StatCard label="24h volume" value={totals.volume24h} format={compactUsd} icon={ChartLineUp} index={2} />
+        <StatCard label="Creators" value={totals.creators} format={formatCount} icon={Users} index={3} />
+        <StatCard
+          label="Claimed creator rewards"
+          value={totals.claimedRewards}
+          format={compactUsd}
+          icon={Coins}
+          index={4}
+          highlight
+          className="col-span-2 md:col-span-1"
+        />
       </div>
 
       {/* Filters */}
@@ -199,25 +211,46 @@ export default function LaunchpadPage() {
   );
 }
 
+function formatCount(v: number): string {
+  return Math.round(v).toLocaleString();
+}
+
 function StatCard({
   label,
   value,
+  format,
   icon: Icon,
+  index,
+  highlight = false,
+  className,
 }: {
   label: string;
-  value: string | number;
+  value: number;
+  format: (value: number) => string;
   icon: React.ComponentType<{ size?: number; weight?: "regular" | "fill" | "bold" }>;
+  index: number;
+  highlight?: boolean;
+  className?: string;
 }) {
   return (
-    <div className="rounded-2xl border border-border bg-surface p-4">
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ ...spring, delay: index * 0.06 }}
+      className={cn(
+        "rounded-2xl border bg-surface p-4 transition-colors",
+        highlight ? "border-accent bg-accent-subtle" : "border-border",
+        className,
+      )}
+    >
+      <div className={cn("flex items-center gap-2 text-xs", highlight ? "text-accent-strong" : "text-muted-foreground")}>
         <Icon size={14} weight="fill" />
         <span>{label}</span>
       </div>
-      <p className="mt-2 font-mono text-2xl font-semibold tabular-nums">
-        {typeof value === "number" ? value.toLocaleString() : value}
+      <p className="mt-2 font-mono text-2xl font-semibold">
+        <NumberTicker value={value} format={format} startOnView={false} duration={1.4} />
       </p>
-    </div>
+    </motion.div>
   );
 }
 
