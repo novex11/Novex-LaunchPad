@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { isForexPair } from "@/lib/markets";
+import { EthLogo, UsdgLogo } from "@/components/ui/asset-logo";
 
 type LogoSize = "xs" | "sm" | "md" | "lg" | "xl";
 
@@ -20,7 +21,20 @@ interface StockLogoProps {
   className?: string;
 }
 
+/** Stablecoins the stock logo CDN lacks; served locally (sourced from CoinGecko). */
+const LOCAL_LOGO = new Set(["USDC", "USDT", "DAI"]);
+
+/** Tickers whose CDN logo already failed this session, so we don't refetch. */
+const failedLogos = new Set<string>();
+
+function skipCdn(ticker: string) {
+  const t = ticker.toUpperCase();
+  return isForexPair(ticker) || failedLogos.has(t);
+}
+
 export function logoUrl(ticker: string) {
+  const t = ticker.toUpperCase();
+  if (LOCAL_LOGO.has(t)) return `/tokens/${t.toLowerCase()}.png`;
   return `https://assets.parqet.com/logos/symbol/${encodeURIComponent(
     ticker.toUpperCase(),
   )}?format=png`;
@@ -28,12 +42,20 @@ export function logoUrl(ticker: string) {
 
 /**
  * Brand logo by ticker from a free CDN, with a styled monogram fallback.
- * Forex pairs skip the CDN entirely (no logos exist) and render a
- * two-currency monogram.
+ * ETH/WETH and USDG use the Robinhood Chain-badged marks, other stablecoins
+ * use bundled logos; forex pairs and tickers that
+ * already 404'd skip the CDN entirely and render a monogram.
  */
 export function StockLogo({ ticker, size = "md", className }: StockLogoProps) {
+  const upper = ticker.toUpperCase();
+  if (upper === "ETH" || upper === "WETH") return <EthLogo size={size} className={className} />;
+  if (upper === "USDG") return <UsdgLogo size={size} className={className} />;
+  return <CdnStockLogo ticker={ticker} size={size} className={className} />;
+}
+
+function CdnStockLogo({ ticker, size = "md", className }: StockLogoProps) {
   const forex = isForexPair(ticker);
-  const [failed, setFailed] = useState(forex);
+  const [failed, setFailed] = useState(() => skipCdn(ticker));
   const base = SIZE[size];
 
   if (failed) {
@@ -62,7 +84,10 @@ export function StockLogo({ ticker, size = "md", className }: StockLogoProps) {
       alt={`${ticker} logo`}
       loading="lazy"
       decoding="async"
-      onError={() => setFailed(true)}
+      onError={() => {
+        failedLogos.add(ticker.toUpperCase());
+        setFailed(true);
+      }}
       className={cn(
         "shrink-0 border border-border bg-white object-contain p-[3px]",
         base,
