@@ -15,6 +15,7 @@ import { ensureSchema } from "./migrate.js";
 import { parseAbi } from "viem";
 import { pairMetadataMessage, corsOrigins, normalizeXProfile } from "@compose/config";
 import { startChainListener } from "./chain-listener.js";
+import { getBasketVolume, startBasketVolume } from "./basket-volume.js";
 import { VerifyError, verifyDeposit, verifyRedeem } from "./basket-verify.js";
 import { ensurePairIndexed, startLaunchpadIndexer } from "./launchpad-indexer.js";
 import {
@@ -247,6 +248,9 @@ app.get("/vaults", (c) =>
     })),
   }),
 );
+
+// Cumulative on-chain basket volume (deposits + redeems) across every basket vault.
+app.get("/baskets/volume", (c) => c.json(getBasketVolume()));
 
 app.get("/wallet/:wallet/stockback-total", async (c) => {
   const wallet = c.req.param("wallet");
@@ -1102,6 +1106,7 @@ let launchpadIndexerCleanup: (() => void) | null = null;
 let curveIndexerCleanup: (() => void) | null = null;
 let ponsIndexerCleanup: (() => void) | null = null;
 let vaultDiscoveryCleanup: (() => void) | null = null;
+let basketVolumeCleanup: (() => void) | null = null;
 let markToMarketTimer: NodeJS.Timeout | null = null;
 
 server = serve({ fetch: app.fetch, port, hostname: "0.0.0.0" }, async () => {
@@ -1116,6 +1121,7 @@ server = serve({ fetch: app.fetch, port, hostname: "0.0.0.0" }, async () => {
   await initVaultRegistry();
   vaultDiscoveryCleanup = startVaultDiscovery();
   chainListenerCleanup = startChainListener();
+  basketVolumeCleanup = startBasketVolume();
   launchpadIndexerCleanup = startLaunchpadIndexer();
   curveIndexerCleanup = startCurveIndexer();
   ponsIndexerCleanup = startPonsIndexer();
@@ -1139,6 +1145,9 @@ function gracefulShutdown(signal: string) {
   }
   if (vaultDiscoveryCleanup) {
     vaultDiscoveryCleanup();
+  }
+  if (basketVolumeCleanup) {
+    basketVolumeCleanup();
   }
   if (markToMarketTimer) {
     clearInterval(markToMarketTimer);

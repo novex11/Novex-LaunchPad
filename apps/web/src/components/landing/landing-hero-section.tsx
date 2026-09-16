@@ -11,7 +11,7 @@ import {
   ALLOCATION_STOCKBACK_RATES,
   DEFAULT_ALLOCATION_RATE,
 } from "@compose/config";
-import { ALL_MARKET_ASSETS } from "@/lib/markets";
+import { useBasketVolume } from "@/hooks/use-basket-volume";
 import { useBackendHealth } from "@/hooks/use-backend-health";
 import { useWallet } from "@/hooks/use-wallet";
 import { formatUsd } from "@/lib/utils";
@@ -32,6 +32,7 @@ const floors = strategies.map((s) => stockbackTier(s).minDepositUsd);
 
 export function LandingHeroSection() {
   const { health, allUp } = useBackendHealth();
+  const basketVolume = useBasketVolume();
   const wallet = useWallet();
 
   return (
@@ -61,7 +62,7 @@ export function LandingHeroSection() {
                 value: `${formatUsd(Math.min(...floors))}–${formatUsd(Math.max(...floors))}`,
               },
               { label: "Lifetime cap", value: formatUsd(CASHBACK_CONFIG.perWalletLifetimeCapUsd) },
-              { label: "Assets live", value: ALL_MARKET_ASSETS.length },
+              { label: "Basket volume", value: basketVolume.data?.ready ? formatUsd(basketVolume.data.volumeUsd) : "—" },
               { label: "Quote refresh", value: "15s" },
               {
                 label: "Allocator",
