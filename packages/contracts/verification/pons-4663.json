@@ -1,0 +1,23 @@
+{
+  "chainId": 4663,
+  "compilerVersion": "v0.8.24+commit.e11b9ed9",
+  "input": "pons-4663.input.json",
+  "note": "Verified on Sourcify 2026-09-16 (exact match, creation + runtime). Blockscout on 4663 is Cloudflare-blocked for servers; submit from a browser tab on robinhoodchain.blockscout.com, or use its Sourcify import.",
+  "verified": [
+    {
+      "name": "PonsLauncher",
+      "address": "0xd1B62082FA2bc914C90a9941D096275407CAb082",
+      "contract": "src/pons/PonsLauncher.sol:PonsLauncher",
+      "constructorArgs": "00000000000000000000000094e271f4b53b536e867c128792b62701d9ec4f5a0000000000000000000000007ed598bcef8bd9edd8c97a195c6d13f40801ec7e0000000000000000000000005fc5360d0400a0fd4f2af552add042d716f1d168",
+      "sourcify": "exact_match"
+    },
+    {
+      "name": "PonsRouter",
+      "address": "0x20f9Ef88Fd2d44c3E174b48b3e8C9DAe676621C1",
+      "contract": "src/pons/PonsRouter.sol:PonsRouter",
+      "constructorArgs": "000000000000000000000000d1b62082fa2bc914c90a9941d096275407cab0820000000000000000000000002562c91cad2d998a6ecac4cabe9033abebb06fa3",
+      "sourcify": "exact_match"
+    }
+  ],
+  "pending": []
+}
