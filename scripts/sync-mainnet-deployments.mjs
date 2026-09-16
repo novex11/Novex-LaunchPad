@@ -106,6 +106,9 @@ const config = {
     // Older launchpad records used the pre-rebrand key.
     composeCurve: addr(lp.composeCurve ?? lp.novexCurve),
     curveRouter: addr(lp.curveRouter),
+    ponsFactory: addr(lp.ponsFactory),
+    ponsLauncher: addr(lp.ponsLauncher),
+    ponsRouter: addr(lp.ponsRouter),
     allocationController: addr(baskets.allocationController),
     cashbackReserve: addr(baskets.cashbackReserve),
     executionRouter: addr(baskets.executionRouter),
