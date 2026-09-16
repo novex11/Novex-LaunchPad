@@ -18,6 +18,7 @@ import {
   getTokenByTicker,
   receiptTokenName,
   stockbackTier,
+  stockbackTopBand,
 } from "@compose/config";
 import { parseUnits } from "viem";
 import { fetchDepositCosts, recordDeposit, type DepositCosts } from "@/lib/api";
@@ -168,6 +169,7 @@ export default function CreateBasketContent() {
 
   const belowBasketMin = depositUsd > 0 && depositUsd < BASKET_CONFIG.minDepositUsd;
   const tier = stockbackTier(strategy);
+  const topBand = stockbackTopBand(strategy);
   const belowStockbackFloor = depositUsd > 0 && depositUsd < tier.minDepositUsd;
   const hasViolations = (data?.violations?.length ?? 0) > 0;
   const previewIsLive = preview.source === "allocator";
@@ -417,8 +419,8 @@ export default function CreateBasketContent() {
             title="Amount"
             hint={
               isTestnetMode()
-                ? `Testnet: baskets from ${formatUsd(BASKET_CONFIG.minDepositUsd)}. ${STRATEGIES[strategy].label} Stockback ${formatUsd(tier.rewardUsd)} from ${formatUsd(tier.minDepositUsd)}.`
-                : `Minimum ${formatUsd(BASKET_CONFIG.minDepositUsd)} to create. ${STRATEGIES[strategy].label} earns ${formatUsd(tier.rewardUsd)} Stockback from ${formatUsd(tier.minDepositUsd)}.`
+                ? `Testnet: baskets from ${formatUsd(BASKET_CONFIG.minDepositUsd)}. ${STRATEGIES[strategy].label} Stockback ${formatUsd(tier.rewardUsd)} from ${formatUsd(tier.minDepositUsd)}, up to ${formatUsd(topBand.rewardUsd)} from ${formatUsd(topBand.minDepositUsd)}.`
+                : `Minimum ${formatUsd(BASKET_CONFIG.minDepositUsd)} to create. ${STRATEGIES[strategy].label} earns ${formatUsd(tier.rewardUsd)} Stockback from ${formatUsd(tier.minDepositUsd)}, up to ${formatUsd(topBand.rewardUsd)} from ${formatUsd(topBand.minDepositUsd)} — paid instantly.`
             }
           >
             <label className="block">

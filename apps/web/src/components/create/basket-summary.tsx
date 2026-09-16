@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { ArrowRight, Wallet, WarningCircle, Sparkle, CaretDown } from "@phosphor-icons/react";
-import { STRATEGIES, receiptTokenName, stockbackTier, type StrategyId } from "@compose/config";
+import { STRATEGIES, nextStockbackBand, receiptTokenName, stockbackTier, type StrategyId } from "@compose/config";
 import type { PreviewResponse } from "@compose/sdk";
 import type { DepositCosts } from "@/lib/api";
 import { cn, formatUsd } from "@/lib/utils";
@@ -51,10 +51,12 @@ export function BasketSummary(p: BasketSummaryProps) {
   const [showCosts, setShowCosts] = useState(false);
   const receipt = receiptTokenName(p.depositTicker, p.strategy);
   const stockback = data?.stockback.depositStockbackUsd ?? 0;
-  const tier = stockbackTier(p.strategy);
-  const floor = tier.minDepositUsd;
-  const gap = Math.max(0, floor - p.depositUsd);
+  const floor = stockbackTier(p.strategy).minDepositUsd;
+  // Bigger deposits reach higher bands: show what the next band pays and how far it is.
+  const nextBand = nextStockbackBand(p.strategy, p.depositUsd);
+  const gap = nextBand ? Math.max(0, nextBand.minDepositUsd - p.depositUsd) : 0;
   const eligible = data?.stockback.eligible ?? p.depositUsd >= floor;
+  const capReached = data != null && !data.stockback.eligible && p.depositUsd >= floor;
   const violations = data?.violations ?? [];
   const busy = p.confirming || (p.stage !== "idle" && p.stage !== "done" && p.stage !== "error");
   const externalTotal =
@@ -198,23 +200,23 @@ export function BasketSummary(p: BasketSummaryProps) {
             </div>
           </dl>
         </div>
-        {!eligible && gap > 0 && (
+        {!capReached && nextBand && gap > 0 && (
           <div className="relative mt-3">
             <div className="flex items-center justify-between text-[11px]">
               <span className="text-muted-foreground">
-                Add <span className="font-mono font-semibold text-foreground">{formatUsd(gap)}</span> to unlock the{" "}
-                {formatUsd(tier.rewardUsd)} bonus
+                Add <span className="font-mono font-semibold text-foreground">{formatUsd(gap)}</span> to get{" "}
+                {formatUsd(nextBand.rewardUsd)} {eligible ? "Stockback instead" : "Stockback"}
               </span>
               <span className="font-mono tabular-nums text-muted-foreground">
-                {formatUsd(p.depositUsd)} / {formatUsd(floor)}
+                {formatUsd(p.depositUsd)} / {formatUsd(nextBand.minDepositUsd)}
               </span>
             </div>
             <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-surface">
-              <motion.div className="h-full rounded-full bg-accent" animate={{ width: `${Math.min(100, (p.depositUsd / floor) * 100)}%` }} transition={{ type: "spring", stiffness: 120, damping: 20 }} />
+              <motion.div className="h-full rounded-full bg-accent" animate={{ width: `${Math.min(100, (p.depositUsd / nextBand.minDepositUsd) * 100)}%` }} transition={{ type: "spring", stiffness: 120, damping: 20 }} />
             </div>
           </div>
         )}
-        {!eligible && gap === 0 && data && (
+        {capReached && (
           <p className="relative mt-2 text-[11px] text-muted-foreground">Lifetime Stockback cap reached for this wallet.</p>
         )}
       </div>

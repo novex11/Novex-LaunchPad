@@ -280,9 +280,9 @@ contract BasketProductionTest is Test {
         uint256 before = nvda.balanceOf(user);
         vm.prank(user);
         uint256 shares = vault.deposit(1 ether, 0);
-        // $2 stockback in NVDA at $500 = 0.004 NVDA forwarded to the user
-        assertEq(nvda.balanceOf(user), before - 1 ether + 0.004 ether, "stockback forwarded");
-        assertEq(cashback.walletStockbackUsd8(user), 2e8);
+        // $500 Balanced band: $7 in NVDA at $500 = 0.014 NVDA forwarded to the user
+        assertEq(nvda.balanceOf(user), before - 1 ether + 0.014 ether, "stockback forwarded");
+        assertEq(cashback.walletStockbackUsd8(user), 7e8);
         assertGt(shares, 0);
     }
 
@@ -292,24 +292,26 @@ contract BasketProductionTest is Test {
         cashback.fund(address(nvda), 10 ether);
         cashback.setAuthorizedVault(address(this), true);
 
-        // $2 reward but asking for 1 NVDA ($500) of inventory
+        // $500 Balanced band is $7 but asking for 1 NVDA ($500) of inventory
         vm.expectRevert(bytes("CashbackReserve: amount exceeds reward"));
         cashback.payDepositStockback(user, address(nvda), 1 ether, 500e8);
 
-        // Exactly $2 worth passes
+        // $2 worth, within the $7 reward, passes
         cashback.payDepositStockback(user, address(nvda), 0.004 ether, 500e8);
         assertEq(nvda.balanceOf(address(this)) >= 0.004 ether, true);
     }
 
     function test_CashbackOwnerControls() public {
-        cashback.setRewardTier(AllocationController.Strategy.Balanced, 50e8, 3e8);
-        assertEq(cashback.rewardUsd8For(AllocationController.Strategy.Balanced), 3e8);
+        CashbackReserve.RewardBand[] memory bands = new CashbackReserve.RewardBand[](1);
+        bands[0] = CashbackReserve.RewardBand(50e8, 3e8);
+        cashback.setRewardBands(AllocationController.Strategy.Balanced, bands);
+        assertEq(cashback.rewardUsd8For(AllocationController.Strategy.Balanced, 500e8), 3e8);
         cashback.setGlobalBudget(1e8);
         assertEq(cashback.canReward(AllocationController.Strategy.Balanced, user, 500e8), false, "budget below reward");
 
         vm.prank(user);
         vm.expectRevert();
-        cashback.setRewardTier(AllocationController.Strategy.Aggressive, 0, 100e8);
+        cashback.setRewardBands(AllocationController.Strategy.Aggressive, bands);
 
         vm.prank(user);
         vm.expectRevert();

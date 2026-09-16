@@ -12,6 +12,19 @@
   },
   {
     "type": "function",
+    "name": "MAX_BANDS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "authorizedVaults",
     "inputs": [
       {
@@ -149,19 +162,6 @@
   },
   {
     "type": "function",
-    "name": "maxRewardedDepositUsd8",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "oracle",
     "inputs": [],
     "outputs": [
@@ -255,6 +255,35 @@
   },
   {
     "type": "function",
+    "name": "quoteReward",
+    "inputs": [
+      {
+        "name": "strategy",
+        "type": "uint8",
+        "internalType": "enum AllocationController.Strategy"
+      },
+      {
+        "name": "wallet",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "depositUsd8",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "rewardUsd8",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "renounceOwnership",
     "inputs": [],
     "outputs": [],
@@ -262,24 +291,31 @@
   },
   {
     "type": "function",
-    "name": "rewardTiers",
+    "name": "rewardBands",
     "inputs": [
       {
-        "name": "",
+        "name": "strategy",
         "type": "uint8",
         "internalType": "enum AllocationController.Strategy"
       }
     ],
     "outputs": [
       {
-        "name": "minDepositUsd8",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "rewardUsd8",
-        "type": "uint256",
-        "internalType": "uint256"
+        "name": "",
+        "type": "tuple[]",
+        "internalType": "struct CashbackReserve.RewardBand[]",
+        "components": [
+          {
+            "name": "minDepositUsd8",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "rewardUsd8",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
       }
     ],
     "stateMutability": "view"
@@ -292,11 +328,16 @@
         "name": "strategy",
         "type": "uint8",
         "internalType": "enum AllocationController.Strategy"
+      },
+      {
+        "name": "depositUsd8",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "outputs": [
       {
-        "name": "",
+        "name": "rewardUsd8",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -380,7 +421,7 @@
   },
   {
     "type": "function",
-    "name": "setRewardTier",
+    "name": "setRewardBands",
     "inputs": [
       {
         "name": "strategy",
@@ -388,14 +429,21 @@
         "internalType": "enum AllocationController.Strategy"
       },
       {
-        "name": "minDepositUsd8",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "rewardUsd8",
-        "type": "uint256",
-        "internalType": "uint256"
+        "name": "bands",
+        "type": "tuple[]",
+        "internalType": "struct CashbackReserve.RewardBand[]",
+        "components": [
+          {
+            "name": "minDepositUsd8",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "rewardUsd8",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
       }
     ],
     "outputs": [],
@@ -535,7 +583,7 @@
   },
   {
     "type": "event",
-    "name": "RewardTierUpdated",
+    "name": "RewardBandsUpdated",
     "inputs": [
       {
         "name": "strategy",
@@ -544,16 +592,22 @@
         "internalType": "enum AllocationController.Strategy"
       },
       {
-        "name": "minDepositUsd8",
-        "type": "uint256",
+        "name": "bands",
+        "type": "tuple[]",
         "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "rewardUsd8",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
+        "internalType": "struct CashbackReserve.RewardBand[]",
+        "components": [
+          {
+            "name": "minDepositUsd8",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "rewardUsd8",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
       }
     ],
     "anonymous": false

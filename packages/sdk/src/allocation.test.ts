@@ -102,9 +102,9 @@ describe("cashback", () => {
       { ticker: "MSFT", usd: 125 },
       { ticker: "SNDK", usd: 75 },
     ]);
-    expect(preview.depositStockbackUsd).toBe(2);
+    expect(preview.depositStockbackUsd).toBe(7);
     expect(preview.totalAllocationStockbackUsd).toBeCloseTo(2.625, 2);
-    expect(preview.totalStockbackUsd).toBeCloseTo(4.625, 2);
+    expect(preview.totalStockbackUsd).toBeCloseTo(9.625, 2);
     expect(preview.eligible).toBe(true);
   });
 
@@ -113,12 +113,17 @@ describe("cashback", () => {
     expect(preview.eligible).toBe(false);
   });
 
-  it("pays the strategy's deposit tier", () => {
+  it("pays the band the deposit reaches", () => {
+    expect(computeDepositStockback(49.99, "defensive")).toBe(0);
     expect(computeDepositStockback(50, "defensive")).toBe(0.77);
+    expect(computeDepositStockback(200, "defensive")).toBe(1.5);
+    expect(computeDepositStockback(300, "defensive")).toBe(2.5);
+    expect(computeDepositStockback(1_000, "defensive")).toBe(10);
     expect(computeDepositStockback(50, "balanced")).toBe(2);
+    expect(computeDepositStockback(500, "balanced")).toBe(7);
     expect(computeDepositStockback(149.99, "aggressive")).toBe(0);
     expect(computeDepositStockback(150, "aggressive")).toBe(6);
-    expect(computeDepositStockback(49.99, "defensive")).toBe(0);
+    expect(computeDepositStockback(5_000, "aggressive")).toBe(20);
   });
 
   it("aggressive preview needs $150", () => {

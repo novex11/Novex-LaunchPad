@@ -29,7 +29,7 @@ contract TierCaller {
     }
 }
 
-contract StockbackTiersTest is Test {
+contract StockbackBandsTest is Test {
 
     OracleAdapter oracle;
     CashbackReserve cashback;
@@ -42,10 +42,14 @@ contract StockbackTiersTest is Test {
     AllocationController.Strategy constant BAL = AllocationController.Strategy.Balanced;
     AllocationController.Strategy constant AGG = AllocationController.Strategy.Aggressive;
 
+    // NVDA at $500: $1 = 0.002 NVDA
+    uint256 constant PER_USD = 0.002 ether;
+
     function setUp() public {
         nvda = new MockERC20("NVDA", "NVDA");
         oracle = new OracleAdapter(address(this));
         oracle.setPriceFeed(address(nvda), address(new MockOracle(500e8)));
+        oracle.setStalenessThreshold(30 days); // tests warp past the 24h guard
         cashback = new CashbackReserve(address(this));
         cashback.setOracle(address(oracle), 100);
         nvda.approve(address(cashback), 10 ether);
@@ -57,58 +61,98 @@ contract StockbackTiersTest is Test {
         cashback.setAuthorizedVault(address(c), true);
     }
 
-    function test_DefaultTiers() public view {
-        (uint256 dMin, uint256 dReward) = cashback.rewardTiers(DEF);
-        (uint256 bMin, uint256 bReward) = cashback.rewardTiers(BAL);
-        (uint256 aMin, uint256 aReward) = cashback.rewardTiers(AGG);
-        assertEq(dMin, 50e8);
-        assertEq(dReward, 0.77e8);
-        assertEq(bMin, 50e8);
-        assertEq(bReward, 2e8);
-        assertEq(aMin, 150e8);
-        assertEq(aReward, 6e8);
+    function test_DefaultBands() public view {
+        uint256[5] memory deposits = [uint256(50e8), 150e8, 250e8, 500e8, 1_000e8];
+        uint256[5] memory def = [uint256(0.77e8), 1.5e8, 2.5e8, 5e8, 10e8];
+        uint256[5] memory bal = [uint256(2e8), 3e8, 4e8, 7e8, 12e8];
+        uint256[5] memory agg = [uint256(0), 6e8, 8e8, 12e8, 20e8];
+        for (uint256 i; i < 5; ++i) {
+            assertEq(cashback.rewardUsd8For(DEF, deposits[i]), def[i], "defensive");
+            assertEq(cashback.rewardUsd8For(BAL, deposits[i]), bal[i], "balanced");
+            assertEq(cashback.rewardUsd8For(AGG, deposits[i]), agg[i], "aggressive");
+        }
+        assertEq(cashback.rewardBands(DEF).length, 5);
+        assertEq(cashback.rewardBands(AGG).length, 4);
     }
 
-    function test_DefensivePays77Cents() public {
+    function test_RewardGrowsWithDeposit() public view {
+        assertEq(cashback.rewardUsd8For(DEF, 49.99e8), 0, "below $50");
+        assertEq(cashback.rewardUsd8For(DEF, 200e8), 1.5e8, "$200 defensive");
+        assertEq(cashback.rewardUsd8For(DEF, 249.99e8), 1.5e8, "just under a band");
+        assertEq(cashback.rewardUsd8For(DEF, 50_000e8), 10e8, "top band");
+        assertEq(cashback.rewardUsd8For(AGG, 149.99e8), 0, "aggressive needs $150");
+        assertEq(cashback.rewardUsd8For(AGG, 150e8), 6e8);
+    }
+
+    function test_DefensiveBandsPayInstantly() public {
         TierCaller c = _caller(DEF);
-        // $0.77 of NVDA at $500 = 0.00154 NVDA
-        c.pay(alice, address(nvda), 0.00154 ether, 50e8);
+        // $0.77 at $50
+        c.pay(alice, address(nvda), (77 * PER_USD) / 100, 50e8);
         assertEq(cashback.walletStockbackUsd8(alice), 0.77e8);
-        assertEq(nvda.balanceOf(address(c)), 0.00154 ether);
+        // $1.50 at $200
+        c.pay(bob, address(nvda), (3 * PER_USD) / 2, 200e8);
+        assertEq(cashback.walletStockbackUsd8(bob), 1.5e8);
+        assertEq(nvda.balanceOf(address(c)), (77 * PER_USD) / 100 + (3 * PER_USD) / 2, "paid out to the vault");
     }
 
-    function test_DefensiveCannotTakeBalancedReward() public {
+    function test_CannotTakeHigherBand() public {
         TierCaller c = _caller(DEF);
+        // $200 earns $1.50; asking for $2.50 of NVDA fails the oracle check
         vm.expectRevert(bytes("CashbackReserve: amount exceeds reward"));
-        c.pay(alice, address(nvda), 0.004 ether, 500e8);
+        c.pay(alice, address(nvda), (5 * PER_USD) / 2, 200e8);
     }
 
-    function test_BalancedPaysTwoDollars() public {
-        TierCaller c = _caller(BAL);
-        c.pay(alice, address(nvda), 0.004 ether, 50e8);
-        assertEq(cashback.walletStockbackUsd8(alice), 2e8);
-    }
-
-    function test_AggressiveStrictlyNeeds150() public {
+    function test_AggressiveTopBand() public {
         TierCaller c = _caller(AGG);
-        assertFalse(cashback.canReward(AGG, alice, 149.99999999e8), "below $150");
         vm.expectRevert(bytes("CashbackReserve: ineligible"));
-        c.pay(alice, address(nvda), 0.012 ether, 149.99999999e8);
-
-        assertTrue(cashback.canReward(AGG, alice, 150e8));
-        c.pay(alice, address(nvda), 0.012 ether, 150e8);
-        assertEq(cashback.walletStockbackUsd8(alice), 6e8);
+        c.pay(alice, address(nvda), 12 * PER_USD, 149.99e8);
+        c.pay(alice, address(nvda), 20 * PER_USD, 1_000e8);
+        assertEq(cashback.walletStockbackUsd8(alice), 20e8);
     }
 
-    function test_DefensiveAndBalancedBelow50Ineligible() public view {
-        assertFalse(cashback.canReward(DEF, alice, 49.99e8));
-        assertFalse(cashback.canReward(BAL, alice, 49.99e8));
-        assertTrue(cashback.canReward(DEF, alice, 50e8));
+    function test_WalletCapClampsReward() public {
+        TierCaller c = _caller(AGG);
+        c.pay(alice, address(nvda), 20 * PER_USD, 1_000e8);
+        vm.warp(block.timestamp + 1 days);
+        c.pay(alice, address(nvda), 20 * PER_USD, 1_000e8);
+        vm.warp(block.timestamp + 1 days);
+        assertEq(cashback.quoteReward(AGG, alice, 1_000e8), 10e8, "clamped to the $50 cap");
+        vm.expectRevert(bytes("CashbackReserve: amount exceeds reward"));
+        c.pay(alice, address(nvda), 20 * PER_USD, 1_000e8);
+        c.pay(alice, address(nvda), 10 * PER_USD, 1_000e8);
+        assertEq(cashback.walletStockbackUsd8(alice), 50e8);
+        vm.warp(block.timestamp + 1 days);
+        assertEq(cashback.quoteReward(AGG, alice, 1_000e8), 0, "cap reached");
     }
 
-    function test_ZeroRewardTierDisabled() public {
-        cashback.setRewardTier(DEF, 50e8, 0);
-        assertFalse(cashback.canReward(DEF, alice, 1_000e8));
+    function test_DuplicateGuard() public {
+        TierCaller c = _caller(BAL);
+        c.pay(alice, address(nvda), 2 * PER_USD, 50e8);
+        assertEq(cashback.quoteReward(BAL, alice, 500e8), 0, "within 24h");
+        vm.warp(block.timestamp + 1 days);
+        assertEq(cashback.quoteReward(BAL, alice, 500e8), 7e8);
+    }
+
+    function test_SetRewardBands() public {
+        CashbackReserve.RewardBand[] memory bands = new CashbackReserve.RewardBand[](2);
+        bands[0] = CashbackReserve.RewardBand(100e8, 1e8);
+        bands[1] = CashbackReserve.RewardBand(400e8, 5e8);
+        cashback.setRewardBands(DEF, bands);
+        assertEq(cashback.rewardUsd8For(DEF, 99e8), 0);
+        assertEq(cashback.rewardUsd8For(DEF, 399e8), 1e8);
+        assertEq(cashback.rewardUsd8For(DEF, 1_000e8), 5e8);
+        assertEq(cashback.rewardBands(DEF).length, 2, "old bands replaced");
+
+        bands[1].minDepositUsd8 = 100e8;
+        vm.expectRevert(bytes("CashbackReserve: bands not ascending"));
+        cashback.setRewardBands(DEF, bands);
+
+        vm.prank(bob);
+        vm.expectRevert();
+        cashback.setRewardBands(DEF, bands);
+
+        cashback.setRewardBands(AGG, new CashbackReserve.RewardBand[](0));
+        assertEq(cashback.quoteReward(AGG, alice, 1_000e8), 0, "empty bands turn Stockback off");
     }
 
     function test_WithdrawRecoversInventory() public {
@@ -123,7 +167,7 @@ contract StockbackTiersTest is Test {
     }
 }
 
-/// @dev End-to-end: an Aggressive factory vault pays $6 only from $150.
+/// @dev End-to-end: an Aggressive factory vault pays its band instantly, nothing below $150.
 contract AggressiveVaultStockbackTest is Test {
     MockERC20 nvda;
     MockERC20 aapl;
@@ -203,6 +247,26 @@ contract AggressiveVaultStockbackTest is Test {
         vault.deposit(0.298 ether, 0); // $149
         assertEq(nvda.balanceOf(user), before - 0.298 ether, "no reward under $150");
         assertEq(cashback.walletStockbackUsd8(user), 0);
+    }
+
+    function test_Deposit1000EarnsTwentyDollarsInstantly() public {
+        uint256 before = nvda.balanceOf(user2);
+        vm.prank(user2);
+        vault.deposit(2 ether, 0); // $1,000
+        // $20 of NVDA at $500 = 0.04 NVDA
+        assertEq(nvda.balanceOf(user2), before - 2 ether + 0.04 ether, "top band forwarded");
+        assertEq(cashback.walletStockbackUsd8(user2), 20e8);
+    }
+
+    /// Whatever gas limit a wallet picks, a deposit either reverts or pays its reward.
+    function test_GasStarvedPayoutNeverSilentlySkipped() public {
+        for (uint256 gasLimit = 300_000; gasLimit <= 1_500_000; gasLimit += 1_000) {
+            uint256 snap = vm.snapshotState();
+            vm.prank(user2);
+            (bool ok,) = address(vault).call{gas: gasLimit}(abi.encodeCall(StrategyVault.deposit, (0.5 ether, 0)));
+            if (ok) assertEq(cashback.walletStockbackUsd8(user2), 8e8, "succeeded without its reward");
+            vm.revertToState(snap);
+        }
     }
 
     function test_Deposit150EarnsSixDollars() public {
