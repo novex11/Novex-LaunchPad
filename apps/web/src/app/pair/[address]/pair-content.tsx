@@ -447,6 +447,16 @@ export default function PairDetailContent({ address }: { address: string }) {
                 {meta.websiteUrl.replace(/^https?:\/\//, "")}
               </a>
             )}
+            {meta?.twitterUrl && (
+              <a
+                href={meta.twitterUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={cn("mt-2 inline-block text-sm text-accent-strong underline-offset-2 hover:underline", meta.websiteUrl && "ml-4")}
+              >
+                @{meta.twitterUrl.replace("https://x.com/", "")}
+              </a>
+            )}
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -662,6 +672,7 @@ export default function PairDetailContent({ address }: { address: string }) {
               decB={tokenBMeta?.decimals ?? 18}
               description={meta?.description}
               websiteUrl={meta?.websiteUrl}
+              twitterUrl={meta?.twitterUrl}
             />
             {isCreator && (
               <CreatorRewards

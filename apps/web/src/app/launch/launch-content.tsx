@@ -36,6 +36,7 @@ import {
   isValidHttpUrl,
   launchpadEligibleTokens,
   pairMetadataMessage,
+  normalizeXProfile,
   sanitizeDisplayName,
   sanitizeReceiptSymbol,
   testnetContractsReady,
@@ -280,6 +281,8 @@ export default function LaunchContent() {
   const [bannerUrl, setBannerUrl] = useState("");
   const [logoUrl, setLogoUrl] = useState("");
   const [websiteUrl, setWebsiteUrl] = useState("");
+  const [xHandle, setXHandle] = useState("");
+  const twitterUrl = normalizeXProfile(xHandle);
   const [numeraireTicker, setNumeraireTicker] = useState<string>("");
   const [lastStage, setLastStage] = useState<TxStage | null>(null);
   const [savingProfile, setSavingProfile] = useState(false);
@@ -414,6 +417,7 @@ export default function LaunchContent() {
     isValidHttpUrl(bannerUrl, true) &&
     isValidHttpUrl(logoUrl, true) &&
     isValidHttpUrl(websiteUrl) &&
+    twitterUrl !== undefined &&
     (numeraireTicker === tickerA || numeraireTicker === tickerB);
 
   const metadataError =
@@ -433,7 +437,9 @@ export default function LaunchContent() {
                   ? "Logo must be uploaded or a valid http(s) URL"
                   : !isValidHttpUrl(websiteUrl)
                     ? "Website URL must start with http:// or https://"
-                    : numeraireTicker !== tickerA && numeraireTicker !== tickerB
+                    : twitterUrl === undefined
+                      ? "X handle: letters, numbers and _ only, up to 15 characters"
+                      : numeraireTicker !== tickerA && numeraireTicker !== tickerB
                       ? "Pick a quote leg (numeraire)"
                       : null;
 
@@ -493,6 +499,7 @@ export default function LaunchContent() {
       imageUrl: bannerUrl.trim(),
       logoUrl: logoUrl.trim(),
       websiteUrl: websiteUrl.trim(),
+      twitterUrl: twitterUrl ?? "",
       numeraireTicker,
     };
     let signature: `0x${string}`;
@@ -993,7 +1000,7 @@ export default function LaunchContent() {
                 <Field
                   label="Website / link"
                   optional
-                  helper="Docs, X profile, or a landing page for your pair"
+                  helper="Docs or a landing page · also shown on Pons if you launch the token there"
                 >
                   <input
                     type="url"
@@ -1001,6 +1008,27 @@ export default function LaunchContent() {
                     maxLength={LAUNCH_METADATA_LIMITS.websiteUrlMax}
                     onChange={(e) => setWebsiteUrl(e.target.value)}
                     placeholder="https://…"
+                    className={inputClass}
+                  />
+                </Field>
+
+                <Field
+                  label="X account"
+                  optional
+                  helper={
+                    twitterUrl
+                      ? `Links to ${twitterUrl.replace("https://", "")} · also shown on Pons`
+                      : "Handle or x.com link · also shown on Pons if you launch the token there"
+                  }
+                >
+                  <input
+                    value={xHandle}
+                    maxLength={LAUNCH_METADATA_LIMITS.twitterUrlMax}
+                    onChange={(e) => setXHandle(e.target.value)}
+                    placeholder="@handle"
+                    spellCheck={false}
+                    autoCapitalize="none"
+                    aria-invalid={twitterUrl === undefined}
                     className={inputClass}
                   />
                 </Field>

@@ -39,6 +39,7 @@ export interface PairMetadata {
   imageUrl?: string;
   logoUrl?: string;
   websiteUrl?: string;
+  twitterUrl?: string;
   numeraireTicker?: string;
 }
 
@@ -116,6 +117,7 @@ export async function updatePairMetadata(db: Db, pairAddress: string, meta: Pair
   if (meta.imageUrl !== undefined) patch.imageUrl = meta.imageUrl;
   if (meta.logoUrl !== undefined) patch.logoUrl = meta.logoUrl;
   if (meta.websiteUrl !== undefined) patch.websiteUrl = meta.websiteUrl;
+  if (meta.twitterUrl !== undefined) patch.twitterUrl = meta.twitterUrl;
   if (meta.numeraireTicker !== undefined) patch.numeraireTicker = meta.numeraireTicker;
 
   const [row] = await db

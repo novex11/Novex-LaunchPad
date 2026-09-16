@@ -112,6 +112,7 @@ export const LAUNCH_METADATA_LIMITS = {
   descriptionMax: 500,
   imageUrlMax: 512,
   websiteUrlMax: 512,
+  twitterUrlMax: 64,
 } as const;
 
 /**
@@ -149,6 +150,22 @@ export function isValidHttpUrl(raw: string, required = false): boolean {
   }
 }
 
+/**
+ * X profile in the form Pons stores it: "https://x.com/handle". Accepts
+ * "handle", "@handle" or an x.com / twitter.com link. Returns "" for empty
+ * input and undefined when it is not a valid X handle.
+ */
+export function normalizeXProfile(raw: string): string | undefined {
+  const text = raw.trim();
+  if (!text) return "";
+  const handle = text
+    .replace(/^https?:\/\//i, "")
+    .replace(/^(www\.)?(x|twitter)\.com\//i, "")
+    .replace(/^@/, "")
+    .split(/[/?#]/)[0];
+  return /^[A-Za-z0-9_]{1,15}$/.test(handle) ? `https://x.com/${handle}` : undefined;
+}
+
 /** Message a creator signs to prove ownership when saving pair metadata. */
 export function pairMetadataMessage(input: {
   pairAddress: string;
@@ -157,6 +174,7 @@ export function pairMetadataMessage(input: {
   imageUrl?: string;
   logoUrl?: string;
   websiteUrl?: string;
+  twitterUrl?: string;
   numeraireTicker?: string;
   issuedAt: string;
 }): string {
@@ -168,6 +186,8 @@ export function pairMetadataMessage(input: {
     `Banner: ${input.imageUrl ?? ""}`,
     `Logo: ${input.logoUrl ?? ""}`,
     `Website: ${input.websiteUrl ?? ""}`,
+    // Only when set, so profiles signed before the X field keep verifying.
+    ...(input.twitterUrl ? [`X: ${input.twitterUrl}`] : []),
     `Quote leg: ${input.numeraireTicker ?? ""}`,
     `Issued: ${input.issuedAt}`,
   ].join("\n");

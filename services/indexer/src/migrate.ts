@@ -197,6 +197,7 @@ export async function ensureSchema(): Promise<void> {
       await sql`ALTER TABLE launched_pairs ADD COLUMN IF NOT EXISTS image_url text NOT NULL DEFAULT ''`;
       await sql`ALTER TABLE launched_pairs ADD COLUMN IF NOT EXISTS logo_url text NOT NULL DEFAULT ''`;
       await sql`ALTER TABLE launched_pairs ADD COLUMN IF NOT EXISTS website_url text NOT NULL DEFAULT ''`;
+      await sql`ALTER TABLE launched_pairs ADD COLUMN IF NOT EXISTS twitter_url text NOT NULL DEFAULT ''`;
       await sql`ALTER TABLE launched_pairs ADD COLUMN IF NOT EXISTS numeraire_ticker text NOT NULL DEFAULT ''`;
       await sql`ALTER TABLE launched_pairs ADD COLUMN IF NOT EXISTS volume_24h_usd numeric(18, 4) NOT NULL DEFAULT '0'`;
       await sql`ALTER TABLE launched_pairs ADD COLUMN IF NOT EXISTS pool_address text NOT NULL DEFAULT ''`;

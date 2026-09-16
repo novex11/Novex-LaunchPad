@@ -232,6 +232,7 @@ export interface LaunchpadPair {
   imageUrl?: string;
   logoUrl?: string;
   websiteUrl?: string;
+  twitterUrl?: string;
   numeraireTicker?: string;
   status: string;
   createdAt: string;
@@ -558,6 +559,7 @@ export interface LaunchpadMetadataBody {
   imageUrl?: string;
   logoUrl?: string;
   websiteUrl?: string;
+  twitterUrl?: string;
   numeraireTicker?: string;
   /** ISO timestamp included in the signed message */
   issuedAt: string;

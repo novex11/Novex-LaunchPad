@@ -251,6 +251,8 @@ export const launchedPairs = pgTable(
     logoUrl: text("logo_url").notNull().default(""),
     /** Optional project / social link */
     websiteUrl: text("website_url").notNull().default(""),
+    /** Creator X profile (https://x.com/handle), forwarded to Pons at token launch */
+    twitterUrl: text("twitter_url").notNull().default(""),
     /** Which token is the quote/numeraire leg (Long.xyz concept) */
     numeraireTicker: text("numeraire_ticker").notNull().default(""),
     /** Uniswap v3 pool seeded at launch (share token vs USDG); empty if none */

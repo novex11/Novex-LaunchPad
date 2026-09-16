@@ -13,7 +13,7 @@ import * as launchpadStore from "./launchpad-store.js";
 import { createDb, type Db } from "./db.js";
 import { ensureSchema } from "./migrate.js";
 import { parseAbi } from "viem";
-import { pairMetadataMessage, corsOrigins } from "@compose/config";
+import { pairMetadataMessage, corsOrigins, normalizeXProfile } from "@compose/config";
 import { startChainListener } from "./chain-listener.js";
 import { VerifyError, verifyDeposit, verifyRedeem } from "./basket-verify.js";
 import { ensurePairIndexed, startLaunchpadIndexer } from "./launchpad-indexer.js";
@@ -123,6 +123,11 @@ const LaunchpadMetadataSchema = z.object({
   imageUrl: z.string().max(512).optional(),
   logoUrl: z.string().max(512).optional(),
   websiteUrl: z.string().max(512).optional(),
+  twitterUrl: z
+    .string()
+    .max(64)
+    .refine((v) => normalizeXProfile(v) === v.trim(), "X profile must be https://x.com/handle")
+    .optional(),
   numeraireTicker: z.string().max(12).optional(),
   issuedAt: z.string().min(1),
   signature: z.string().regex(/^0x[0-9a-fA-F]+$/),
@@ -629,6 +634,7 @@ async function saveMetadata(raw: unknown) {
     imageUrl: trim(parsed.data.imageUrl),
     logoUrl: trim(parsed.data.logoUrl),
     websiteUrl: trim(parsed.data.websiteUrl),
+    twitterUrl: trim(parsed.data.twitterUrl),
     numeraireTicker: trim(parsed.data.numeraireTicker),
   });
   return { status: 200 as const, body: { ok: true, pair: row } };
@@ -677,6 +683,7 @@ app.get("/launchpad/pairs", async (c) => {
       imageUrl: r.imageUrl ?? "",
       logoUrl: r.logoUrl ?? "",
       websiteUrl: r.websiteUrl ?? "",
+      twitterUrl: r.twitterUrl ?? "",
       numeraireTicker: r.numeraireTicker ?? "",
       status: r.status,
       createdAt: r.createdAt.toISOString(),
@@ -713,6 +720,7 @@ app.get("/launchpad/pair/:address", async (c) => {
       imageUrl: pair.imageUrl ?? "",
       logoUrl: pair.logoUrl ?? "",
       websiteUrl: pair.websiteUrl ?? "",
+      twitterUrl: pair.twitterUrl ?? "",
       numeraireTicker: pair.numeraireTicker ?? "",
       status: pair.status,
       createdAt: pair.createdAt.toISOString(),
