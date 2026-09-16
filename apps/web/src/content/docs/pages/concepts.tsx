@@ -23,7 +23,7 @@ export const baskets: DocPage = {
             <li><strong>Preview</strong>: the allocator returns the exact lines, weights and Stockback. The button stays disabled until the allocator has answered and the allocation passes every rule.</li>
             <li><strong>Approve and deposit</strong>: one approval, then <C>StrategyVault.deposit</C> with the basket tokens and their weights in basis points.</li>
             <li><strong>On chain</strong>: the vault checks pauses and pending stock splits, asks the AllocationController to validate the weights, prices the deposit through the oracle, swaps each leg through the ExecutionRouter and mints receipt shares.</li>
-            <li><strong>Stockback</strong> is paid from the CashbackReserve in the same transaction when the deposit qualifies.</li>
+            <li><strong>Stockback</strong> is granted by the CashbackReserve in the same transaction when the deposit qualifies. It vests for 7 days, then you claim it; redeeming the shares first forfeits it.</li>
           </ol>
         </>
       ),
@@ -140,22 +140,22 @@ export const stockback: DocPage = {
   slug: "stockback",
   href: "/docs/stockback",
   title: "Stockback rewards",
-  description: "A published, deterministic reward on qualifying basket deposits, paid in tokens from an on-chain reserve.",
+  description: "A published, deterministic reward on qualifying basket deposits, vested for 7 days and claimed in tokens from an on-chain reserve.",
   sections: [
     {
       id: "rules",
       title: "Published rules",
-      keywords: ["deposit bonus", "floor", "lifetime cap", "rates"],
+      keywords: ["deposit reward", "floor", "lifetime cap", "vesting", "rates"],
       body: (
         <Table
           head={["Parameter", "Value"]}
           rows={[
-            ["Minimum qualifying deposit", "$50 Defensive and Balanced · $150 Aggressive"],
-            ["Maximum rewarded deposit", "$10,000"],
-            ["Deposit bonus (flat, by strategy)", "$0.77 Defensive · $2.00 Balanced · $6.00 Aggressive"],
+            ["Minimum qualifying deposit", "$50 (every strategy)"],
+            ["Deposit Stockback", "1% of the deposit, same for every strategy ($300 → $3, $500 → $5)"],
+            ["Cap per deposit", "$10, reached at a $1,000 deposit"],
             ["Per-stock allocation reward", "0.3% – 1.0% of the amount bought, by ticker (default 0.5%)"],
-            ["Per-wallet lifetime cap", "$50"],
-            ["Duplicate guard", "24 hours"],
+            ["Per-wallet lifetime cap", "$25"],
+            ["Vesting", "7 days, then claim; forfeited if the deposit's shares are redeemed first"],
           ]}
         />
       ),
@@ -167,13 +167,14 @@ export const stockback: DocPage = {
       body: (
         <>
           <p>
-            The vault calls <C>CashbackReserve.payDepositStockback</C> after minting shares. The reserve checks the floor, the
-            budget, the wallet cap and the duplicate guard, then transfers reward tokens which the vault forwards to you.
+            The vault calls <C>CashbackReserve.grantStockback</C> after minting shares. The reserve checks the floor, the
+            per-deposit cap, the wallet cap and the budget, then records a grant in the deposited stock token. After 7 days
+            you call <C>claim</C> to receive it. Redeeming the deposit's shares before then forfeits the unvested reward.
             The call is wrapped so a reward failure never blocks a deposit.
           </p>
           <Callout type="note">
-            The Create page shows exactly how much more you need to deposit to unlock the bonus, and the preview's Stockback
-            figure is the amount that will post on confirm.
+            The Create page shows exactly how much more you need to deposit to qualify, and the preview's Stockback
+            figure is the amount that vests on confirm.
           </Callout>
         </>
       ),

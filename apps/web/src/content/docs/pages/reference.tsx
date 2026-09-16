@@ -21,7 +21,7 @@ export const contracts: DocPage = {
             ["ReceiptToken", "Non-transferable share token; mint/burn only by its vault", "vault"],
             ["AllocationController", "Approved assets, weights sum to 10,000 bps, per-strategy max single stock", "owner sets, anyone reads"],
             ["ExecutionRouter", "Routes basket swaps through the configured swap router; pausable", "authorised vaults"],
-            ["CashbackReserve", "Pays Stockback within floor, budget, wallet cap and duplicate guard", "authorised vaults"],
+            ["CashbackReserve", "Grants 7-day vesting Stockback within floor, per-deposit cap, wallet cap and budget; claim after vesting", "authorised vaults"],
             ["EmergencyRegistry", "Independent pause switches for deposits, swaps, rebalances, cashback", "owner"],
           ]}
         />
@@ -296,7 +296,7 @@ export const config: DocPage = {
               ["chain.ts", "Chain definitions, USDG, WETH and Uniswap addresses"],
               ["tokens.ts", "Mainnet stock token registry and the testnet faucet list, categories, trading hours"],
               ["strategies.ts", "Category bands, single-stock caps, retention per strategy"],
-              ["cashback.ts", "Stockback floor, bonus, per-ticker rates, lifetime cap"],
+              ["cashback.ts", "Stockback floor, rate, per-deposit cap, lifetime cap, vesting, per-ticker rates"],
               ["basket.ts", "Minimum basket deposit per network and amount presets"],
               ["launchpad.ts", "Weight and fee ranges, seed presets, pool defaults"],
               ["testnet.ts", "Loader for testnet-deployments.json"],

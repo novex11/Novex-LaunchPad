@@ -8,7 +8,7 @@ const FAQ = [
   },
   {
     q: "When does a deposit pay Stockback?",
-    a: "When the deposit meets the published floor and you are under the lifetime cap. The allocator computes the exact figure before you confirm.",
+    a: "When the deposit meets the published floor and you are under the lifetime cap. The allocator computes the exact figure before you confirm. The reward vests for 7 days, then you claim it; redeem the deposit first and it is forfeited.",
   },
   {
     q: "Can I buy a single stock without a basket?",

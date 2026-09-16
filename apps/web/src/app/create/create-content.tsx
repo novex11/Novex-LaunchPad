@@ -17,7 +17,7 @@ import {
   type StrategyId,
   getTokenByTicker,
   receiptTokenName,
-  stockbackTier,
+  CASHBACK_CONFIG,
 } from "@compose/config";
 import { parseUnits } from "viem";
 import { fetchDepositCosts, recordDeposit, type DepositCosts } from "@/lib/api";
@@ -122,8 +122,10 @@ export default function CreateBasketContent() {
   const [success, setSuccess] = useState<{
     txHash?: string;
     ledgerPending?: boolean;
-    /** Stockback actually paid on-chain (USD), from the reserve's event. */
+    /** Stockback granted on-chain (USD), from the reserve's event; vests before it can be claimed. */
     stockbackUsd: number;
+    /** Unix seconds when that Stockback becomes claimable. */
+    stockbackUnlockAt?: number;
     /** USD value the vault credited after swaps, from the Deposited event. */
     creditedUsd?: number;
   } | null>(null);
@@ -163,12 +165,13 @@ export default function CreateBasketContent() {
   const externalTotal =
     costs?.estimatedTotalExternalUsd ??
     (data ? data.externalCosts.estimatedGasUsd + data.externalCosts.estimatedMarketCostUsd : 0);
-  // Only the flat deposit bonus is paid on-chain (CashbackReserve), so previews count nothing else.
+  // Only the deposit Stockback is granted on-chain (CashbackReserve), so previews count nothing else.
+  // It vests before it can be claimed, but it is part of what the deposit earns.
   const openingNet = data ? depositUsd + data.stockback.depositStockbackUsd - externalTotal : 0;
 
   const belowBasketMin = depositUsd > 0 && depositUsd < BASKET_CONFIG.minDepositUsd;
-  const tier = stockbackTier(strategy);
-  const belowStockbackFloor = depositUsd > 0 && depositUsd < tier.minDepositUsd;
+  const stockbackFloor = CASHBACK_CONFIG.minEligibleDepositUsd;
+  const belowStockbackFloor = depositUsd > 0 && depositUsd < stockbackFloor;
   const hasViolations = (data?.violations?.length ?? 0) > 0;
   const previewIsLive = preview.source === "allocator";
   const pricingReady = Boolean(
@@ -253,7 +256,14 @@ export default function CreateBasketContent() {
       qc.invalidateQueries({ queryKey: ["activity"] });
       qc.invalidateQueries({ queryKey: ["receipt-positions"] });
       setStage("done");
-      setSuccess({ txHash: hash, ledgerPending, stockbackUsd: outcome.stockbackUsd, creditedUsd });
+      setSuccess({
+        txHash: hash,
+        ledgerPending,
+        stockbackUsd: outcome.stockbackUsd,
+        stockbackUnlockAt: outcome.stockbackUnlockAt,
+        creditedUsd,
+      });
+      qc.invalidateQueries({ queryKey: ["stockback"] });
     } catch (e) {
       setFailedAt(current);
       setStage("error");
@@ -296,10 +306,14 @@ export default function CreateBasketContent() {
                 <>
                   Stockback of{" "}
                   <span className="font-mono font-semibold text-accent-strong">{formatUsd(success.stockbackUsd)}</span>{" "}
-                  was paid on-chain to your wallet in {depositTicker}.
+                  in {depositTicker} is reserved for you on-chain. Claim it from your portfolio
+                  {success.stockbackUnlockAt
+                    ? ` from ${new Date(success.stockbackUnlockAt * 1000).toLocaleDateString()}`
+                    : ` after ${CASHBACK_CONFIG.vestingDays} days`}
+                  ; redeeming this basket before then forfeits it.
                 </>
               ) : (
-                <>No Stockback was paid on-chain for this deposit.</>
+                <>No Stockback was granted for this deposit.</>
               )}
               {success.ledgerPending && <> The activity ledger will catch up from the chain shortly.</>}
             </p>
@@ -417,8 +431,8 @@ export default function CreateBasketContent() {
             title="Amount"
             hint={
               isTestnetMode()
-                ? `Testnet: baskets from ${formatUsd(BASKET_CONFIG.minDepositUsd)}. ${STRATEGIES[strategy].label} Stockback ${formatUsd(tier.rewardUsd)} from ${formatUsd(tier.minDepositUsd)}.`
-                : `Minimum ${formatUsd(BASKET_CONFIG.minDepositUsd)} to create. ${STRATEGIES[strategy].label} earns ${formatUsd(tier.rewardUsd)} Stockback from ${formatUsd(tier.minDepositUsd)}.`
+                ? `Testnet: baskets from ${formatUsd(BASKET_CONFIG.minDepositUsd)}. Stockback ${CASHBACK_CONFIG.rewardRate * 100}% from ${formatUsd(stockbackFloor)}, up to ${formatUsd(CASHBACK_CONFIG.maxRewardPerDepositUsd)}.`
+                : `Minimum ${formatUsd(BASKET_CONFIG.minDepositUsd)} to create. Earn ${CASHBACK_CONFIG.rewardRate * 100}% Stockback from ${formatUsd(stockbackFloor)} (up to ${formatUsd(CASHBACK_CONFIG.maxRewardPerDepositUsd)}), claimable after ${CASHBACK_CONFIG.vestingDays} days.`
             }
           >
             <label className="block">
@@ -469,8 +483,8 @@ export default function CreateBasketContent() {
             {!belowBasketMin && belowStockbackFloor && (
               <p className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Info size={14} />
-                Below {formatUsd(tier.minDepositUsd)} — the basket still creates, but {STRATEGIES[strategy].label}{" "}
-                Stockback needs {formatUsd(tier.minDepositUsd)}+.
+                Below {formatUsd(stockbackFloor)} — the basket still creates, but Stockback needs{" "}
+                {formatUsd(stockbackFloor)}+.
               </p>
             )}
           </Section>

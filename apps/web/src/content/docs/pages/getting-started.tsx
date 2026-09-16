@@ -27,7 +27,7 @@ export const introduction: DocPage = {
           <Cards>
             <Card href="/docs/baskets" title="Managed baskets" description="Deposit NVDA, receive a basket of stocks built to a strategy, plus Stockback rewards. Redeem any time." icon={<Stack size={16} weight="bold" />} />
             <Card href="/docs/launchpad" title="Pair launchpad" description="Pair any two listed stocks into a vault with a transferable share token, listed on Uniswap v4 from block one." icon={<Rocket size={16} weight="bold" />} />
-            <Card href="/docs/stockback" title="Stockback" description="A published deposit bonus and per-stock rewards, credited in tokens the moment a qualifying deposit confirms." icon={<Gift size={16} weight="bold" />} />
+            <Card href="/docs/stockback" title="Stockback" description="1% of every qualifying deposit plus per-stock rewards, vesting for 7 days and then claimable in tokens." icon={<Gift size={16} weight="bold" />} />
             <Card href="/docs/dex-pools" title="DEX visibility" description="Why pair shares live in real Uniswap v4 pools, and what that means for Axiom and DexScreener." icon={<ChartLineUp size={16} weight="bold" />} />
           </Cards>
         </>

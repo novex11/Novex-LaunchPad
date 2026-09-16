@@ -5,9 +5,8 @@ import {
   CASHBACK_CONFIG,
   ALLOCATION_STOCKBACK_RATES,
   DEFAULT_ALLOCATION_RATE,
-  STOCKBACK_TIERS,
-  STRATEGIES,
-  type StrategyId,
+  MAX_REWARDED_DEPOSIT_USD,
+  depositStockbackUsd,
 } from "@compose/config";
 import { cn, formatUsd } from "@/lib/utils";
 import { SectionFrame } from "./section-frame";
@@ -23,9 +22,9 @@ const view = { once: true, margin: "-15% 0px" };
 const rates = Object.entries(ALLOCATION_STOCKBACK_RATES).sort((a, b) => b[1] - a[1]);
 const minRate = Math.min(...rates.map(([, r]) => r), DEFAULT_ALLOCATION_RATE);
 const maxRate = Math.max(...rates.map(([, r]) => r), DEFAULT_ALLOCATION_RATE);
-const TIER_ORDER: StrategyId[] = ["defensive", "balanced", "aggressive"];
-const tierRewards = TIER_ORDER.map((s) => STOCKBACK_TIERS[s].rewardUsd);
-const tierFloors = TIER_ORDER.map((s) => STOCKBACK_TIERS[s].minDepositUsd);
+const ratePct = `${+(CASHBACK_CONFIG.rewardRate * 100).toFixed(2)}%`;
+const EXAMPLE_DEPOSITS = [CASHBACK_CONFIG.minEligibleDepositUsd, 500, MAX_REWARDED_DEPOSIT_USD];
+const TICK_DEPOSIT_USD = 500;
 
 /* ------------------------------------------------------------------ */
 /* Mini visualisations — one per published rule                        */
@@ -33,7 +32,7 @@ const tierFloors = TIER_ORDER.map((s) => STOCKBACK_TIERS[s].minDepositUsd);
 
 /** Deposit axis 0 → max with a marker at the floor. */
 function FloorGauge() {
-  const pct = (CASHBACK_CONFIG.minEligibleDepositUsd / CASHBACK_CONFIG.maxRewardedDepositUsd) * 100;
+  const pct = (CASHBACK_CONFIG.minEligibleDepositUsd / MAX_REWARDED_DEPOSIT_USD) * 100;
   return (
     <div className="mt-5">
       <div className="relative h-1.5 w-full bg-surface-muted">
@@ -70,15 +69,16 @@ function FloorGauge() {
   );
 }
 
-/** One credit stamp per strategy tier, posting in order when scrolled into view. */
+/** One credit stamp per example deposit, posting in order when scrolled into view. */
 function BonusStamp() {
   const reduced = useReducedMotion();
   return (
     <div className="mt-5 space-y-1.5">
-      {TIER_ORDER.map((s, i) => (
-        <div key={s} className="relative flex h-8 items-center border border-border bg-background px-3 font-mono text-xs">
+      {EXAMPLE_DEPOSITS.map((d, i) => (
+        <div key={d} className="relative flex h-8 items-center border border-border bg-background px-3 font-mono text-xs">
           <span className="text-muted-foreground">
-            {STRATEGIES[s].label} · ≥ {formatUsd(STOCKBACK_TIERS[s].minDepositUsd)}
+            {usd0(d)}
+            {d >= MAX_REWARDED_DEPOSIT_USD ? "+" : ""} deposit
           </span>
           <motion.span
             className="ml-auto text-accent"
@@ -87,7 +87,7 @@ function BonusStamp() {
             viewport={{ once: true }}
             transition={{ duration: 0.5, ease: "easeOut", delay: 0.2 + i * 0.12 }}
           >
-            +{formatUsd(STOCKBACK_TIERS[s].rewardUsd)}
+            +{formatUsd(depositStockbackUsd(d))}
           </motion.span>
         </div>
       ))}
@@ -117,16 +117,16 @@ function CapBar() {
         <span className="absolute -top-1 left-[76%] h-3.5 w-px bg-foreground" />
       </div>
       <div className="mt-2 flex justify-between font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-        <span className="text-accent">rewarded notional</span>
+        <span className="text-accent">{ratePct} up to {usd0(MAX_REWARDED_DEPOSIT_USD)}</span>
         <span>excess · settles, no credit</span>
       </div>
     </div>
   );
 }
 
-/** One tick per qualifying deposit until the wallet cap is exhausted. */
+/** One tick per example deposit until the wallet cap is exhausted. */
 function LifetimeTicks() {
-  const n = Math.floor(CASHBACK_CONFIG.perWalletLifetimeCapUsd / STOCKBACK_TIERS.balanced.rewardUsd);
+  const n = Math.floor(CASHBACK_CONFIG.perWalletLifetimeCapUsd / depositStockbackUsd(TICK_DEPOSIT_USD));
   return (
     <div className="mt-5">
       <div className="flex flex-wrap gap-1">
@@ -142,7 +142,7 @@ function LifetimeTicks() {
         ))}
       </div>
       <p className="mt-2 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-        {n} Balanced deposits × {formatUsd(STOCKBACK_TIERS.balanced.rewardUsd)} bonus
+        {n} × {usd0(TICK_DEPOSIT_USD)} deposits at {ratePct}
       </p>
     </div>
   );
@@ -264,26 +264,27 @@ export function LandingPublishedNumbers() {
       index="05"
       eyebrow="Published numbers"
       title="We do not hide the rate."
-      description="Floor, bonus, caps, and per-stock rates are the live reward rule. The deposit bonus depends on the strategy you pick. Operators can tighten them. They cannot invent a second balance."
+      description={`Floor, rate, caps, and per-stock rates are the live reward rule. Deposit Stockback is ${ratePct} on every strategy and vests after ${CASHBACK_CONFIG.vestingDays} days, forfeited if you redeem first. Operators can tighten them. They cannot invent a second balance.`}
     >
       <div className="grid grid-cols-1 divide-y divide-border border-b border-border sm:grid-cols-2 sm:divide-x lg:grid-cols-3">
         <RuleCell
           index="01"
           title="Min eligible deposit"
-          display={`${formatUsd(Math.min(...tierFloors))}–${formatUsd(Math.max(...tierFloors))}`}
+          value={CASHBACK_CONFIG.minEligibleDepositUsd}
+          decimals={0}
         >
           <FloorGauge />
         </RuleCell>
         <RuleCell
           index="02"
-          title="Deposit bonus by strategy"
-          display={`${formatUsd(Math.min(...tierRewards))}–${formatUsd(Math.max(...tierRewards))}`}
+          title="Deposit Stockback, every strategy"
+          display={ratePct}
           tone="accent"
           className="sm:border-t-0"
         >
           <BonusStamp />
         </RuleCell>
-        <RuleCell index="03" title="Max rewarded deposit" value={CASHBACK_CONFIG.maxRewardedDepositUsd} decimals={0} className="sm:border-t sm:border-border lg:border-t-0">
+        <RuleCell index="03" title="Max Stockback per deposit" value={CASHBACK_CONFIG.maxRewardPerDepositUsd} decimals={0} className="sm:border-t sm:border-border lg:border-t-0">
           <CapBar />
         </RuleCell>
         <RuleCell index="04" title="Lifetime cap per wallet" value={CASHBACK_CONFIG.perWalletLifetimeCapUsd} className="sm:border-t sm:border-border">
@@ -305,7 +306,7 @@ export function LandingPublishedNumbers() {
         items={[
           { label: "Global budget", value: usd0(CASHBACK_CONFIG.globalBudgetCapUsd) },
           { label: "Budget pause", value: `${Math.round(CASHBACK_CONFIG.budgetPauseThreshold * 100)}% left` },
-          { label: "Duplicate guard", value: `${CASHBACK_CONFIG.duplicateGuardHours}h` },
+          { label: "Vesting", value: `${CASHBACK_CONFIG.vestingDays} days` },
           { label: "Default rate", value: `${(DEFAULT_ALLOCATION_RATE * 100).toFixed(1)}%` },
           { label: "Rated tickers", value: rates.length },
           { label: "Second balance", value: "None", accent: true },

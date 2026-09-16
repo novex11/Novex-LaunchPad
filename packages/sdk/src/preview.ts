@@ -56,7 +56,6 @@ export function buildPreview(
     req.depositUsd,
     allocation.items.map((i) => ({ ticker: i.ticker, usd: i.usd })),
     walletLifetimeStockbackUsd,
-    strategy,
   );
 
   const estimatedMarketCostUsd = req.depositUsd * 0.0016;

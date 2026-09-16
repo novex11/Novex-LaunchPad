@@ -11,7 +11,8 @@ import { getVaults, refreshVaults, type RegisteredVault as BasketVault } from ".
 const basketEvents = parseAbi([
   "event Deposited(address indexed user, uint256 amountIn, uint256 sharesMinted, uint256 valueUsd8)",
   "event Redeemed(address indexed user, uint256 sharesBurned, uint8 mode, uint256 valueUsd8)",
-  "event StockbackPaid(address indexed wallet, address indexed token, uint256 amount, uint256 usdValue8)",
+  "event StockbackGranted(address indexed wallet, address indexed vault, address indexed token, uint256 amount, uint256 usdValue8, uint64 unlockAt)",
+  "event StockbackForfeited(address indexed wallet, address indexed vault, address indexed token, uint256 amount, uint256 usdValue8)",
 ]);
 
 const receiptAbi = parseAbi(["function balanceOf(address) view returns (uint256)"]);
@@ -33,6 +34,7 @@ export interface VerifiedDeposit {
   amountIn: bigint;
   sharesMinted: bigint;
   valueUsd: number;
+  /** Stockback granted for this deposit (vesting; forfeited if redeemed early). */
   stockbackUsd: number;
 }
 
@@ -46,6 +48,8 @@ export interface VerifiedRedeem {
   valueUsd: number;
   /** Receipt shares the wallet still holds after this redeem. */
   remainingShares: bigint;
+  /** Vesting Stockback this redeem forfeited. */
+  stockbackForfeitedUsd: number;
 }
 
 const HASH_RE = /^0x[0-9a-fA-F]{64}$/;
@@ -106,7 +110,7 @@ export async function verifyDeposit(txHash: string, wallet: string): Promise<Ver
         valueUsd: Number(ev.args.valueUsd8) / 1e8,
         stockbackUsd: 0,
       };
-    } else if (ev.eventName === "StockbackPaid" && ev.args.wallet.toLowerCase() === want) {
+    } else if (ev.eventName === "StockbackGranted" && ev.args.wallet.toLowerCase() === want) {
       stockbackUsd += Number(ev.args.usdValue8) / 1e8;
     }
   }
@@ -119,6 +123,14 @@ export async function verifyDeposit(txHash: string, wallet: string): Promise<Ver
 export async function verifyRedeem(txHash: string, wallet: string): Promise<VerifiedRedeem> {
   const { receipt, vaults } = await loadReceipt(txHash);
   const want = wallet.toLowerCase();
+
+  let stockbackForfeitedUsd = 0;
+  for (const log of receipt.logs) {
+    const ev = decode(log);
+    if (ev?.eventName === "StockbackForfeited" && ev.args.wallet.toLowerCase() === want) {
+      stockbackForfeitedUsd += Number(ev.args.usdValue8) / 1e8;
+    }
+  }
 
   for (const log of receipt.logs) {
     const ev = decode(log);
@@ -142,6 +154,7 @@ export async function verifyRedeem(txHash: string, wallet: string): Promise<Veri
       mode: Number(ev.args.mode),
       valueUsd: Number(ev.args.valueUsd8) / 1e8,
       remainingShares,
+      stockbackForfeitedUsd,
     };
   }
   throw new VerifyError("No basket redeem by this wallet in that transaction", 404);

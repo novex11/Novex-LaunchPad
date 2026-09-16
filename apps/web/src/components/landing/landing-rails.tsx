@@ -147,7 +147,7 @@ export function BasketRail({ data }: { data: PreviewResponse | null }) {
           ))}
         </div>
         <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-          {lines.length ? `${data?.allocation.length ?? lines.length} lines · stockback on confirm` : "building…"}
+          {lines.length ? `${data?.allocation.length ?? lines.length} lines · stockback vests on confirm` : "building…"}
         </span>
       </div>
     </div>

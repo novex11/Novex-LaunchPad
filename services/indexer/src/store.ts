@@ -426,6 +426,8 @@ export interface RecordRedeemInput {
   vaultId: string;
   /** Receipt shares still held after the redeem (1e8 = one share). Undefined = full exit. */
   remainingShares?: bigint;
+  /** Vesting Stockback the redeem forfeited; taken back out of the wallet's total. */
+  stockbackForfeitedUsd?: number;
 }
 
 export function recordRedeem(input: RecordRedeemInput) {
@@ -458,6 +460,13 @@ export function recordRedeem(input: RecordRedeemInput) {
     } else {
       delete state.positions[wallet];
     }
+  }
+
+  if (input.stockbackForfeitedUsd) {
+    state.walletStockbackTotals[wallet] = Math.max(
+      0,
+      (state.walletStockbackTotals[wallet] ?? 0) - input.stockbackForfeitedUsd,
+    );
   }
 
   const vault = state.vaults[input.vaultId];

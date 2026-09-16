@@ -419,6 +419,16 @@ export async function recordRedeem(
     })
     .returning();
 
+  if (input.stockbackForfeitedUsd) {
+    await db
+      .update(walletStockback)
+      .set({
+        totalUsd: sql`GREATEST(0, CAST(${walletStockback.totalUsd} AS numeric) - ${input.stockbackForfeitedUsd.toFixed(4)})`,
+        updatedAt: now,
+      })
+      .where(eq(walletStockback.wallet, wallet));
+  }
+
   if (partial) {
     const remaining = Number(input.remainingShares) / 1e8;
     await db

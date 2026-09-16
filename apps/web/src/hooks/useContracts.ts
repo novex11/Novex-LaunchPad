@@ -144,8 +144,7 @@ export type DepositStage = "approve" | "deposit" | "mined";
 
 const DEPOSIT_EVENTS = parseAbi([
   "event Deposited(address indexed user, uint256 amountIn, uint256 sharesMinted, uint256 valueUsd8)",
-  "event CashbackForwarded(address indexed user, uint256 amount)",
-  "event StockbackPaid(address indexed wallet, address indexed token, uint256 amount, uint256 usdValue8)",
+  "event StockbackGranted(address indexed wallet, address indexed vault, address indexed token, uint256 amount, uint256 usdValue8, uint64 unlockAt)",
 ]);
 
 export interface DepositOutcome {
@@ -154,10 +153,12 @@ export interface DepositOutcome {
   sharesMinted: bigint | undefined;
   /** USD value (8 decimals) the vault credited after swaps. */
   valueUsd8: bigint | undefined;
-  /** Stockback actually paid on-chain to the wallet, in deposit-token base units. */
+  /** Stockback granted on-chain for this deposit, in deposit-token base units (vesting, not yet paid). */
   stockbackTokenAmount: bigint;
-  /** Stockback actually paid on-chain, in USD (from the reserve's event). */
+  /** Stockback granted on-chain, in USD (from the reserve's event). */
   stockbackUsd: number;
+  /** Unix seconds when the granted Stockback becomes claimable; undefined when nothing was granted. */
+  stockbackUnlockAt: number | undefined;
 }
 
 export function useApproveAndDeposit(vaultAddress: `0x${string}` | undefined) {
@@ -222,6 +223,7 @@ export function useApproveAndDeposit(vaultAddress: `0x${string}` | undefined) {
           valueUsd8: undefined,
           stockbackTokenAmount: 0n,
           stockbackUsd: 0,
+          stockbackUnlockAt: undefined,
         };
         const vaultLower = vaultAddress.toLowerCase();
         const me = account.toLowerCase();
@@ -235,10 +237,14 @@ export function useApproveAndDeposit(vaultAddress: `0x${string}` | undefined) {
           if (ev.eventName === "Deposited" && log.address.toLowerCase() === vaultLower) {
             outcome.sharesMinted = ev.args.sharesMinted;
             outcome.valueUsd8 = ev.args.valueUsd8;
-          } else if (ev.eventName === "CashbackForwarded" && ev.args.user.toLowerCase() === me) {
+          } else if (
+            ev.eventName === "StockbackGranted" &&
+            ev.args.wallet.toLowerCase() === me &&
+            ev.args.vault.toLowerCase() === vaultLower
+          ) {
             outcome.stockbackTokenAmount += ev.args.amount;
-          } else if (ev.eventName === "StockbackPaid" && ev.args.wallet.toLowerCase() === me) {
             outcome.stockbackUsd += Number(ev.args.usdValue8) / 1e8;
+            outcome.stockbackUnlockAt = Number(ev.args.unlockAt);
           }
         }
         return outcome;

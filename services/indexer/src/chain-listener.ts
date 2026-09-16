@@ -116,8 +116,8 @@ async function handleDepositEvent(
   const txHash = log.transactionHash ?? "";
   const { depositTicker, strategy, vaultId } = vault;
 
-  // Stockback is emitted by the CashbackReserve, not the vault, so read it from
-  // the full receipt. Falls back to 0 if the receipt can't be fetched.
+  // Stockback grants are emitted by the CashbackReserve, not the vault, so read them
+  // from the full receipt. Falls back to 0 if the receipt can't be fetched.
   let stockbackUsd = 0;
   try {
     stockbackUsd = (await verifyDeposit(txHash, user)).stockbackUsd;
@@ -175,8 +175,9 @@ async function handleRedeemEvent(
 
   // Shares still held after this redeem, so a partial exit keeps the position.
   let remainingShares: bigint | undefined;
+  let stockbackForfeitedUsd = 0;
   try {
-    remainingShares = (await verifyRedeem(txHash, user)).remainingShares;
+    ({ remainingShares, stockbackForfeitedUsd } = await verifyRedeem(txHash, user));
   } catch {
     // unknown: treat as full exit
   }
@@ -184,7 +185,7 @@ async function handleRedeemEvent(
   try {
     if (db) {
       if (await dbStore.hasActivityTx(db, txHash)) return;
-      await dbStore.recordRedeem(db, { wallet: user, valueUsd, txHash, vaultId, remainingShares });
+      await dbStore.recordRedeem(db, { wallet: user, valueUsd, txHash, vaultId, remainingShares, stockbackForfeitedUsd });
       await volumeTracker.recordRedeem(db, {
         txHash,
         blockNumber: log.blockNumber ?? 0n,
@@ -195,7 +196,7 @@ async function handleRedeemEvent(
         vaultId,
       });
     } else {
-      jsonStore.recordRedeem({ wallet: user, valueUsd, txHash, vaultId });
+      jsonStore.recordRedeem({ wallet: user, valueUsd, txHash, vaultId, stockbackForfeitedUsd });
     }
   } catch (err) {
     console.error("[chain-listener] Error recording redeem:", err);

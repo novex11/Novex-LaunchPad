@@ -314,7 +314,7 @@ export function TradePanel({
                     <dt className="text-muted-foreground">
                       Stockback if deposited to a basket
                       <span className="block text-[10px] opacity-70">
-                        min {formatUsd(CASHBACK_CONFIG.minEligibleDepositUsd)} ·{" "}
+                        min {formatUsd(CASHBACK_CONFIG.minEligibleDepositUsd)} · vests {CASHBACK_CONFIG.vestingDays}d ·{" "}
                         {preview.source === "allocator" ? "allocator" : "estimate"}
                       </span>
                     </dt>

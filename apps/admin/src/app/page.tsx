@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CASHBACK_CONFIG, LAUNCH_CAPS, STOCKBACK_TIERS } from "@compose/config";
+import { CASHBACK_CONFIG, LAUNCH_CAPS, MAX_REWARDED_DEPOSIT_USD } from "@compose/config";
 
 export default function AdminPage() {
   const [pauses, setPauses] = useState({
@@ -31,9 +31,10 @@ export default function AdminPage() {
           <ul className="mt-4 space-y-2 text-sm text-muted-foreground">
             <li>Global budget: ${CASHBACK_CONFIG.globalBudgetCapUsd.toLocaleString()}</li>
             <li>
-              {`Deposit Stockback: $${STOCKBACK_TIERS.defensive.rewardUsd} Defensive · $${STOCKBACK_TIERS.balanced.rewardUsd} Balanced (from $${STOCKBACK_TIERS.balanced.minDepositUsd}) · $${STOCKBACK_TIERS.aggressive.rewardUsd} Aggressive (from $${STOCKBACK_TIERS.aggressive.minDepositUsd})`}
+              {`Deposit Stockback: ${CASHBACK_CONFIG.rewardRate * 100}% from $${CASHBACK_CONFIG.minEligibleDepositUsd} · max $${CASHBACK_CONFIG.maxRewardPerDepositUsd} per deposit (at $${MAX_REWARDED_DEPOSIT_USD.toLocaleString()})`}
             </li>
             <li>Per-wallet cap: ${CASHBACK_CONFIG.perWalletLifetimeCapUsd}</li>
+            <li>Vesting: {CASHBACK_CONFIG.vestingDays} days (forfeited on early redeem)</li>
             <li>Auto-pause at: {CASHBACK_CONFIG.budgetPauseThreshold * 100}% remaining</li>
           </ul>
         </div>

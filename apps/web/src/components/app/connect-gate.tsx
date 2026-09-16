@@ -61,7 +61,7 @@ export function ConnectGate({ eyebrow, title, description }: ConnectGateProps) {
               <div className="min-w-0 flex-1">
                 <p className="label-caps">Basket value</p>
                 <p className="mt-1 font-mono text-3xl font-semibold tabular-nums">$1,007.58</p>
-                <p className="mt-1 font-mono text-xs tabular-nums text-accent-strong">+$7.58 Stockback credited</p>
+                <p className="mt-1 font-mono text-xs tabular-nums text-accent-strong">+$7.58 Stockback vesting</p>
               </div>
             </div>
             <ul className="mt-5 space-y-2">

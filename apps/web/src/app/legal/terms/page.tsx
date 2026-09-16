@@ -178,8 +178,9 @@ const sections: LegalSection[] = [
     body: (
       <p>
         Stockback is a discretionary promotion. Eligibility depends on minimum deposit
-        size, per-wallet caps, time between rewards and a limited global budget. Rewards
-        stop when the budget is exhausted. We may pause, change or end Stockback at any
+        size, per-deposit and per-wallet caps and a limited global budget. Rewards vest
+        for a period before they can be claimed and are forfeited if the related deposit
+        is redeemed before vesting ends. Rewards stop when the budget is exhausted. We may pause, change or end Stockback at any
         time, and we may withhold rewards obtained through abuse, including splitting
         activity across multiple wallets.
       </p>

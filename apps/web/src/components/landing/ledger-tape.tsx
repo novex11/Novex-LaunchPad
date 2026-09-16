@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, useInView, useReducedMotion, AnimatePresence } from "motion/react";
-import { STRATEGIES, stockbackTier, type StrategyId } from "@compose/config";
+import { CASHBACK_CONFIG } from "@compose/config";
 import type { PreviewResponse } from "@compose/sdk";
 import { cn, formatUsd } from "@/lib/utils";
 import { NumberTicker } from "@/components/ui/number-ticker";
@@ -33,7 +33,7 @@ const MAX_LINES = 4;
  * at a time while the running total counts up; holds, then replays.
  */
 export function LedgerTape({ data, depositTicker, depositUsd, strategy, source }: LedgerTapeProps) {
-  const floorUsd = strategy in STRATEGIES ? stockbackTier(strategy as StrategyId).minDepositUsd : stockbackTier("balanced").minDepositUsd;
+  const floorUsd = CASHBACK_CONFIG.minEligibleDepositUsd;
   const reduced = useReducedMotion();
   const ref = useRef<HTMLDivElement>(null);
   const inView = useInView(ref, { amount: 0.3 });
@@ -55,7 +55,7 @@ export function LedgerTape({ data, depositTicker, depositUsd, strategy, source }
         detail: `≥ ${formatUsd(floorUsd)}`,
         ok: sb.eligible,
       },
-      { kind: "bonus", label: "Bonus", detail: "deposit credit", amount: sb.depositStockbackUsd },
+      { kind: "bonus", label: "Bonus", detail: `${+(CASHBACK_CONFIG.rewardRate * 100).toFixed(2)}% · vests ${CASHBACK_CONFIG.vestingDays}d`, amount: sb.depositStockbackUsd },
       ...head.map<Row>((l) => ({
         kind: "line",
         label: l.ticker,
@@ -64,7 +64,7 @@ export function LedgerTape({ data, depositTicker, depositUsd, strategy, source }
       })),
     ];
     if (rest.length) out.push({ kind: "line", label: `+${rest.length} lines`, detail: "remaining basket", amount: restUsd });
-    out.push({ kind: "post", label: "Post", detail: sb.eligible ? "credited on confirm" : "below_threshold · no credit", amount: sb.totalStockbackUsd });
+    out.push({ kind: "post", label: "Post", detail: sb.eligible ? `claimable after ${CASHBACK_CONFIG.vestingDays} days` : "below_threshold · no credit", amount: sb.totalStockbackUsd });
     return out;
   }, [data, depositTicker, depositUsd, floorUsd]);
 

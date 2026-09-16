@@ -102,30 +102,30 @@ describe("cashback", () => {
       { ticker: "MSFT", usd: 125 },
       { ticker: "SNDK", usd: 75 },
     ]);
-    expect(preview.depositStockbackUsd).toBe(2);
+    expect(preview.depositStockbackUsd).toBe(5);
     expect(preview.totalAllocationStockbackUsd).toBeCloseTo(2.625, 2);
-    expect(preview.totalStockbackUsd).toBeCloseTo(4.625, 2);
+    expect(preview.totalStockbackUsd).toBeCloseTo(7.625, 2);
     expect(preview.eligible).toBe(true);
   });
 
   it("rejects below minimum deposit", () => {
     const preview = computeStockbackPreview(49.99, []);
     expect(preview.eligible).toBe(false);
+    expect(preview.ineligibilityReason).toBe("Minimum deposit is $50");
   });
 
-  it("pays the strategy's deposit tier", () => {
-    expect(computeDepositStockback(50, "defensive")).toBe(0.77);
-    expect(computeDepositStockback(50, "balanced")).toBe(2);
-    expect(computeDepositStockback(149.99, "aggressive")).toBe(0);
-    expect(computeDepositStockback(150, "aggressive")).toBe(6);
-    expect(computeDepositStockback(49.99, "defensive")).toBe(0);
+  it("pays 1% of the deposit, capped per deposit", () => {
+    expect(computeDepositStockback(49.99)).toBe(0);
+    expect(computeDepositStockback(50)).toBe(0.5);
+    expect(computeDepositStockback(300)).toBe(3);
+    expect(computeDepositStockback(1_000)).toBe(10);
+    expect(computeDepositStockback(50_000)).toBe(10);
+    expect(computeDepositStockback(123.456)).toBe(1.23);
   });
 
-  it("aggressive preview needs $150", () => {
-    const below = computeStockbackPreview(149, [], 0, "aggressive");
-    expect(below.eligible).toBe(false);
-    expect(below.ineligibilityReason).toBe("Minimum deposit is $150");
-    expect(computeStockbackPreview(150, [], 0, "aggressive").depositStockbackUsd).toBe(6);
+  it("clamps to what is left of the wallet cap", () => {
+    expect(computeDepositStockback(1_500, 20)).toBe(5);
+    expect(computeDepositStockback(1_500, 25)).toBe(0);
   });
 });
 

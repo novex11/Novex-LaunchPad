@@ -18,6 +18,7 @@ import {
   type OnChainReceiptPosition,
 } from "@/hooks/use-receipt-positions";
 import { useWallet } from "@/hooks/use-wallet";
+import { useStockback } from "@/hooks/use-stockback";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { StockLogo } from "@/components/ui/stock-logo";
@@ -51,6 +52,11 @@ export default function RedeemPage() {
   const active: OnChainReceiptPosition | undefined = list[selectedIdx];
   const onchainRedeem = useVaultRedeem(active?.vaultAddress);
   const { priceUsd8: depositPriceUsd8 } = useDepositTokenPrice(active?.vaultAddress);
+  const stockback = useStockback(wallet.address);
+  // Stockback still vesting in this vault is forfeited when the shares backing it are redeemed.
+  const vestingUsd =
+    stockback.data?.vaults.find((v) => v.vaultAddress.toLowerCase() === active?.vaultAddress.toLowerCase())
+      ?.pendingUsd ?? 0;
 
   const portion = BigInt(Math.round(Math.min(100, Math.max(1, portionPct))));
   const sharesToRedeem = active ? (active.receiptBalance * portion) / 100n : 0n;
@@ -101,6 +107,7 @@ export default function RedeemPage() {
       qc.invalidateQueries({ queryKey: ["portfolio"] });
       qc.invalidateQueries({ queryKey: ["receipt-positions"] });
       qc.invalidateQueries({ queryKey: ["activity"] });
+      qc.invalidateQueries({ queryKey: ["stockback"] });
       router.push("/activity");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Redeem failed");
@@ -318,6 +325,13 @@ export default function RedeemPage() {
                   </div>
                 </dl>
                 <div className="border-t border-border-subtle p-5">
+                  {vestingUsd > 0 && (
+                    <p className="flex items-start gap-1.5 font-sans text-xs text-destructive">
+                      <WarningCircle size={14} className="mt-0.5 shrink-0" />
+                      Up to {formatUsd(vestingUsd)} of Stockback from this basket is still vesting and is forfeited if
+                      you redeem the shares behind it now.
+                    </p>
+                  )}
                   {error && (
                     <p className="mb-3 flex items-center gap-1.5 text-xs text-destructive">
                       <WarningCircle size={14} />

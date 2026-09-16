@@ -1,7 +1,7 @@
 "use client";
 
 import { Wallet, Stack, Scales, Gift, ChartLineUp, ArrowCounterClockwise } from "@phosphor-icons/react";
-import { STOCKBACK_TIERS } from "@compose/config";
+import { CASHBACK_CONFIG, MAX_REWARDED_DEPOSIT_USD } from "@compose/config";
 import { useRewardPreview } from "@/hooks/use-reward-preview";
 import { formatUsd } from "@/lib/utils";
 import { SectionFrame } from "./section-frame";
@@ -44,15 +44,15 @@ export function LandingHowItPays() {
           {
             index: "03",
             icon: <Scales size={14} />,
-            title: `Clear the ${formatUsd(STOCKBACK_TIERS.balanced.minDepositUsd)} floor (${formatUsd(STOCKBACK_TIERS.aggressive.minDepositUsd)} Aggressive)`,
+            title: `Clear the ${formatUsd(CASHBACK_CONFIG.minEligibleDepositUsd)} floor`,
             body: "Deposits below the floor can still settle. They do not write Stockback to the ledger.",
             status: eligible ? "eligible" : "below_threshold",
           },
           {
             index: "04",
             icon: <Gift size={14} />,
-            title: "Bonus + per-stock rate",
-            body: `Deposit bonus by strategy: ${formatUsd(STOCKBACK_TIERS.defensive.rewardUsd)} Defensive, ${formatUsd(STOCKBACK_TIERS.balanced.rewardUsd)} Balanced, ${formatUsd(STOCKBACK_TIERS.aggressive.rewardUsd)} Aggressive.`,
+            title: "Deposit Stockback + per-stock rate",
+            body: `${+(CASHBACK_CONFIG.rewardRate * 100).toFixed(2)}% of the deposit on every strategy, up to ${formatUsd(CASHBACK_CONFIG.maxRewardPerDepositUsd)} at ${formatUsd(MAX_REWARDED_DEPOSIT_USD)}. Vests after ${CASHBACK_CONFIG.vestingDays} days, forfeited if you redeem first.`,
             status: data ? `+${formatUsd(data.stockback.totalStockbackUsd)} stockback` : "pricing…",
           },
           {

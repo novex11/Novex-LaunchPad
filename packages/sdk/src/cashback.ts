@@ -2,8 +2,7 @@ import {
   ALLOCATION_STOCKBACK_RATES,
   CASHBACK_CONFIG,
   DEFAULT_ALLOCATION_RATE,
-  stockbackTier,
-  type StrategyId,
+  depositStockbackUsd,
 } from "@compose/config";
 
 export interface AllocationLine {
@@ -14,6 +13,7 @@ export interface AllocationLine {
 }
 
 export interface StockbackPreview {
+  /** Vests for CASHBACK_CONFIG.vestingDays; forfeited if the deposit is redeemed first. */
   depositStockbackUsd: number;
   allocationLines: AllocationLine[];
   totalAllocationStockbackUsd: number;
@@ -22,10 +22,9 @@ export interface StockbackPreview {
   ineligibilityReason?: string;
 }
 
-/** Flat deposit reward for the vault's strategy (CashbackReserve.rewardTiers). */
-export function computeDepositStockback(depositUsd: number, strategy: StrategyId = "balanced"): number {
-  const tier = stockbackTier(strategy);
-  return depositUsd >= tier.minDepositUsd ? tier.rewardUsd : 0;
+/** Deposit reward (CashbackReserve.quoteReward); the same for every strategy. */
+export function computeDepositStockback(depositUsd: number, walletLifetimeStockbackUsd = 0): number {
+  return depositStockbackUsd(depositUsd, walletLifetimeStockbackUsd);
 }
 
 export function computeAllocationStockback(
@@ -49,21 +48,19 @@ export function computeStockbackPreview(
   depositUsd: number,
   allocations: Array<{ ticker: string; usd: number }>,
   walletLifetimeStockbackUsd = 0,
-  strategy: StrategyId = "balanced",
 ): StockbackPreview {
-  const tier = stockbackTier(strategy);
-  if (depositUsd < tier.minDepositUsd) {
+  if (depositUsd < CASHBACK_CONFIG.minEligibleDepositUsd) {
     return {
       depositStockbackUsd: 0,
       allocationLines: [],
       totalAllocationStockbackUsd: 0,
       totalStockbackUsd: 0,
       eligible: false,
-      ineligibilityReason: `Minimum deposit is $${tier.minDepositUsd}`,
+      ineligibilityReason: `Minimum deposit is $${CASHBACK_CONFIG.minEligibleDepositUsd}`,
     };
   }
 
-  const depositStockback = computeDepositStockback(depositUsd, strategy);
+  const depositStockback = computeDepositStockback(depositUsd);
   const allocationLines = computeAllocationStockback(allocations);
   const totalAllocation = allocationLines.reduce(
     (sum, l) => sum + l.bonusUsd,

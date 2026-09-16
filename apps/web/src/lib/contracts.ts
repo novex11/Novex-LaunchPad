@@ -12,6 +12,7 @@ import {
 import strategyVaultAbiJson from "./abis/StrategyVault.json";
 import receiptTokenAbiJson from "./abis/ReceiptToken.json";
 import vaultFactoryAbiJson from "./abis/VaultFactory.json";
+import cashbackReserveAbiJson from "./abis/CashbackReserve.json";
 import oracleAdapterAbiJson from "./abis/OracleAdapter.json";
 import pairFactoryAbiJson from "./abis/PairFactory.json";
 import pairVaultAbiJson from "./abis/PairVault.json";
@@ -29,6 +30,8 @@ import ponsV2FeeEscrowAbiJson from "./abis/PonsV2FeeEscrow.json";
 export const strategyVaultAbi = strategyVaultAbiJson as Abi;
 export const receiptTokenAbi = receiptTokenAbiJson as Abi;
 export const vaultFactoryAbi = vaultFactoryAbiJson as Abi;
+/** Stockback reserve: grants vest per vault and wallet, then anyone can claim them to the wallet. */
+export const cashbackReserveAbi = cashbackReserveAbiJson as Abi;
 export const oracleAdapterAbi = oracleAdapterAbiJson as Abi;
 export const pairFactoryAbi = pairFactoryAbiJson as Abi;
 export const pairVaultAbi = pairVaultAbiJson as Abi;

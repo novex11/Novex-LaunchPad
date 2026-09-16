@@ -22,7 +22,7 @@ export function LandingCloseSection() {
           <h2 className="statement-2 mt-4">Same wallet. Same session.</h2>
           <p className="mt-4 max-w-lg text-sm text-muted-foreground md:text-base">
             Sign in once. Trade, build baskets, and redeem from one desk address.
-            Stockback posts after qualifying deposits confirm.
+            Stockback vests after qualifying deposits confirm, then you claim it.
           </p>
           <div className="mt-8 flex flex-wrap gap-2">
             <Button asChild variant="square">
@@ -46,17 +46,25 @@ export function LandingCloseSection() {
             <MonoLabel index="05">Published ratio</MonoLabel>
             <p className="mt-4 font-mono text-lg">NVDA → tNVDA-B</p>
             <p className="mt-2 font-mono text-3xl tabular-nums text-accent md:text-4xl">
-              {formatUsd(CASHBACK_CONFIG.depositStockbackUsd)}
+              {+(CASHBACK_CONFIG.rewardRate * 100).toFixed(2)}%
             </p>
-            <p className="label-mono mt-1">Deposit bonus</p>
+            <p className="label-mono mt-1">Deposit Stockback</p>
             <dl className="mt-6 divide-y divide-border font-mono text-xs">
               <div className="flex justify-between py-2">
                 <dt className="text-muted-foreground">Floor</dt>
                 <dd>{formatUsd(CASHBACK_CONFIG.minEligibleDepositUsd)}</dd>
               </div>
               <div className="flex justify-between py-2">
-                <dt className="text-muted-foreground">Cap</dt>
+                <dt className="text-muted-foreground">Cap per deposit</dt>
+                <dd>{formatUsd(CASHBACK_CONFIG.maxRewardPerDepositUsd)}</dd>
+              </div>
+              <div className="flex justify-between py-2">
+                <dt className="text-muted-foreground">Cap per wallet</dt>
                 <dd>{formatUsd(CASHBACK_CONFIG.perWalletLifetimeCapUsd)}</dd>
+              </div>
+              <div className="flex justify-between py-2">
+                <dt className="text-muted-foreground">Vesting</dt>
+                <dd>{CASHBACK_CONFIG.vestingDays} days</dd>
               </div>
               <div className="flex justify-between py-2">
                 <dt className="text-muted-foreground">Platform fee</dt>

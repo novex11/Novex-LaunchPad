@@ -5,6 +5,7 @@ const RULES = [
   "Redemption returns current basket NAV — not a guaranteed quantity of the original deposit asset.",
   "Below the published floor, a deposit can still settle on-chain. It does not write Stockback.",
   "Lifetime Stockback cap is enforced per wallet. Excess stays visible, unpaid.",
+  "Deposit Stockback vests for 7 days before you can claim it. Redeem first and it is forfeited.",
   "Forex pairs earn no Stockback allocation rewards.",
   "Smart contracts may contain defects. Use only after independent audit when deployed.",
 ];

@@ -18,7 +18,7 @@ export const createBasket: DocPage = {
           <Steps>
             <Step title="Connect a wallet">Use the Connect wallet button. Compose supports injected wallets, Coinbase, Rainbow and WalletConnect through Privy.</Step>
             <Step title="Pick the deposit asset">Search or choose from the featured grid. The selected tile shows the live quote.</Step>
-            <Step title="Enter an amount">Presets are provided. Below the basket minimum the button stays disabled; below the Stockback floor the basket still creates but no reward posts. The summary card shows how much more unlocks the bonus.</Step>
+            <Step title="Enter an amount">Presets are provided. Below the basket minimum the button stays disabled; below the Stockback floor the basket still creates but no reward posts. The summary card shows how much more qualifies for Stockback.</Step>
             <Step title="Choose a strategy">Each card shows its risk level, category bands, single-stock cap and how much of the deposit is retained.</Step>
             <Step title="Shape the basket">Prefer or exclude stocks and set the basket size. Watch the donut and lines update in the summary card.</Step>
             <Step title="Confirm">The button enables once the allocator preview is live and free of violations. You will sign an approval and then the deposit. The stepper shows approve, deposit and record.</Step>

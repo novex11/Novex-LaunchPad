@@ -393,6 +393,7 @@ app.post("/redeems", async (c) => {
       txHash: verified.txHash,
       vaultId: verified.vault.vaultId,
       remainingShares: verified.remainingShares,
+      stockbackForfeitedUsd: verified.stockbackForfeitedUsd,
     };
     const act = useDb
       ? await dbStore.recordRedeem(db!, input)

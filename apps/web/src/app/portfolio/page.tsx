@@ -20,6 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { ConnectGate } from "@/components/app/connect-gate";
 import { MetricBand } from "@/components/app/metric-band";
 import { ActivityList } from "@/components/app/activity-list";
+import { StockbackClaims } from "@/components/app/stockback-claims";
 import { OnChainVerifiedBadge } from "@/components/receipt/on-chain-verified-badge";
 
 const spring = { type: "spring", stiffness: 100, damping: 20 } as const;
@@ -119,6 +120,8 @@ export default function PortfolioPage() {
           },
         ]}
       />
+
+      <StockbackClaims wallet={wallet.address} className="mt-4" />
 
       {isError && (
         <p className="mt-4 text-sm text-destructive">
