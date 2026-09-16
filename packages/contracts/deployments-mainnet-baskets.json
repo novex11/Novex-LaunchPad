@@ -2,15 +2,19 @@
   "chainId": 4663,
   "contracts": {
     "allocationController": "0x999c41de7c8d4f39b6F908e02426566E29E38477",
-    "cashbackReserve": "0xd03320E899689F7423bC51D62D86b8a624B19659",
+    "cashbackReserve": "0x9798ACfc39d0909650B1e48399362B7dB243c237",
     "executionRouter": "0x89eaB37062dCa7a8E91D56b5661A9bCd352281A0",
     "owner": "0xf7D07942E1F8633F54F9200CB3b54d05EE60dca2",
     "swapAdapter": "0x6A32797122f48c5e153Dd83aC284e536A9D857FE",
-    "vaultFactory": "0xE44Fd486144b058d51D6C2A71aA045428FfAD6f3"
+    "vaultFactory": "0x59D72c0E826Bd229a3f5040988eafAC44146cA72"
   },
   "emergency": "0x1be34265bbd154109a79175aB9EcF4d3E09F9aC5",
   "oracle": "0xbdBDf97fe07d1fb9593c0f700d38ED76174A2DE3",
   "retired": {
+    "cashbackReserve": "0xd03320E899689F7423bC51D62D86b8a624B19659",
+    "vaultFactory": "0xE44Fd486144b058d51D6C2A71aA045428FfAD6f3"
+  },
+  "retiredV1": {
     "cashbackReserve": "0x90E3DEd5621C98deaed8cA3f2F7A281c4a581dB4",
     "vaultFactory": "0xb5728c35c370951b427549F0B73351d18ef17F76"
   },
