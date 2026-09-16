@@ -348,6 +348,19 @@ export async function ensureSchema(): Promise<void> {
         )
       `;
       await sql`CREATE UNIQUE INDEX IF NOT EXISTS curve_creator_claims_tx_log_idx ON curve_creator_claims (tx_hash, log_index)`;
+      // Pons fee escrow credits from Compose-launched Pons curves (cap Pons claims per token)
+      await sql`
+        CREATE TABLE IF NOT EXISTS pons_fee_credits (
+          id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+          token_address text NOT NULL,
+          creator_wallet text NOT NULL,
+          amount text NOT NULL,
+          tx_hash text NOT NULL,
+          log_index numeric NOT NULL DEFAULT '0',
+          created_at timestamp NOT NULL DEFAULT now()
+        )
+      `;
+      await sql`CREATE UNIQUE INDEX IF NOT EXISTS pons_fee_credits_tx_log_idx ON pons_fee_credits (tx_hash, log_index)`;
       await sql`
         CREATE TABLE IF NOT EXISTS indexer_cursor (
           id text PRIMARY KEY,
