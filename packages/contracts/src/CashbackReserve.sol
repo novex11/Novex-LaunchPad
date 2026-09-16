@@ -5,14 +5,26 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {OracleAdapter} from "./OracleAdapter.sol";
+import {AllocationController} from "./AllocationController.sol";
+
+interface IStrategyVaultView {
+    function strategy() external view returns (AllocationController.Strategy);
+}
 
 /// @title CashbackReserve — holds Compose-funded Stockback inventory
+/// @notice The deposit reward depends on the paying vault's strategy: each tier has
+///         its own minimum deposit and flat USD reward. Deposits below a tier's
+///         minimum earn nothing.
 contract CashbackReserve is Ownable {
     using SafeERC20 for IERC20;
 
-    uint256 public minEligibleDepositUsd8 = 50e8;
+    struct RewardTier {
+        uint256 minDepositUsd8;
+        uint256 rewardUsd8;
+    }
+
+    mapping(AllocationController.Strategy => RewardTier) public rewardTiers;
     uint256 public maxRewardedDepositUsd8 = 10_000e8;
-    uint256 public depositStockbackUsd8 = 2e8;
     uint256 public globalBudgetUsd8 = 100_000e8;
     uint256 public budgetSpentUsd8;
     uint256 public perWalletCapUsd8 = 50e8;
@@ -34,9 +46,14 @@ contract CashbackReserve is Ownable {
     event BudgetUpdated(uint256 newBudget);
     event CashbackPaused(bool paused);
     event OracleUpdated(address indexed oracle, uint256 toleranceBps);
-    event RewardParamsUpdated(uint256 minEligibleDepositUsd8, uint256 depositStockbackUsd8, uint256 perWalletCapUsd8);
+    event RewardTierUpdated(AllocationController.Strategy indexed strategy, uint256 minDepositUsd8, uint256 rewardUsd8);
+    event PerWalletCapUpdated(uint256 perWalletCapUsd8);
 
-    constructor(address owner_) Ownable(owner_) {}
+    constructor(address owner_) Ownable(owner_) {
+        _setRewardTier(AllocationController.Strategy.Defensive, 50e8, 0.77e8);
+        _setRewardTier(AllocationController.Strategy.Balanced, 50e8, 2e8);
+        _setRewardTier(AllocationController.Strategy.Aggressive, 150e8, 6e8);
+    }
 
     function setAuthorizedVault(address vault, bool authorized) external onlyOwner {
         authorizedVaults[vault] = authorized;
@@ -59,25 +76,43 @@ contract CashbackReserve is Ownable {
         emit BudgetUpdated(budgetUsd8);
     }
 
-    function setRewardParams(
-        uint256 minEligibleDepositUsd8_,
-        uint256 depositStockbackUsd8_,
-        uint256 perWalletCapUsd8_
+    function setRewardTier(
+        AllocationController.Strategy strategy,
+        uint256 minDepositUsd8,
+        uint256 rewardUsd8
     ) external onlyOwner {
-        minEligibleDepositUsd8 = minEligibleDepositUsd8_;
-        depositStockbackUsd8 = depositStockbackUsd8_;
+        _setRewardTier(strategy, minDepositUsd8, rewardUsd8);
+    }
+
+    function setPerWalletCap(uint256 perWalletCapUsd8_) external onlyOwner {
         perWalletCapUsd8 = perWalletCapUsd8_;
-        emit RewardParamsUpdated(minEligibleDepositUsd8_, depositStockbackUsd8_, perWalletCapUsd8_);
+        emit PerWalletCapUpdated(perWalletCapUsd8_);
+    }
+
+    function _setRewardTier(AllocationController.Strategy strategy, uint256 minDepositUsd8, uint256 rewardUsd8) internal {
+        rewardTiers[strategy] = RewardTier(minDepositUsd8, rewardUsd8);
+        emit RewardTierUpdated(strategy, minDepositUsd8, rewardUsd8);
+    }
+
+    /// @notice Flat USD reward (8 decimals) a deposit into a vault of `strategy` earns.
+    function rewardUsd8For(AllocationController.Strategy strategy) external view returns (uint256) {
+        return rewardTiers[strategy].rewardUsd8;
     }
 
     function budgetRemaining() public view returns (uint256) {
         return globalBudgetUsd8 > budgetSpentUsd8 ? globalBudgetUsd8 - budgetSpentUsd8 : 0;
     }
 
-    function canReward(address wallet, uint256 depositUsd8) public view returns (bool) {
+    function canReward(
+        AllocationController.Strategy strategy,
+        address wallet,
+        uint256 depositUsd8
+    ) public view returns (bool) {
+        RewardTier memory tier = rewardTiers[strategy];
         if (paused) return false;
-        if (depositUsd8 < minEligibleDepositUsd8) return false;
-        if (budgetRemaining() < depositStockbackUsd8) return false;
+        if (tier.rewardUsd8 == 0) return false;
+        if (depositUsd8 < tier.minDepositUsd8) return false;
+        if (budgetRemaining() < tier.rewardUsd8) return false;
         if (walletStockbackUsd8[wallet] >= perWalletCapUsd8) return false;
         if (
             lastRewardTimestamp[wallet] != 0 &&
@@ -93,8 +128,9 @@ contract CashbackReserve is Ownable {
         uint256 depositUsd8
     ) external {
         require(authorizedVaults[msg.sender], "CashbackReserve: unauthorized");
-        require(canReward(wallet, depositUsd8), "CashbackReserve: ineligible");
-        uint256 rewardUsd8 = depositStockbackUsd8;
+        AllocationController.Strategy strategy = _strategyOf(msg.sender);
+        require(canReward(strategy, wallet, depositUsd8), "CashbackReserve: ineligible");
+        uint256 rewardUsd8 = rewardTiers[strategy].rewardUsd8;
         require(budgetRemaining() >= rewardUsd8, "CashbackReserve: budget exhausted");
         if (address(oracle) != address(0)) {
             uint256 paidUsd8 = oracle.getTokenValueUsd(rewardToken, tokenAmount);
@@ -108,6 +144,16 @@ contract CashbackReserve is Ownable {
         lastRewardTimestamp[wallet] = block.timestamp;
         IERC20(rewardToken).safeTransfer(msg.sender, tokenAmount);
         emit StockbackPaid(wallet, rewardToken, tokenAmount, rewardUsd8);
+    }
+
+    /// @dev Authorized callers are strategy vaults; a caller without a strategy() view
+    ///      (e.g. an owner-authorized test harness) is treated as Balanced.
+    function _strategyOf(address vault) internal view returns (AllocationController.Strategy) {
+        try IStrategyVaultView(vault).strategy() returns (AllocationController.Strategy s) {
+            return s;
+        } catch {
+            return AllocationController.Strategy.Balanced;
+        }
     }
 
     function fund(address token, uint256 amount) external onlyOwner {

@@ -1,0 +1,157 @@
+{
+  "chainId": 4663,
+  "strategy": "defensive",
+  "generatedAt": "2026-09-16T16:36:00.553Z",
+  "mixes": {
+    "AAPL": {
+      "depositToken": "0xaF3D76f1834A1d425780943C99Ea8A608f8a93f9",
+      "tickers": [
+        "AMZN",
+        "GOOGL",
+        "META",
+        "MSFT",
+        "NVDA",
+        "AAPL",
+        "USDG"
+      ],
+      "tokens": [
+        "0x12f190a9F9d7D37a250758b26824B97CE941bF54",
+        "0x2e0847E8910a9732eB3fb1bb4b70a580ADAD4FE3",
+        "0xc0D6457C16Cc70d6790Dd43521C899C87ce02f35",
+        "0xe93237C50D904957Cf27E7B1133b510C669c2e74",
+        "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC",
+        "0xaF3D76f1834A1d425780943C99Ea8A608f8a93f9",
+        "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168"
+      ],
+      "weightsBps": [
+        1500,
+        1500,
+        1500,
+        1500,
+        1500,
+        1500,
+        1000
+      ]
+    },
+    "AMZN": {
+      "depositToken": "0x12f190a9F9d7D37a250758b26824B97CE941bF54",
+      "tickers": [
+        "AAPL",
+        "GOOGL",
+        "META",
+        "MSFT",
+        "NVDA",
+        "AMZN",
+        "USDG"
+      ],
+      "tokens": [
+        "0xaF3D76f1834A1d425780943C99Ea8A608f8a93f9",
+        "0x2e0847E8910a9732eB3fb1bb4b70a580ADAD4FE3",
+        "0xc0D6457C16Cc70d6790Dd43521C899C87ce02f35",
+        "0xe93237C50D904957Cf27E7B1133b510C669c2e74",
+        "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC",
+        "0x12f190a9F9d7D37a250758b26824B97CE941bF54",
+        "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168"
+      ],
+      "weightsBps": [
+        1500,
+        1500,
+        1500,
+        1500,
+        1500,
+        1500,
+        1000
+      ]
+    },
+    "MSFT": {
+      "depositToken": "0xe93237C50D904957Cf27E7B1133b510C669c2e74",
+      "tickers": [
+        "AAPL",
+        "AMZN",
+        "GOOGL",
+        "META",
+        "NVDA",
+        "MSFT",
+        "USDG"
+      ],
+      "tokens": [
+        "0xaF3D76f1834A1d425780943C99Ea8A608f8a93f9",
+        "0x12f190a9F9d7D37a250758b26824B97CE941bF54",
+        "0x2e0847E8910a9732eB3fb1bb4b70a580ADAD4FE3",
+        "0xc0D6457C16Cc70d6790Dd43521C899C87ce02f35",
+        "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC",
+        "0xe93237C50D904957Cf27E7B1133b510C669c2e74",
+        "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168"
+      ],
+      "weightsBps": [
+        1500,
+        1500,
+        1500,
+        1500,
+        1500,
+        1500,
+        1000
+      ]
+    },
+    "NVDA": {
+      "depositToken": "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC",
+      "tickers": [
+        "AAPL",
+        "AMZN",
+        "GOOGL",
+        "META",
+        "MSFT",
+        "NVDA",
+        "USDG"
+      ],
+      "tokens": [
+        "0xaF3D76f1834A1d425780943C99Ea8A608f8a93f9",
+        "0x12f190a9F9d7D37a250758b26824B97CE941bF54",
+        "0x2e0847E8910a9732eB3fb1bb4b70a580ADAD4FE3",
+        "0xc0D6457C16Cc70d6790Dd43521C899C87ce02f35",
+        "0xe93237C50D904957Cf27E7B1133b510C669c2e74",
+        "0xd0601CE157Db5bdC3162BbaC2a2C8aF5320D9EEC",
+        "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168"
+      ],
+      "weightsBps": [
+        1500,
+        1500,
+        1500,
+        1500,
+        1500,
+        1500,
+        1000
+      ]
+    },
+    "TSLA": {
+      "depositToken": "0x322F0929c4625eD5bAd873c95208D54E1c003b2d",
+      "tickers": [
+        "AAPL",
+        "AMZN",
+        "GOOGL",
+        "META",
+        "MSFT",
+        "TSLA",
+        "USDG"
+      ],
+      "tokens": [
+        "0xaF3D76f1834A1d425780943C99Ea8A608f8a93f9",
+        "0x12f190a9F9d7D37a250758b26824B97CE941bF54",
+        "0x2e0847E8910a9732eB3fb1bb4b70a580ADAD4FE3",
+        "0xc0D6457C16Cc70d6790Dd43521C899C87ce02f35",
+        "0xe93237C50D904957Cf27E7B1133b510C669c2e74",
+        "0x322F0929c4625eD5bAd873c95208D54E1c003b2d",
+        "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168"
+      ],
+      "weightsBps": [
+        1500,
+        1500,
+        1500,
+        1500,
+        1500,
+        1500,
+        1000
+      ]
+    }
+  }
+}

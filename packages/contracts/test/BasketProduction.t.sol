@@ -302,10 +302,14 @@ contract BasketProductionTest is Test {
     }
 
     function test_CashbackOwnerControls() public {
-        cashback.setRewardParams(50e8, 3e8, 100e8);
-        assertEq(cashback.depositStockbackUsd8(), 3e8);
+        cashback.setRewardTier(AllocationController.Strategy.Balanced, 50e8, 3e8);
+        assertEq(cashback.rewardUsd8For(AllocationController.Strategy.Balanced), 3e8);
         cashback.setGlobalBudget(1e8);
-        assertEq(cashback.canReward(user, 500e8), false, "budget below reward");
+        assertEq(cashback.canReward(AllocationController.Strategy.Balanced, user, 500e8), false, "budget below reward");
+
+        vm.prank(user);
+        vm.expectRevert();
+        cashback.setRewardTier(AllocationController.Strategy.Aggressive, 0, 100e8);
 
         vm.prank(user);
         vm.expectRevert();

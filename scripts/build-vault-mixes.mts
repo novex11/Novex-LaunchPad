@@ -1,11 +1,12 @@
 /**
- * Compute the fixed target mix of every Balanced basket vault with the same
+ * Compute the fixed target mix of every basket vault of one strategy with the same
  * allocator the app previews with, and write it where the Foundry deploy
  * scripts read it (`packages/contracts/vault-mixes-<chainId>.json`).
  *
  *   pnpm mixes:testnet                      # 5 faucet stocks on 46630
  *   pnpm mixes:mainnet                      # every stock in mainnet-onboard.json on 4663
  *   tsx scripts/build-vault-mixes.ts --mainnet --tickers NVDA,AAPL
+ *   tsx scripts/build-vault-mixes.ts --mainnet --strategy aggressive   # → vault-mixes-4663-aggressive.json
  *
  * A vault's mix is "deposit ticker + the strategy's default basket" — no
  * preferences, default basket size — so what CreateMainnetVaults /
@@ -26,7 +27,11 @@ import { allocationToMix, computeAllocation } from "../packages/sdk/src/allocati
 const root = join(import.meta.dirname, "..");
 const args = process.argv.slice(2);
 const mainnet = args.includes("--mainnet");
-const strategy: StrategyId = "balanced";
+const strategyArg = args.includes("--strategy") ? args[args.indexOf("--strategy") + 1] : "balanced";
+if (!strategyArg || !(strategyArg in STRATEGIES)) {
+  throw new Error(`--strategy must be one of ${Object.keys(STRATEGIES).join(", ")}`);
+}
+const strategy = strategyArg as StrategyId;
 const tickerArg = args[args.indexOf("--tickers") + 1];
 const only = args.includes("--tickers") && tickerArg ? tickerArg.split(",").map((t) => t.trim().toUpperCase()) : null;
 
@@ -78,7 +83,9 @@ for (const ticker of depositTickers) {
   mixes[ticker] = { depositToken: byTicker.get(ticker)!.address, tickers: mix.tickers, tokens, weightsBps: mix.weightsBps };
 }
 
-const outPath = join(root, `packages/contracts/vault-mixes-${chainId}.json`);
+// Balanced keeps the original file name the existing deploy flow reads.
+const suffix = strategy === "balanced" ? "" : `-${strategy}`;
+const outPath = join(root, `packages/contracts/vault-mixes-${chainId}${suffix}.json`);
 writeFileSync(
   outPath,
   JSON.stringify({ chainId, strategy, generatedAt: new Date().toISOString(), mixes }, null, 2) + "\n",

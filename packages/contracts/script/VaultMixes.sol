@@ -18,13 +18,27 @@ library VaultMixes {
         return string.concat("./vault-mixes-", vm.toString(chainId), ".json");
     }
 
+    /// @dev Balanced mixes keep the original file name; other strategies add a suffix.
+    function path(uint256 chainId, string memory strategy) internal pure returns (string memory) {
+        if (keccak256(bytes(strategy)) == keccak256("balanced")) return path(chainId);
+        return string.concat("./vault-mixes-", vm.toString(chainId), "-", strategy, ".json");
+    }
+
+    function load(uint256 chainId) internal view returns (string memory json) {
+        return load(chainId, "balanced");
+    }
+
     /// @dev Reverts when the file is missing so a deploy never silently creates
     ///      vaults without a mix.
-    function load(uint256 chainId) internal view returns (string memory json) {
-        string memory p = path(chainId);
+    function load(uint256 chainId, string memory strategy) internal view returns (string memory json) {
+        string memory p = path(chainId, strategy);
         require(vm.exists(p), string.concat("VaultMixes: missing ", p, " (run pnpm mixes:<network>)"));
         json = vm.readFile(p);
         require(vm.parseJsonUint(json, ".chainId") == chainId, "VaultMixes: wrong chain in mixes json");
+        require(
+            keccak256(bytes(vm.parseJsonString(json, ".strategy"))) == keccak256(bytes(strategy)),
+            string.concat("VaultMixes: ", p, " is not a ", strategy, " mix file")
+        );
     }
 
     function has(string memory json, string memory ticker) internal view returns (bool) {

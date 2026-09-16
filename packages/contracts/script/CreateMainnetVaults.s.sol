@@ -21,7 +21,7 @@ interface IPeripheryImmutableView {
     function factory() external view returns (address);
 }
 
-/// @title CreateMainnetVaults — one Balanced basket vault per onboarded stock
+/// @title CreateMainnetVaults — one basket vault per onboarded stock and strategy
 /// @notice Idempotent. For every stock in mainnet-onboard.json (category other
 ///         than "stable" / "crypto") with a feed on the live oracle it creates a
 ///         Balanced StrategyVault through the VaultFactory from deployments-
@@ -36,6 +36,9 @@ interface IPeripheryImmutableView {
 ///         already set on the swap adapter are left alone.
 ///
 ///   DEPLOYER_PRIVATE_KEY / FORK_IMPERSONATE_OWNER  see MainnetScriptBase (owner-gated)
+///   VAULT_STRATEGIES             comma list of defensive,balanced,aggressive (default balanced);
+///                                each reads vault-mixes-4663[-<strategy>].json and records
+///                                vaults as TICKER (balanced), TICKER-D or TICKER-A
 ///   VAULT_TICKERS                optional comma list restricting the run
 ///   VAULT_OFFSET / VAULT_LIMIT   optional batching window over the onboard list
 ///   MAINNET_ONBOARD_FILE, MAINNET_LAUNCHPAD_FILE, MAINNET_DEPLOYMENTS_DIR  see MainnetScriptBase
@@ -55,6 +58,8 @@ contract CreateMainnetVaults is MainnetScriptBase {
     mapping(string => bool) hasVaultEntry;
 
     string mixesJson;
+    AllocationController.Strategy currentStrategy;
+    string currentStrategyName;
 
     uint256 created;
     uint256 existing;
@@ -79,7 +84,7 @@ contract CreateMainnetVaults is MainnetScriptBase {
         require(address(factoryC.oracle()) == oracle, _err("VaultFactory oracle differs from the launchpad oracle"));
 
         _loadOnboard();
-        mixesJson = VaultMixes.load(CHAIN_ID);
+        string[] memory strategyNames = vm.envOr("VAULT_STRATEGIES", ",", _defaultStrategies());
         string memory vaultsPath = string.concat(_deploymentsDir(), "/deployments-mainnet-vaults.json");
         _loadExistingVaults(vaultsPath);
 
@@ -87,10 +92,16 @@ contract CreateMainnetVaults is MainnetScriptBase {
         (uint256 offset, uint256 end) = _window("VAULT");
 
         _startBroadcastAsOwner();
-        for (uint256 i = offset; i < end; ++i) {
-            if (!_isStock(categories[i])) continue;
-            if (filtered && !_contains(only, tickers[i])) continue;
-            _ensureVault(tickers[i], tokens[i]);
+        for (uint256 s; s < strategyNames.length; ++s) {
+            currentStrategyName = strategyNames[s];
+            currentStrategy = _strategyFromName(currentStrategyName);
+            mixesJson = VaultMixes.load(CHAIN_ID, currentStrategyName);
+            console2.log("strategy:", currentStrategyName);
+            for (uint256 i = offset; i < end; ++i) {
+                if (!_isStock(categories[i])) continue;
+                if (filtered && !_contains(only, tickers[i])) continue;
+                _ensureVault(tickers[i], tokens[i]);
+            }
         }
         vm.stopBroadcast();
 
@@ -109,7 +120,7 @@ contract CreateMainnetVaults is MainnetScriptBase {
             ++skippedNoFeed;
             return;
         }
-        AllocationController.Strategy strategy = AllocationController.Strategy.Balanced;
+        AllocationController.Strategy strategy = currentStrategy;
         address vault = factoryC.vaultByKey(keccak256(abi.encode(asset, strategy)));
         address receipt;
         if (vault == address(0)) {
@@ -123,8 +134,8 @@ contract CreateMainnetVaults is MainnetScriptBase {
                 VaultFactory.CreateParams({
                     depositAsset: asset,
                     strategy: strategy,
-                    receiptName: string.concat("Compose ", ticker, " Balanced"),
-                    receiptSymbol: string.concat("t", ticker, "-B"),
+                    receiptName: string.concat("Compose ", ticker, " ", _strategyLabel(strategy)),
+                    receiptSymbol: string.concat("t", ticker, "-", _strategySuffix(strategy)),
                     tvlCapUsd8: TVL_CAP_USD8,
                     targetTokens: mixTokens,
                     targetWeightsBps: mixWeights
@@ -141,7 +152,39 @@ contract CreateMainnetVaults is MainnetScriptBase {
             (address[] memory mixTokens,) = VaultMixes.get(mixesJson, ticker);
             _ensureRoutes(asset, mixTokens);
         }
-        _recordVault(ticker, vault, receipt);
+        _recordVault(_vaultKey(ticker, strategy), vault, receipt);
+    }
+
+    // ─── Strategies ─────────────────────────────────────────
+
+    function _defaultStrategies() internal pure returns (string[] memory names) {
+        names = new string[](1);
+        names[0] = "balanced";
+    }
+
+    function _strategyFromName(string memory name) internal pure returns (AllocationController.Strategy) {
+        if (_same(name, "defensive")) return AllocationController.Strategy.Defensive;
+        if (_same(name, "balanced")) return AllocationController.Strategy.Balanced;
+        if (_same(name, "aggressive")) return AllocationController.Strategy.Aggressive;
+        revert(string.concat("CreateMainnetVaults: unknown strategy ", name));
+    }
+
+    function _strategyLabel(AllocationController.Strategy strategy) internal pure returns (string memory) {
+        if (strategy == AllocationController.Strategy.Defensive) return "Defensive";
+        if (strategy == AllocationController.Strategy.Aggressive) return "Aggressive";
+        return "Balanced";
+    }
+
+    function _strategySuffix(AllocationController.Strategy strategy) internal pure returns (string memory) {
+        if (strategy == AllocationController.Strategy.Defensive) return "D";
+        if (strategy == AllocationController.Strategy.Aggressive) return "A";
+        return "B";
+    }
+
+    /// @dev Balanced vaults keep the bare ticker key the config sync already reads.
+    function _vaultKey(string memory ticker, AllocationController.Strategy strategy) internal pure returns (string memory) {
+        if (strategy == AllocationController.Strategy.Balanced) return ticker;
+        return string.concat(ticker, "-", _strategySuffix(strategy));
     }
 
     // ─── Swap routes ────────────────────────────────────────

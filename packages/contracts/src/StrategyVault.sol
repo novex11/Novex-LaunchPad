@@ -275,7 +275,7 @@ contract StrategyVault is Ownable, ReentrancyGuard {
         uint256 rewardTokenPrice = oracle.getPrice(depositAsset);
         if (rewardTokenPrice == 0) return;
 
-        uint256 rewardUsd8 = cashbackReserve.depositStockbackUsd8();
+        uint256 rewardUsd8 = cashbackReserve.rewardUsd8For(strategy);
         uint256 rewardAmount = (rewardUsd8 * 1e18) / rewardTokenPrice;
         if (rewardAmount == 0) return;
 
