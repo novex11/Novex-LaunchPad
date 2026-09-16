@@ -32,32 +32,72 @@
     "ponsLauncher": "0xd1B62082FA2bc914C90a9941D096275407CAb082",
     "ponsRouter": "0x20f9Ef88Fd2d44c3E174b48b3e8C9DAe676621C1",
     "allocationController": "0x999c41de7c8d4f39b6F908e02426566E29E38477",
-    "cashbackReserve": "0x90E3DEd5621C98deaed8cA3f2F7A281c4a581dB4",
+    "cashbackReserve": "0xd03320E899689F7423bC51D62D86b8a624B19659",
     "executionRouter": "0x89eaB37062dCa7a8E91D56b5661A9bCd352281A0",
     "swapAdapter": "0x6A32797122f48c5e153Dd83aC284e536A9D857FE",
-    "vaultFactory": "0xb5728c35c370951b427549F0B73351d18ef17F76"
+    "vaultFactory": "0xE44Fd486144b058d51D6C2A71aA045428FfAD6f3"
   },
   "vaults": {
     "AAPL": {
-      "vault": "0xF4fc54e7172148B32Bd6F88bBAd8Fc6BFa99Bd13",
-      "receipt": "0xBd5AF1277FE66BEFCc1E4b7538fB4DdF4027e883"
+      "vault": "0x50eAec579e01aE00CaA897Daa3F20d184a6E80Ad",
+      "receipt": "0x0c59a13A18676C64d4476278F76163e50fdACB33"
+    },
+    "AAPL-A": {
+      "vault": "0xe44F09E84beCb5aBdC4e1Ee6D19446E0725ebdE2",
+      "receipt": "0x6026e9529c9B4cf8fdA8cFeF0879ab97235Aa1c5"
+    },
+    "AAPL-D": {
+      "vault": "0x49D8f0C656e8b9A7ec633227689C6af7A6086534",
+      "receipt": "0xccb8b808afC866e334Cf0F39b9e780510D3DDB2A"
     },
     "AMZN": {
-      "vault": "0x7015dd859cE476c3653EfC4797F621cc0DA11c66",
-      "receipt": "0x4120D5Af60d26a19DD27AbbEc783488B6bb3D2D4"
+      "vault": "0x7294Fa765EAb1B215D165972bA715e274f3Eeda5",
+      "receipt": "0x207715A6d9aa939Ce175516807ed5Fdda6793290"
+    },
+    "AMZN-A": {
+      "vault": "0x4ecD3613ca76ff0Ef143e3636FD6f9783038B8ee",
+      "receipt": "0x14F341BC90376e22FBFa8391EfD7CF6be76B5736"
+    },
+    "AMZN-D": {
+      "vault": "0x8283bfe1d33721Aa70b32826D8D52624F8c735E0",
+      "receipt": "0xf8a435fCd34479FE37d086b47c3692F0B5295F0A"
     },
     "MSFT": {
-      "vault": "0x0f090a36DC8e4748C64Ea87155a0b778f4696276",
-      "receipt": "0x53D87aC326800034b9555bbE9eF4D00752024add"
+      "vault": "0x39097d16c1f7f27A9797D7C3208AAb71184EE6Fd",
+      "receipt": "0x8D3C5D25F42139fF01C416Bce6533d17ed7dC883"
+    },
+    "MSFT-A": {
+      "vault": "0x477c384c6Ce7f5821998f0a1a84079DA37aB7D21",
+      "receipt": "0x3b487E98D5CD8Eae19fA419C602FE9aBCa1f6d6D"
+    },
+    "MSFT-D": {
+      "vault": "0x753b0D06C1eE6d39F2832070AF184f37036c48fA",
+      "receipt": "0xC3BA0f97Ef061376a267bBB38b9A83955Ba8581A"
     },
     "NVDA": {
-      "vault": "0x870538992Cc26F49D31554D5027ea607949d57BA",
-      "receipt": "0x661110C0e794efA214c97B0a0787078bBbF05Bd5"
+      "vault": "0x364552832b09757FE2476f77283238a67ceA61e1",
+      "receipt": "0x25298ac0eC176E7d043B65E393b2c5273aC79344"
+    },
+    "NVDA-A": {
+      "vault": "0x3C4567CB74A1691f2B103B06F4030E55313B993E",
+      "receipt": "0x25973B7188209039721555Af69a61f3AaAdb17a7"
+    },
+    "NVDA-D": {
+      "vault": "0xC5b9b7E4a487Da4031Db79346CAa0546FA4cF1A3",
+      "receipt": "0xb5ecDD57062a21034714BB06C9B98a77df1b7808"
     },
     "TSLA": {
-      "vault": "0x40865e5e4A0b44392C87b8e95eCF065464689dD4",
-      "receipt": "0xDAe6d75B6A9ef1632d2A1BfD5F57CbF8559f4f81"
+      "vault": "0x1A606cF9810733bBB0100Bc28D24fC8BeC3dC33E",
+      "receipt": "0x7992cC290E4F08eA8842e6D2e4d52088A3E5Cf51"
+    },
+    "TSLA-A": {
+      "vault": "0xBC7199D33b49A9E4682D5AdC6497845DF6ed0872",
+      "receipt": "0x458Dad23f470d100418A512c14A884d082616709"
+    },
+    "TSLA-D": {
+      "vault": "0x66EfaB80523428ACc9AB6Ee1a9993BcBD63545Dd",
+      "receipt": "0x9DC09D90792b1941c5EEBa4e7F6436d80eFAe9d9"
     }
   },
-  "syncedAt": "2026-09-16T10:20:28.536Z"
+  "syncedAt": "2026-09-16T17:22:07.060Z"
 }

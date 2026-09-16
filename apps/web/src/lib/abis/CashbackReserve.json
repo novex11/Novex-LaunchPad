@@ -60,6 +60,11 @@
     "name": "canReward",
     "inputs": [
       {
+        "name": "strategy",
+        "type": "uint8",
+        "internalType": "enum AllocationController.Strategy"
+      },
+      {
         "name": "wallet",
         "type": "address",
         "internalType": "address"
@@ -75,19 +80,6 @@
         "name": "",
         "type": "bool",
         "internalType": "bool"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "depositStockbackUsd8",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -158,19 +150,6 @@
   {
     "type": "function",
     "name": "maxRewardedDepositUsd8",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "minEligibleDepositUsd8",
     "inputs": [],
     "outputs": [
       {
@@ -283,6 +262,49 @@
   },
   {
     "type": "function",
+    "name": "rewardTiers",
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint8",
+        "internalType": "enum AllocationController.Strategy"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "minDepositUsd8",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "rewardUsd8",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "rewardUsd8For",
+    "inputs": [
+      {
+        "name": "strategy",
+        "type": "uint8",
+        "internalType": "enum AllocationController.Strategy"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "setAuthorizedVault",
     "inputs": [
       {
@@ -345,20 +367,33 @@
   },
   {
     "type": "function",
-    "name": "setRewardParams",
+    "name": "setPerWalletCap",
     "inputs": [
       {
-        "name": "minEligibleDepositUsd8_",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "depositStockbackUsd8_",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
         "name": "perWalletCapUsd8_",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setRewardTier",
+    "inputs": [
+      {
+        "name": "strategy",
+        "type": "uint8",
+        "internalType": "enum AllocationController.Strategy"
+      },
+      {
+        "name": "minDepositUsd8",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "rewardUsd8",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -487,22 +522,35 @@
   },
   {
     "type": "event",
-    "name": "RewardParamsUpdated",
+    "name": "PerWalletCapUpdated",
     "inputs": [
       {
-        "name": "minEligibleDepositUsd8",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
-        "name": "depositStockbackUsd8",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
-      },
-      {
         "name": "perWalletCapUsd8",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "RewardTierUpdated",
+    "inputs": [
+      {
+        "name": "strategy",
+        "type": "uint8",
+        "indexed": true,
+        "internalType": "enum AllocationController.Strategy"
+      },
+      {
+        "name": "minDepositUsd8",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "rewardUsd8",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
