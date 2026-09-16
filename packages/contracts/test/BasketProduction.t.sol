@@ -272,7 +272,7 @@ contract BasketProductionTest is Test {
 
     // ─── Cashback reserve ────────────────────────────────────
 
-    function test_DepositEmitsValueAddedAndPaysBoundedStockback() public {
+    function test_DepositGrantsBoundedStockback() public {
         cashback.setOracle(address(oracle), 100);
         nvda.approve(address(cashback), 10 ether);
         cashback.fund(address(nvda), 10 ether);
@@ -280,36 +280,39 @@ contract BasketProductionTest is Test {
         uint256 before = nvda.balanceOf(user);
         vm.prank(user);
         uint256 shares = vault.deposit(1 ether, 0);
-        // $2 stockback in NVDA at $500 = 0.004 NVDA forwarded to the user
-        assertEq(nvda.balanceOf(user), before - 1 ether + 0.004 ether, "stockback forwarded");
-        assertEq(cashback.walletStockbackUsd8(user), 2e8);
+        // 1% of $500 = $5, reserved as 0.01 NVDA and not paid until it vests
+        assertEq(nvda.balanceOf(user), before - 1 ether, "nothing paid at deposit");
+        assertEq(cashback.walletStockbackUsd8(user), 5e8);
+        assertEq(cashback.reservedAmount(address(nvda)), 0.01 ether);
         assertGt(shares, 0);
     }
 
-    function test_CashbackRejectsOversizedPayout() public {
+    function test_CashbackRejectsOversizedGrant() public {
         cashback.setOracle(address(oracle), 100);
         nvda.approve(address(cashback), 10 ether);
         cashback.fund(address(nvda), 10 ether);
         cashback.setAuthorizedVault(address(this), true);
 
-        // $2 reward but asking for 1 NVDA ($500) of inventory
+        // $5 reward but asking for 1 NVDA ($500) of inventory
         vm.expectRevert(bytes("CashbackReserve: amount exceeds reward"));
-        cashback.payDepositStockback(user, address(nvda), 1 ether, 500e8);
+        cashback.grantStockback(user, address(nvda), 1 ether, 500e8, 1e8);
 
-        // Exactly $2 worth passes
-        cashback.payDepositStockback(user, address(nvda), 0.004 ether, 500e8);
-        assertEq(nvda.balanceOf(address(this)) >= 0.004 ether, true);
+        // Exactly $5 worth passes
+        cashback.grantStockback(user, address(nvda), 0.01 ether, 500e8, 1e8);
+        assertEq(cashback.reservedAmount(address(nvda)), 0.01 ether);
     }
 
     function test_CashbackOwnerControls() public {
-        cashback.setRewardTier(AllocationController.Strategy.Balanced, 50e8, 3e8);
-        assertEq(cashback.rewardUsd8For(AllocationController.Strategy.Balanced), 3e8);
+        cashback.setRewardParams(200, 50e8, 10e8);
+        assertEq(cashback.quoteReward(user, 100e8), 2e8, "2% of $100");
         cashback.setGlobalBudget(1e8);
-        assertEq(cashback.canReward(AllocationController.Strategy.Balanced, user, 500e8), false, "budget below reward");
+        assertEq(cashback.quoteReward(user, 500e8), 1e8, "clamped to budget");
 
         vm.prank(user);
         vm.expectRevert();
-        cashback.setRewardTier(AllocationController.Strategy.Aggressive, 0, 100e8);
+        cashback.setRewardParams(100, 0, 100e8);
+        vm.expectRevert(bytes("CashbackReserve: rate too high"));
+        cashback.setRewardParams(1_001, 0, 100e8);
 
         vm.prank(user);
         vm.expectRevert();

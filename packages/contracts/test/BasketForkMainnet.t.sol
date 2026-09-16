@@ -100,10 +100,9 @@ contract BasketForkMainnetTest is Test {
         emit log_named_decimal_uint("deposit USD", depositUsd * 1e8, 8);
         emit log_named_decimal_uint("vault NAV after swaps USD", nav8, 8);
         emit log_named_decimal_uint("shares", shares, 8);
-        emit log_named_decimal_uint("stockback paid USD", cashback.walletStockbackUsd8(user), 8);
-        emit log_named_decimal_uint("user deposit-asset balance (stockback)", IERC20(depositToken).balanceOf(user), 18);
+        emit log_named_decimal_uint("stockback granted USD", cashback.walletStockbackUsd8(user), 8);
         assertGe(nav8, (depositUsd * 1e8 * 97) / 100, "swaps lost more than 3%");
-        assertEq(cashback.walletStockbackUsd8(user), 2e8, "stockback not paid");
+        assertGt(cashback.walletStockbackUsd8(user), 0, "stockback not granted");
 
         vm.startPrank(user);
         StrategyVault(vault).redeem(shares / 2, StrategyVault.RedeemMode.ProportionalBasket, 0);
@@ -112,6 +111,55 @@ contract BasketForkMainnetTest is Test {
         vm.stopPrank();
         emit log_named_decimal_uint("redeemed back to deposit asset", IERC20(depositToken).balanceOf(user) - before, 18);
         assertEq(ReceiptToken(receipt).balanceOf(user), 0, "shares left");
+        assertEq(cashback.walletStockbackUsd8(user), 0, "early redeem forfeits the grant");
+    }
+
+    /// @notice A wallet's repeat deposits into one vault each earn their grant until the wallet cap.
+    function test_fork_repeatDepositsGrantUpToWalletCap() public {
+        if (block.chainid != 4663) {
+            emit log("skipped: run with --fork-url <robinhood mainnet rpc>");
+            return;
+        }
+        _loadLaunchpad();
+        _deployStack();
+
+        string memory ticker = vm.envOr("BASKET_FORK_TICKER", string("NVDA"));
+        string memory mixes = vm.readFile("vault-mixes-4663.json");
+        address depositToken = mixes.readAddress(string.concat(".mixes.", ticker, ".depositToken"));
+        address[] memory tokens = mixes.readAddressArray(string.concat(".mixes.", ticker, ".tokens"));
+        uint256[] memory weights = mixes.readUintArray(string.concat(".mixes.", ticker, ".weightsBps"));
+        _ensureFeeds(tokens);
+        _routeViaUsdg(tokens, depositToken);
+        (address vault,) = factory.createVault(
+            VaultFactory.CreateParams({
+                depositAsset: depositToken,
+                strategy: AllocationController.Strategy.Balanced,
+                receiptName: "r",
+                receiptSymbol: "r",
+                tvlCapUsd8: 1_000_000e8,
+                targetTokens: tokens,
+                targetWeightsBps: weights
+            })
+        );
+        execRouter.setAuthorizedCaller(vault, true);
+        cashback.setAuthorizedVault(vault, true);
+
+        uint256 price8 = OracleAdapter(oracle).getPrice(depositToken);
+        deal(depositToken, address(this), (200e8 * 1e18) / price8);
+        IERC20(depositToken).approve(address(cashback), type(uint256).max);
+        cashback.fund(depositToken, IERC20(depositToken).balanceOf(address(this)));
+
+        uint256 amount = (1_500e8 * 1e18) / price8 + 1;
+        deal(depositToken, user, amount * 4);
+        vm.startPrank(user);
+        IERC20(depositToken).approve(vault, type(uint256).max);
+        uint256[4] memory expected = [uint256(10e8), 20e8, 25e8, 25e8];
+        for (uint256 i; i < 4; ++i) {
+            StrategyVault(vault).deposit(amount, 0);
+            emit log_named_decimal_uint("wallet stockback USD", cashback.walletStockbackUsd8(user), 8);
+            assertEq(cashback.walletStockbackUsd8(user), expected[i], "grant");
+        }
+        vm.stopPrank();
     }
 
     /// @notice Lists which Uniswap v3 pools exist between each basket token and USDG / each other.

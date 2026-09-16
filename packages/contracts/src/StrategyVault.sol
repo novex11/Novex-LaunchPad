@@ -67,7 +67,6 @@ contract StrategyVault is Ownable, ReentrancyGuard {
         uint256 amountIn,
         uint256 amountOut
     );
-    event CashbackForwarded(address indexed user, uint256 amount);
     event TvlCapUpdated(uint256 tvlCapUsd8);
     event TargetMixSet(address[] tokens, uint256[] weightsBps);
 
@@ -216,8 +215,8 @@ contract StrategyVault is Ownable, ReentrancyGuard {
         totalShares += sharesMinted;
         receiptToken.mint(msg.sender, sharesMinted);
 
-        // Try to pay Stockback cashback to user
-        _tryCashback(msg.sender, depositValue8);
+        // Grant vesting Stockback against the shares just minted
+        _tryCashback(msg.sender, depositValue8, sharesMinted);
 
         emit Deposited(msg.sender, amount, sharesMinted, valueAdded8);
     }
@@ -269,29 +268,32 @@ contract StrategyVault is Ownable, ReentrancyGuard {
         }
     }
 
-    function _tryCashback(address user, uint256 depositUsd8) internal {
+    /// @dev Grants vesting Stockback in the deposit asset. A reserve that is empty, paused
+    ///      or capped never blocks a deposit, but a grant starved of gas reverts the deposit
+    ///      instead of silently skipping, so gas estimation always leaves room for it.
+    function _tryCashback(address user, uint256 depositUsd8, uint256 sharesMinted) internal {
         if (address(cashbackReserve) == address(0)) return;
 
-        uint256 rewardTokenPrice = oracle.getPrice(depositAsset);
-        if (rewardTokenPrice == 0) return;
-
-        uint256 rewardUsd8 = cashbackReserve.rewardUsd8For(strategy);
-        uint256 rewardAmount = (rewardUsd8 * 1e18) / rewardTokenPrice;
-        if (rewardAmount == 0) return;
-
-        // payDepositStockback sends reward tokens to this vault; we forward to user.
-        // Wrapped in try/catch so deposits succeed even if cashback fails.
-        try cashbackReserve.payDepositStockback(
-            user,
-            depositAsset,
-            rewardAmount,
-            depositUsd8
-        ) {
-            IERC20(depositAsset).safeTransfer(user, rewardAmount);
-            emit CashbackForwarded(user, rewardAmount);
+        uint256 gasBefore = gasleft();
+        try cashbackReserve.quoteReward(user, depositUsd8) returns (uint256 rewardUsd8) {
+            if (rewardUsd8 == 0) return;
+            uint256 price = oracle.getPrice(depositAsset);
+            if (price == 0) return;
+            uint256 rewardAmount = (rewardUsd8 * 10 ** IERC20Metadata(depositAsset).decimals()) / price;
+            if (rewardAmount == 0) return;
+            gasBefore = gasleft();
+            try cashbackReserve.grantStockback(user, depositAsset, rewardAmount, depositUsd8, sharesMinted) {}
+            catch {
+                _requireNotStarved(gasBefore);
+            }
         } catch {
-            // Cashback unavailable — deposit still succeeds
+            _requireNotStarved(gasBefore);
         }
+    }
+
+    /// @dev A call that failed with under 1/64 of its gas left most likely ran out of gas.
+    function _requireNotStarved(uint256 gasBefore) internal view {
+        require(gasleft() > gasBefore / 64, "StrategyVault: out of gas");
     }
 
     // ─── Redeem ─────────────────────────────────────────────
@@ -321,7 +323,21 @@ contract StrategyVault is Ownable, ReentrancyGuard {
             _redeemUsdStable(shareRatio, minOut);
         }
 
+        _forfeitUnvestedStockback(msg.sender);
+
         emit Redeemed(msg.sender, shares, mode, valueUsd8);
+    }
+
+    /// @dev Stockback that has not vested is forfeited when its shares are redeemed. A
+    ///      reverting reserve never blocks an exit, but a call starved of gas (to dodge
+    ///      forfeiture) reverts the redeem instead of silently skipping.
+    function _forfeitUnvestedStockback(address user) internal {
+        if (address(cashbackReserve) == address(0)) return;
+        uint256 gasBefore = gasleft();
+        try cashbackReserve.onRedeem(user, receiptToken.balanceOf(user)) {}
+        catch {
+            _requireNotStarved(gasBefore);
+        }
     }
 
     /// @dev Swap basket tokens back to deposit asset, then transfer to redeemer

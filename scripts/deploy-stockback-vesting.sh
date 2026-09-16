@@ -1,19 +1,20 @@
 #!/usr/bin/env bash
-# Per-strategy Stockback on Robinhood Chain mainnet (4663).
+# Vesting Stockback on Robinhood Chain mainnet (4663).
 #
-#   bash scripts/deploy-stockback-tiers.sh --fork                  # full rehearsal on an anvil fork (nothing real)
-#   CONFIRM_MAINNET=yes bash scripts/deploy-stockback-tiers.sh     # real
-#   PHASES=tiers,vaults,migrate,sync   (default: all) — e.g. retire later with PHASES=retire once the site uses the new factory
+#   bash scripts/deploy-stockback-vesting.sh --fork                  # full rehearsal on an anvil fork (nothing real)
+#   CONFIRM_MAINNET=yes bash scripts/deploy-stockback-vesting.sh     # real
+#   PHASES=reserve,vaults,migrate,sync   (default: all) — e.g. retire later with PHASES=retire once the site uses the new factory
 #
 # Phases:
-#   tiers    DeployMainnetStockbackTiers  tiered CashbackReserve + VaultFactory (reuses router/controller/adapter)
+#   reserve  DeployMainnetStockbackVesting  vesting CashbackReserve + VaultFactory (reuses router/controller/adapter)
 #   vaults   CreateMainnetVaults          Defensive, Balanced and Aggressive vaults for VAULT_TICKERS
-#   migrate  move every Stockback token from the retired reserve into the tiered one, pause the retired reserve
+#   migrate  move every Stockback token from the retired reserve into the new one, pause the retired reserve
 #   retire   TVL cap 0 on every retired-factory vault so it takes no new deposits (redeem keeps working)
 #   sync     packages/config/src/mainnet-deployments.json (never touches .env)
-#   deposits (fork only) real deposits at each tier boundary and asserts the Stockback paid
+#   deposits (fork only) real deposits: grant sizes and caps, forfeit on early redeem, claim after vesting
 #
-# Tiers (CashbackReserve constructor): Defensive $0.77 from $50 · Balanced $2 from $50 · Aggressive $6 from $150.
+# Reward (CashbackReserve defaults): 1% of the deposit from $50, max $10 per deposit and $25 per wallet,
+# same for every strategy, vests 7 days, forfeited if the shares are redeemed before then.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -36,7 +37,7 @@ ORACLE="$(node -p "require('$CONTRACTS/deployments-mainnet-launchpad.json').cont
 USDG=0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168
 export VAULT_TICKERS="${VAULT_TICKERS:-NVDA,AMZN,TSLA,AAPL,MSFT}"
 export VAULT_STRATEGIES="${VAULT_STRATEGIES:-defensive,balanced,aggressive}"
-PHASES="${PHASES:-tiers,vaults,migrate,retire,sync}"
+PHASES="${PHASES:-reserve,vaults,migrate,retire,sync}"
 phase() { [[ ",$PHASES," == *",$1,"* ]]; }
 ANVIL_PID=""
 cleanup() { [[ -n "$ANVIL_PID" ]] && kill "$ANVIL_PID" 2>/dev/null || true; }
@@ -49,10 +50,10 @@ if [[ "$MODE" == fork ]]; then
   # Cold fork reads (every Uniswap pool a basket deposit touches) are slow on first use.
   export ETH_RPC_TIMEOUT=600
   RPC="http://127.0.0.1:$PORT"
-  DEPLOY_DIR="$CONTRACTS/broadcast/fork-tiers"
+  DEPLOY_DIR="$CONTRACTS/broadcast/fork-vesting"
   rm -rf "$DEPLOY_DIR" && mkdir -p "$DEPLOY_DIR"
   cp "$CONTRACTS"/deployments-mainnet-{baskets,vaults}.json "$DEPLOY_DIR"/
-  export FOUNDRY_BROADCAST="broadcast/fork-tiers" MAINNET_DEPLOYMENTS_DIR="./broadcast/fork-tiers" FORK_IMPERSONATE_OWNER=1
+  export FOUNDRY_BROADCAST="broadcast/fork-vesting" MAINNET_DEPLOYMENTS_DIR="./broadcast/fork-vesting" FORK_IMPERSONATE_OWNER=1
   unset DEPLOYER_PRIVATE_KEY
   anvil --fork-url "${ROBINHOOD_RPC_URL:-$PUBLIC_RPC}" --port $PORT --chain-id $CHAIN_ID --hardfork shanghai \
     --auto-impersonate --silent > "$DEPLOY_DIR/anvil.log" 2>&1 &
@@ -93,17 +94,17 @@ send() {
 big() { node -e "process.stdout.write(String($1))"; }
 
 (cd "$CONTRACTS" && forge clean >/dev/null && rm -rf foundry-pp)
-if phase tiers; then
-  echo "▶️   tiers"
-  forge_run DeployMainnetStockbackTiers DeployMainnetStockbackTiers
+if phase reserve; then
+  echo "▶️   reserve"
+  forge_run DeployMainnetStockbackVesting DeployMainnetStockbackVesting
 fi
 BASKETS="$DEPLOY_DIR/deployments-mainnet-baskets.json"
 NEW_RESERVE="$(node -p "require('$BASKETS').contracts.cashbackReserve")"
 NEW_FACTORY="$(node -p "require('$BASKETS').contracts.vaultFactory")"
 OLD_RESERVE="$(node -p "(require('$BASKETS').retired||{}).cashbackReserve||''")"
 OLD_FACTORY="$(node -p "(require('$BASKETS').retired||{}).vaultFactory||''")"
-[[ "$(call "$NEW_RESERVE" 'rewardUsd8For(uint8)(uint256)' 2)" == 600000000 ]] || { echo "❌  $NEW_RESERVE is not a tiered reserve"; exit 1; }
-echo "   tiered reserve $NEW_RESERVE · factory $NEW_FACTORY · retired reserve ${OLD_RESERVE:-none} · retired factory ${OLD_FACTORY:-none}"
+[[ "$(call "$NEW_RESERVE" 'vestingPeriod()(uint256)')" == 604800 ]] || { echo "❌  $NEW_RESERVE is not a vesting reserve"; exit 1; }
+echo "   vesting reserve $NEW_RESERVE · factory $NEW_FACTORY · retired reserve ${OLD_RESERVE:-none} · retired factory ${OLD_FACTORY:-none}"
 
 if phase vaults; then
 echo "▶️   vaults"
@@ -156,35 +157,72 @@ if [[ "$MODE" == fork ]]; then
   cast rpc anvil_setBalance "$WHALE" 0xDE0B6B3A7640000 --rpc-url "$RPC" >/dev/null
   PRICE="$(call "$ORACLE" 'getPrice(address)(uint256)' "$NVDA")"
   n=0
-  check() { # strategy(uint8) usd expectRewardUsd8
+  vault_of() { cast call "$NEW_FACTORY" 'getVault(address,uint8)(address,address)' "$NVDA" "$1" --rpc-url "$RPC" | head -1; }
+  new_user() {
     n=$((n + 1))
-    local S=$1 USD=$2 EXPECT=$3 USER
     USER="0x$(printf '%040x' $((0xC0FFEE00 + n)))"
-    local VAULT; VAULT="$(cast call "$NEW_FACTORY" 'getVault(address,uint8)(address,address)' "$NVDA" "$S" --rpc-url "$RPC" | head -1)"
-    local AMT; AMT="$(big "(BigInt(Math.round($USD*1e8))*10n**18n)/BigInt('$PRICE')+1n")"
     cast rpc anvil_setBalance "$USER" 0xDE0B6B3A7640000 --rpc-url "$RPC" >/dev/null
+  }
+  deposit() { # strategy(uint8) usd expectGrantedUsd8 — deposits as $USER, asserts the grant and that nothing is paid yet
+    local S=$1 USD=$2 EXPECT=$3 VAULT AMT BEFORE AFTER
+    VAULT="$(vault_of "$S")"
+    AMT="$(big "(BigInt(Math.round($USD*1e8))*10n**18n)/BigInt('$PRICE')+1n")"
+    BEFORE="$(call "$NEW_RESERVE" 'walletStockbackUsd8(address)(uint256)' "$USER")"
     cast send "$NVDA" 'transfer(address,uint256)' "$USER" "$AMT" --from "$WHALE" --unlocked --rpc-url "$RPC" >/dev/null
     cast send "$NVDA" 'approve(address,uint256)' "$VAULT" "$AMT" --from "$USER" --unlocked --rpc-url "$RPC" >/dev/null
-    cast send "$VAULT" 'deposit(uint256,uint256)' "$AMT" 0 --from "$USER" --unlocked --rpc-url "$RPC" >/dev/null
-    local PAID; PAID="$(call "$NEW_RESERVE" 'walletStockbackUsd8(address)(uint256)' "$USER")"
-    local GOT; GOT="$(call "$NVDA" 'balanceOf(address)(uint256)' "$USER")"
-    printf "   strategy %s deposit \$%-7s → stockback \$%s (user got %s NVDA wei)\n" "$S" "$USD" "$(big "Number('$PAID')/1e8")" "$GOT"
-    [[ "$PAID" == "$EXPECT" ]] || { echo "❌  expected $EXPECT"; exit 1; }
+    local TX; TX="$(cast send "$VAULT" 'deposit(uint256,uint256)' "$AMT" 0 --from "$USER" --unlocked --rpc-url "$RPC" --json | node -pe 'JSON.parse(require("fs").readFileSync(0)).transactionHash')"
+    AFTER="$(call "$NEW_RESERVE" 'walletStockbackUsd8(address)(uint256)' "$USER")"
+    local GRANTED; GRANTED="$(big "BigInt('$AFTER')-BigInt('$BEFORE')")"
+    printf "   strategy %s deposit \$%-7s → granted \$%s (vesting)\n" "$S" "$USD" "$(big "Number('$GRANTED')/1e8")"
+    if [[ "$GRANTED" != "$EXPECT" ]]; then
+      echo "❌  expected $EXPECT (deposit tx $TX)"
+      cast receipt "$TX" --rpc-url "$RPC" 2>&1 | grep -E "^status|^gasUsed" || true
+      echo "   quote now: $(call "$NEW_RESERVE" 'quoteReward(address,uint256)(uint256)' "$USER" "$(big "Math.round($USD*1e8)")")"
+      echo "   available NVDA: $(call "$NEW_RESERVE" 'availableInventory(address)(uint256)' "$NVDA") reserved: $(call "$NEW_RESERVE" 'reservedAmount(address)(uint256)' "$NVDA")"
+      echo "   grants: $(cast call "$NEW_RESERVE" 'grantsOf(address,address)((address,uint64,uint256,uint256,uint256)[])' "$VAULT" "$USER" --rpc-url "$RPC")"
+      echo "   price: $(cast call "$ORACLE" 'getPrice(address)(uint256)' "$NVDA" --rpc-url "$RPC" 2>&1 | head -1) · block ts $(cast block latest --field timestamp --rpc-url "$RPC")"
+      cast run "$TX" --rpc-url "$RPC" > "$DEPLOY_DIR/failed-deposit.trace" 2>&1 || true
+      grep -nE "grantStockback|quoteReward|Revert" "$DEPLOY_DIR/failed-deposit.trace" | head -20 || true
+      exit 1
+    fi
+    [[ "$(call "$NVDA" 'balanceOf(address)(uint256)' "$USER")" == 0 ]] || { echo "❌  Stockback paid before vesting"; exit 1; }
   }
-  check 0 49.9 0
-  check 0 50.1 77000000
-  check 1 49.9 0
-  check 1 50.1 200000000
-  check 2 149.9 0
-  check 2 150.1 600000000
+  cast rpc anvil_setBalance "$WHALE" 0xDE0B6B3A7640000 --rpc-url "$RPC" >/dev/null
+  # The migrated ~$39 of NVDA cannot back every grant below; top the reserve up by ~$100.
+  TOPUP="$(big "(100n*10n**26n)/BigInt('$PRICE')")"
+  cast send "$NVDA" 'transfer(address,uint256)' "$OWNER" "$TOPUP" --from "$WHALE" --unlocked --rpc-url "$RPC" >/dev/null
+  send "$NVDA" 'approve(address,uint256)' "$NEW_RESERVE" "$TOPUP"
+  send "$NEW_RESERVE" 'fund(address,uint256)' "$NVDA" "$TOPUP"
+
+  new_user; deposit 0 49.9 0
+  new_user; deposit 0 50.1 50100000
+  new_user; deposit 0 300 300000000; HOLDER="$USER"
+  new_user; deposit 1 300 300000000
+  new_user; deposit 2 1500 1000000000
+  echo "   wallet cap \$25:"
+  new_user; deposit 1 1500 1000000000; deposit 1 1500 1000000000; deposit 1 1500 500000000; deposit 1 1500 0
+  echo "   early redeem forfeits:"
+  new_user; deposit 1 300 300000000
+  V="$(vault_of 1)"; R="$(cast call "$V" 'receiptToken()(address)' --rpc-url "$RPC")"
+  SH="$(call "$R" 'balanceOf(address)(uint256)' "$USER")"
+  cast send "$V" 'redeem(uint256,uint8,uint256)' "$SH" 1 0 --from "$USER" --unlocked --rpc-url "$RPC" >/dev/null
+  [[ "$(call "$NEW_RESERVE" 'walletStockbackUsd8(address)(uint256)' "$USER")" == 0 ]] || { echo "❌  grant not forfeited"; exit 1; }
+  echo "   ✅ forfeited"
+  echo "   claim after 7 days:"
+  cast rpc evm_increaseTime 604801 --rpc-url "$RPC" >/dev/null && cast rpc evm_mine --rpc-url "$RPC" >/dev/null
+  cast send "$NEW_RESERVE" 'claim(address,address)' "$(vault_of 0)" "$HOLDER" --from "$OWNER" --unlocked --rpc-url "$RPC" >/dev/null
+  GOT="$(call "$NVDA" 'balanceOf(address)(uint256)' "$HOLDER")"
+  printf "   holder received %s NVDA wei (\$%s)\n" "$GOT" "$(big "(Number('$GOT')*Number('$PRICE')/1e26).toFixed(4)")"
+  [[ "$GOT" != 0 ]] || { echo "❌  claim paid nothing"; exit 1; }
   echo "   retired vault rejects deposits:"
   OLDV="$(cast call "$OLD_FACTORY" 'vaults(uint256)(address,address,address,uint8)' 0 --rpc-url "$RPC" | head -1)"
   if cast send "$OLDV" 'deposit(uint256,uint256)' 1 0 --from "$OWNER" --unlocked --rpc-url "$RPC" >/dev/null 2>&1; then echo "❌  retired vault accepted a deposit"; exit 1; else echo "   ✅ reverted"; fi
-  echo "   recovery: withdraw all NVDA from tiered reserve as owner"
-  B="$(call "$NVDA" 'balanceOf(address)(uint256)' "$NEW_RESERVE")"
+  echo "   recovery: owner withdraws unreserved NVDA; reserved NVDA stays for open grants"
+  B="$(call "$NEW_RESERVE" 'availableInventory(address)(uint256)' "$NVDA")"
   send "$NEW_RESERVE" 'withdraw(address,address,uint256)' "$NVDA" "$OWNER" "$B"
-  echo "   reserve NVDA now $(call "$NVDA" 'balanceOf(address)(uint256)' "$NEW_RESERVE")"
+  echo "   reserve NVDA now $(call "$NVDA" 'balanceOf(address)(uint256)' "$NEW_RESERVE") (reserved $(call "$NEW_RESERVE" 'reservedAmount(address)(uint256)' "$NVDA"))"
+  if cast send "$NEW_RESERVE" 'withdraw(address,address,uint256)' "$NVDA" "$OWNER" 1 --from "$OWNER" --unlocked --rpc-url "$RPC" >/dev/null 2>&1; then echo "❌  owner withdrew reserved inventory"; exit 1; else echo "   ✅ reserved inventory protected"; fi
   echo "✅  fork rehearsal passed"
 else
-  echo "✅  mainnet done: tiered reserve $NEW_RESERVE · factory $NEW_FACTORY"
+  echo "✅  mainnet done: vesting reserve $NEW_RESERVE · factory $NEW_FACTORY"
 fi

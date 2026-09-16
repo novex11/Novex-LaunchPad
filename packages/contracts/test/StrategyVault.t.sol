@@ -277,26 +277,24 @@ contract StrategyVaultTest is Test {
 
     // ─── B.3: Cashback ──────────────────────────────────────
 
-    function test_CashbackPaidOnDeposit() public {
+    function test_CashbackGrantedNotPaidOnDeposit() public {
         uint256 userNvdaBefore = nvda.balanceOf(user);
 
         vm.prank(user);
         vault.deposit(1 ether, 0);
 
-        // Deposit value = 1 NVDA * $500 = $500 → eligible for $2 stockback
-        // $2 stockback in NVDA terms = 2e8 * 1e18 / 500e8 = 0.004e18
-        uint256 userNvdaAfter = nvda.balanceOf(user);
-        // User spent 1 ether NVDA but got some cashback back
-        uint256 spent = userNvdaBefore - userNvdaAfter;
-        assertLt(spent, 1 ether, "user received cashback (spent < deposited)");
+        // Deposit value = 1 NVDA * $500 → 1% = $5, vesting in the reserve
+        assertEq(userNvdaBefore - nvda.balanceOf(user), 1 ether, "no payout at deposit");
+        (uint256 amount, uint256 usd8,) = cashback.pending(address(vault), user);
+        assertEq(usd8, 5e8);
+        assertEq(amount, 0.01 ether);
     }
 
     function test_CashbackTrackedPerWallet() public {
         vm.prank(user);
         vault.deposit(1 ether, 0);
 
-        assertGt(cashback.walletStockbackUsd8(user), 0, "cashback tracked");
-        assertEq(cashback.walletStockbackUsd8(user), 2e8, "cashback = $2 flat");
+        assertEq(cashback.walletStockbackUsd8(user), 5e8, "cashback = 1% of $500");
     }
 
     // ─── B.4: Proportional redeem ───────────────────────────
