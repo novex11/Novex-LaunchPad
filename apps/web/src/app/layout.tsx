@@ -24,6 +24,23 @@ export const metadata: Metadata = {
   title: "Compose — Managed Stock Baskets",
   description:
     "Deposit one tokenized stock, receive a managed basket plus Stockback, and keep 100% of portfolio performance.",
+  metadataBase: new URL("https://usecompose.xyz"),
+  openGraph: {
+    title: "Compose — Managed Stock Baskets",
+    description:
+      "Deposit one tokenized stock, receive a managed basket plus Stockback, and keep 100% of portfolio performance.",
+    url: "https://usecompose.xyz",
+    siteName: "Compose",
+    images: [{ url: "/og-image.png", width: 1200, height: 698, alt: "Compose: deposit one stock, own the market." }],
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Compose — Managed Stock Baskets",
+    description:
+      "Deposit one tokenized stock, receive a managed basket plus Stockback, and keep 100% of portfolio performance.",
+    images: ["/og-image.png"],
+  },
 };
 
 export default function RootLayout({
