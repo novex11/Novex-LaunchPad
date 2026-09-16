@@ -1,0 +1,22 @@
+{
+  "AAPL": {
+    "receipt": "0xBd5AF1277FE66BEFCc1E4b7538fB4DdF4027e883",
+    "vault": "0xF4fc54e7172148B32Bd6F88bBAd8Fc6BFa99Bd13"
+  },
+  "AMZN": {
+    "receipt": "0x4120D5Af60d26a19DD27AbbEc783488B6bb3D2D4",
+    "vault": "0x7015dd859cE476c3653EfC4797F621cc0DA11c66"
+  },
+  "MSFT": {
+    "receipt": "0x53D87aC326800034b9555bbE9eF4D00752024add",
+    "vault": "0x0f090a36DC8e4748C64Ea87155a0b778f4696276"
+  },
+  "NVDA": {
+    "receipt": "0x661110C0e794efA214c97B0a0787078bBbF05Bd5",
+    "vault": "0x870538992Cc26F49D31554D5027ea607949d57BA"
+  },
+  "TSLA": {
+    "receipt": "0xDAe6d75B6A9ef1632d2A1BfD5F57CbF8559f4f81",
+    "vault": "0x40865e5e4A0b44392C87b8e95eCF065464689dD4"
+  }
+}

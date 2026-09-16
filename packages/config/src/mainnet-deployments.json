@@ -6,6 +6,7 @@
     "AAPL": "0x273Cb738FE4eF162BCDFb603c89DA224e1b67b0E",
     "AMZN": "0xD5110Cb8fdbeab56dA82fE76d9c8060BB6381A7d",
     "GOOGL": "0x3d5661B635dA3bb607a95BE39D4d28Fc24F4c683",
+    "META": "0xF214882Fe0cA6cF55658481f721525475295D42E",
     "MSFT": "0xA28AEa69fb5EFA7CC9fef4DC3178f443f19174B6",
     "NVDA": "0xe5F00A9e04eD6D86Dc53BFcD8dE4BaD22e4fe5E4",
     "QQQ": "0x74f925dA54E932f11D8c5B0885331a764a1c157b",
@@ -27,15 +28,36 @@
     "usdgFeed": "0xBBC83BF6C3330d691a27eca9402E6d1ba3F09CAC",
     "composeCurve": "0x82b873C7033463dA1a449aef878c6A842B437d97",
     "curveRouter": "0x48b6c19C7bF7Ed9c9F14f39190ba4a67B15af259",
-    "allocationController": "",
-    "cashbackReserve": "",
-    "executionRouter": "",
-    "swapAdapter": "",
-    "vaultFactory": "",
     "ponsFactory": "0x7eD598BcEf8bd9Edd8C97A195C6d13f40801EC7e",
     "ponsLauncher": "0xd1B62082FA2bc914C90a9941D096275407CAb082",
-    "ponsRouter": "0x20f9Ef88Fd2d44c3E174b48b3e8C9DAe676621C1"
+    "ponsRouter": "0x20f9Ef88Fd2d44c3E174b48b3e8C9DAe676621C1",
+    "allocationController": "0x999c41de7c8d4f39b6F908e02426566E29E38477",
+    "cashbackReserve": "0x90E3DEd5621C98deaed8cA3f2F7A281c4a581dB4",
+    "executionRouter": "0x89eaB37062dCa7a8E91D56b5661A9bCd352281A0",
+    "swapAdapter": "0x6A32797122f48c5e153Dd83aC284e536A9D857FE",
+    "vaultFactory": "0xb5728c35c370951b427549F0B73351d18ef17F76"
   },
-  "vaults": {},
-  "syncedAt": "2026-09-15T22:54:29.980Z"
+  "vaults": {
+    "AAPL": {
+      "vault": "0xF4fc54e7172148B32Bd6F88bBAd8Fc6BFa99Bd13",
+      "receipt": "0xBd5AF1277FE66BEFCc1E4b7538fB4DdF4027e883"
+    },
+    "AMZN": {
+      "vault": "0x7015dd859cE476c3653EfC4797F621cc0DA11c66",
+      "receipt": "0x4120D5Af60d26a19DD27AbbEc783488B6bb3D2D4"
+    },
+    "MSFT": {
+      "vault": "0x0f090a36DC8e4748C64Ea87155a0b778f4696276",
+      "receipt": "0x53D87aC326800034b9555bbE9eF4D00752024add"
+    },
+    "NVDA": {
+      "vault": "0x870538992Cc26F49D31554D5027ea607949d57BA",
+      "receipt": "0x661110C0e794efA214c97B0a0787078bBbF05Bd5"
+    },
+    "TSLA": {
+      "vault": "0x40865e5e4A0b44392C87b8e95eCF065464689dD4",
+      "receipt": "0xDAe6d75B6A9ef1632d2A1BfD5F57CbF8559f4f81"
+    }
+  },
+  "syncedAt": "2026-09-16T10:20:28.536Z"
 }

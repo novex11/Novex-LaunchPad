@@ -151,7 +151,13 @@ else
     echo "❌  RPC reports chain $ACTUAL_CHAIN, expected $CHAIN_ID"; exit 1
   fi
   echo "🚀  Deploying to Robinhood Chain mainnet ($CHAIN_ID) as launchpad owner $DEPLOYER_ADDR"
-  FORGE_FLAGS=(--rpc-url "$RPC" --broadcast --slow --verify --verifier blockscout --verifier-url "$EXPLORER_API")
+  FORGE_FLAGS=(--rpc-url "$RPC" --broadcast --slow)
+  # Mainnet Blockscout rejects server-side submissions (Cloudflare), and a failed
+  # --verify makes forge exit non-zero after a successful broadcast, which stops the
+  # remaining phases. SKIP_VERIFY=1 broadcasts only; verify afterwards from a browser.
+  if [[ "${SKIP_VERIFY:-0}" != "1" ]]; then
+    FORGE_FLAGS+=(--verify --verifier blockscout --verifier-url "$EXPLORER_API")
+  fi
   SYNC_FLAGS=()
 fi
 
@@ -252,7 +258,7 @@ fi
 [[ "$run_baskets" == 1 ]] && run_phase "baskets" baskets_phase
 [[ "$run_onboard" == 1 ]] && run_phase "onboard" forge_script OnboardMainnetTokens
 [[ "$run_vaults" == 1 ]] && run_phase "vaults" vaults_phase
-run_phase "sync" node scripts/sync-mainnet-deployments.mjs "${SYNC_FLAGS[@]}"
+run_phase "sync" node scripts/sync-mainnet-deployments.mjs ${SYNC_FLAGS[@]+"${SYNC_FLAGS[@]}"}
 if [[ "$MODE" == "fork" ]]; then
   run_phase "smoke" smoke_phase
 fi
