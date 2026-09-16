@@ -8,7 +8,7 @@ import { List, X } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { MarketStatusPill } from "@/components/trading/market-status-pill";
-import { DEFAULT_VAULT_ID } from "@/lib/contracts";
+import { DEFAULT_VAULT_ID, basketsAvailable } from "@/lib/contracts";
 
 const WalletControls = dynamic(
   () => import("./wallet-controls").then((m) => m.WalletControls),
@@ -20,7 +20,8 @@ const links = [
   { href: "/create", label: "Create" },
   { href: "/launchpad", label: "Launchpad" },
   { href: "/portfolio", label: "Portfolio" },
-  { href: `/vault/${DEFAULT_VAULT_ID}`, label: "Vaults" },
+  // Only link a vault page where basket vaults are deployed; otherwise it is an empty shell.
+  ...(basketsAvailable ? [{ href: `/vault/${DEFAULT_VAULT_ID}`, label: "Vaults" }] : []),
   { href: "/activity", label: "Activity" },
   { href: "/docs", label: "Docs" },
   { href: "/legal/risk", label: "Risk" },
