@@ -70,6 +70,10 @@ import type { PairChartMetric } from "@/components/pair/pair-chart";
 import { CreatorRewards } from "@/components/pair/creator-rewards";
 import { PairTokenCard } from "@/components/token/pair-token-card";
 import { usePairCurveToken } from "@/hooks/use-curve-token";
+import { usePairCreatorFees } from "@/hooks/use-pair-creator-fees";
+import { ponsTokenUrl } from "@/hooks/use-pons-token";
+import { CurveCreatorFees } from "@/components/token/curve-creator-fees";
+import { PonsCreatorFees } from "@/components/token/pons-creator-fees";
 
 const spring = { type: "spring", stiffness: 100, damping: 20 } as const;
 const LEG_B_ACCENT = "#3D8BFF";
@@ -189,6 +193,14 @@ export default function PairDetailContent({ address }: { address: string }) {
   const navUsd = chain ? Number(chain.navUsd8) / 1e8 : (meta?.tvlUsd ?? 0);
   const sharePriceUsd = chain ? Number(chain.sharePriceUsd8) / 1e8 : undefined;
   const feeBps = chain?.creatorFeeBps ?? meta?.creatorFeeBps ?? 0;
+  // The creator earns from the pair token's trades; the vault's deposit fee never applies.
+  const tokenFees = usePairCreatorFees({
+    pair: pairAddress,
+    tokenA: chain?.tokenA,
+    tokenB: chain?.tokenB,
+    sharePriceUsd,
+  });
+  const tokenFeeData = tokenFees.data;
 
   // ─── Deposit quote ───────────────────────────────────
   const usd8 = BigInt(Math.round((usdAmount || 0) * 1e8));
@@ -375,6 +387,17 @@ export default function PairDetailContent({ address }: { address: string }) {
     .slice(0, 12);
 
   const creatorFeeUsd = Number(formatUnits(chain.creatorFeeShares, 18)) * (sharePriceUsd ?? 1);
+  const hasVaultFeeShares = chain.creatorFeeShares > 0n;
+  const tokenFeeUsd =
+    tokenFeeData.venue === "pons" || tokenFeeData.venue === "compose" ? tokenFeeData.usd : undefined;
+  const earningsStat =
+    tokenFeeData.venue === "loading"
+      ? "—"
+      : tokenFeeData.venue === "none"
+        ? formatUsd(creatorFeeUsd)
+        : tokenFeeUsd != null
+          ? formatUsd(tokenFeeUsd + creatorFeeUsd)
+          : "—";
 
   return (
     <div className="relative container-page min-h-[100dvh] py-8 md:py-10">
@@ -515,7 +538,7 @@ export default function PairDetailContent({ address }: { address: string }) {
         <Stat label="On-chain TVL" value={formatUsd(navUsd)} />
         <Stat label="Share price" value={sharePriceUsd != null ? formatUsd(sharePriceUsd) : "—"} />
         <Stat label="Depositors" value={meta ? meta.totalDepositors.toString() : "—"} />
-        <Stat label="Creator fees earned" value={formatUsd(creatorFeeUsd)} accent />
+        <Stat label="Creator fees unclaimed" value={earningsStat} accent />
       </div>
 
       <div className="mt-10 grid gap-8 lg:grid-cols-12">
@@ -581,24 +604,35 @@ export default function PairDetailContent({ address }: { address: string }) {
                 Creator dashboard
               </div>
               <p className="mt-2 text-xs text-muted-foreground">
-                Only you can add {tickerA} + {tickerB} to this vault. The public trades its token on the
-                bonding curve, and you earn 70% of the 1% curve fee on every trade.
-                {feeBps > 0 &&
+                Only you can add {tickerA} + {tickerB} to this vault, and you can redeem your {symbol} shares for
+                the stocks at any time. Deposits never pay a fee. You earn from trades of this pair&apos;s token:{" "}
+                {tokenFeeData.venue === "pons"
+                  ? `your share of the ${(tokenFeeData.pons.curveFeeBps / 100).toFixed(0)}% Pons curve fee${
+                      tokenFeeData.pons.creatorTaxBps > 0
+                        ? ` plus your ${(tokenFeeData.pons.creatorTaxBps / 100).toFixed(2).replace(/\.?0+$/, "")}% creator tax`
+                        : ""
+                    }, paid in ${tokenFeeData.pons.quoteSymbol || "the quote stock"}. Sweep it to escrow, then claim.`
+                  : tokenFeeData.venue === "compose"
+                    ? `70% of the 1% curve fee, paid in ${symbol} shares.`
+                    : "launch it to start earning on every buy and sell."}
+                {hasVaultFeeShares &&
                   ` Deposit fees from older activity were minted to you as ${symbol} shares and can be redeemed at any time.`}
               </p>
               <div className="mt-4 flex flex-wrap gap-6">
                 <div>
-                  <p className="text-xs text-muted-foreground">Fee shares earned</p>
+                  <p className="text-xs text-muted-foreground">Unclaimed trading fees</p>
                   <p className="mt-1 font-mono text-2xl font-semibold tabular-nums text-accent-strong">
-                    {formatToken(chain.creatorFeeShares)}
+                    {tokenFeeUsd != null ? formatUsd(tokenFeeUsd) : tokenFeeData.venue === "none" ? formatUsd(0) : "—"}
                   </p>
                 </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Current value</p>
-                  <p className="mt-1 font-mono text-2xl font-semibold tabular-nums">
-                    {formatUsd(creatorFeeUsd)}
-                  </p>
-                </div>
+                {hasVaultFeeShares && (
+                  <div>
+                    <p className="text-xs text-muted-foreground">Deposit fee shares</p>
+                    <p className="mt-1 font-mono text-2xl font-semibold tabular-nums">
+                      {formatToken(chain.creatorFeeShares)} · {formatUsd(creatorFeeUsd)}
+                    </p>
+                  </div>
+                )}
               </div>
             </section>
           )}
@@ -674,7 +708,27 @@ export default function PairDetailContent({ address }: { address: string }) {
               websiteUrl={meta?.websiteUrl}
               twitterUrl={meta?.twitterUrl}
             />
-            {isCreator && (
+            {isCreator && tokenFeeData.venue === "pons" && (
+              <PonsCreatorFees
+                className="mb-4"
+                pons={tokenFeeData.pons}
+                symbol={symbol}
+                ponsUrl={ponsTokenUrl(tokenFeeData.token)}
+              />
+            )}
+            {isCreator && tokenFeeData.venue === "compose" && (
+              <CurveCreatorFees
+                className="mb-4"
+                token={tokenFeeData.token}
+                pair={pairAddress}
+                symbol={symbol}
+                owedShares={tokenFeeData.curve.creatorFees}
+                sharePriceUsd={sharePriceUsd}
+                onClaimed={() => void tokenFees.refetch()}
+              />
+            )}
+            {/* Legacy deposit-fee shares only; new pairs never mint any. */}
+            {isCreator && hasVaultFeeShares && (
               <CreatorRewards
                 className="mb-4"
                 pair={pairAddress}
