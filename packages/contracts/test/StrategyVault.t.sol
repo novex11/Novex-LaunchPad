@@ -152,6 +152,14 @@ contract StrategyVaultTest is Test {
         assertEq(receipt.balanceOf(user), shares, "receipt balance");
     }
 
+    function test_ReceiptSharesUseEightDecimals() public {
+        assertEq(receipt.decimals(), 8, "receipt decimals");
+        vm.prank(user);
+        uint256 shares = vault.deposit(1 ether, 0);
+        // A deposit worth V USD (8 decimals) mints V share units, i.e. V / 1e8 whole shares at $1.00.
+        assertEq(shares, vault.navUsd8(), "first deposit mints one share per dollar");
+    }
+
     function test_DepositExecutesSwaps() public {
         uint256 aaplBefore = aapl.balanceOf(address(vault));
         uint256 msftBefore = msft.balanceOf(address(vault));

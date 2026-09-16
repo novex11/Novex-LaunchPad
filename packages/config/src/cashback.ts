@@ -1,6 +1,6 @@
 /** Cashback program configuration */
 export const CASHBACK_CONFIG = {
-  minEligibleDepositUsd: 100,
+  minEligibleDepositUsd: 50,
   maxRewardedDepositUsd: 10_000,
   depositStockbackUsd: 2,
   perWalletLifetimeCapUsd: 50,

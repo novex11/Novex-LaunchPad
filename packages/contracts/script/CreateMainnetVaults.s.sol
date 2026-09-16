@@ -9,7 +9,17 @@ import {CashbackReserve} from "../src/CashbackReserve.sol";
 import {ExecutionRouter} from "../src/ExecutionRouter.sol";
 import {VaultFactory} from "../src/VaultFactory.sol";
 import {StrategyVault} from "../src/StrategyVault.sol";
+import {UniswapV3SwapAdapter} from "../src/UniswapV3SwapAdapter.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {VaultMixes} from "./VaultMixes.sol";
+
+interface IUniswapV3FactoryView {
+    function getPool(address tokenA, address tokenB, uint24 fee) external view returns (address);
+}
+
+interface IPeripheryImmutableView {
+    function factory() external view returns (address);
+}
 
 /// @title CreateMainnetVaults — one Balanced basket vault per onboarded stock
 /// @notice Idempotent. For every stock in mainnet-onboard.json (category other
@@ -20,7 +30,10 @@ import {VaultMixes} from "./VaultMixes.sol";
 ///         deployments-mainnet-vaults.json. Existing vaults are reused; only
 ///         missing authorizations are (re)applied. Every vault is created with
 ///         the fixed target mix from vault-mixes-4663.json (pnpm mixes:mainnet);
-///         stocks without a mix are skipped.
+///         stocks without a mix are skipped. Robinhood stock tokens trade against
+///         USDG on Uniswap v3, so every deposit ↔ mix-token swap is routed
+///         stock → USDG → stock through each token's deepest USDG pool; routes
+///         already set on the swap adapter are left alone.
 ///
 ///   DEPLOYER_PRIVATE_KEY / FORK_IMPERSONATE_OWNER  see MainnetScriptBase (owner-gated)
 ///   VAULT_TICKERS                optional comma list restricting the run
@@ -33,6 +46,8 @@ contract CreateMainnetVaults is MainnetScriptBase {
     VaultFactory factoryC;
     ExecutionRouter execRouterC;
     CashbackReserve cashbackC;
+    UniswapV3SwapAdapter adapterC;
+    IUniswapV3FactoryView uniFactory;
 
     string[] vaultTickers;
     mapping(string => address) vaultOf;
@@ -57,6 +72,9 @@ contract CreateMainnetVaults is MainnetScriptBase {
         factoryC = VaultFactory(vaultFactory);
         execRouterC = ExecutionRouter(executionRouter);
         cashbackC = CashbackReserve(cashbackReserve);
+        adapterC = UniswapV3SwapAdapter(swapAdapter);
+        uniFactory = IUniswapV3FactoryView(IPeripheryImmutableView(swapRouter).factory());
+        require(adapterC.owner() == owner, _err("launchpad owner does not own the swap adapter"));
         require(factoryC.owner() == owner, _err("launchpad owner does not own the VaultFactory"));
         require(address(factoryC.oracle()) == oracle, _err("VaultFactory oracle differs from the launchpad oracle"));
 
@@ -119,7 +137,45 @@ contract CreateMainnetVaults is MainnetScriptBase {
         }
         if (!execRouterC.authorizedCallers(vault)) execRouterC.setAuthorizedCaller(vault, true);
         if (!cashbackC.authorizedVaults(vault)) cashbackC.setAuthorizedVault(vault, true);
+        if (VaultMixes.has(mixesJson, ticker)) {
+            (address[] memory mixTokens,) = VaultMixes.get(mixesJson, ticker);
+            _ensureRoutes(asset, mixTokens);
+        }
         _recordVault(ticker, vault, receipt);
+    }
+
+    // ─── Swap routes ────────────────────────────────────────
+
+    function _ensureRoutes(address asset, address[] memory mixTokens) internal {
+        uint24 assetFee = _deepestUsdgFee(asset);
+        _ensurePath(asset, usdg, abi.encodePacked(asset, assetFee, usdg));
+        _ensurePath(usdg, asset, abi.encodePacked(usdg, assetFee, asset));
+        for (uint256 i; i < mixTokens.length; ++i) {
+            address token = mixTokens[i];
+            if (token == asset || token == usdg) continue;
+            uint24 fee = _deepestUsdgFee(token);
+            _ensurePath(asset, token, abi.encodePacked(asset, assetFee, usdg, fee, token));
+            _ensurePath(token, asset, abi.encodePacked(token, fee, usdg, assetFee, asset));
+            _ensurePath(token, usdg, abi.encodePacked(token, fee, usdg));
+        }
+    }
+
+    function _ensurePath(address tokenIn, address tokenOut, bytes memory path) internal {
+        if (adapterC.pairPath(keccak256(abi.encodePacked(tokenIn, tokenOut))).length != 0) return;
+        adapterC.setPairPath(tokenIn, tokenOut, path);
+    }
+
+    /// @dev Fee tier of the token's USDG pool holding the most USDG.
+    function _deepestUsdgFee(address token) internal view returns (uint24 best) {
+        uint24[4] memory fees = [uint24(100), 500, 3000, 10000];
+        uint256 depth;
+        for (uint256 f; f < fees.length; ++f) {
+            address pool = uniFactory.getPool(token, usdg, fees[f]);
+            if (pool == address(0)) continue;
+            uint256 d = IERC20(usdg).balanceOf(pool);
+            if (d > depth) (depth, best) = (d, fees[f]);
+        }
+        require(best != 0, _err(string.concat("no Uniswap v3 USDG pool for ", vm.toString(token))));
     }
 
     // ─── Vaults file ────────────────────────────────────────

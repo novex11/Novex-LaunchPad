@@ -19,6 +19,12 @@ contract ReceiptToken is ERC20, Ownable {
         address owner_
     ) ERC20(name_, symbol_) Ownable(owner_) {}
 
+    /// @notice Shares are minted at the vault's 8-decimal USD scale ($1.00 = 1e8 at launch),
+    ///         so wallets and explorers show whole shares.
+    function decimals() public pure override returns (uint8) {
+        return 8;
+    }
+
     function setVault(address vault_) external onlyOwner {
         vault = vault_;
     }
