@@ -33,8 +33,8 @@
     "swapAdapter": "",
     "vaultFactory": "",
     "ponsFactory": "0x7eD598BcEf8bd9Edd8C97A195C6d13f40801EC7e",
-    "ponsLauncher": "",
-    "ponsRouter": ""
+    "ponsLauncher": "0xd1B62082FA2bc914C90a9941D096275407CAb082",
+    "ponsRouter": "0x20f9Ef88Fd2d44c3E174b48b3e8C9DAe676621C1"
   },
   "vaults": {},
   "syncedAt": "2026-09-15T22:20:27.002Z"
