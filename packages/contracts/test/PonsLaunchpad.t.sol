@@ -708,6 +708,66 @@ contract PonsLaunchpadTest is Test {
         assertEq(escrow.balanceOfToken(alice, address(tsla)), fee - (fee * 3_000) / 10_000 + tax);
     }
 
+    // ─── Creator tax chosen at launch (same as launching on Pons) ─────────
+
+    function _launchWithTax(uint16 taxBps) internal returns (address token, MockPonsCurve curve) {
+        vm.startPrank(alice);
+        tsla.approve(address(launcher), type(uint256).max);
+        PonsLauncher.LaunchParams memory p = _params(address(tsla), 0);
+        p.creatorTaxBps = taxBps;
+        (address t, address c, ) = launcher.launch{value: LAUNCH_FEE}(p);
+        vm.stopPrank();
+        return (t, MockPonsCurve(c));
+    }
+
+    function test_creatorTax_threePercentOnBuysAndSells() public {
+        (address token, MockPonsCurve curve) = _launchWithTax(300);
+        assertEq(curve.creatorTaxBps(), 300, "tax forwarded to Pons");
+        vm.warp(block.timestamp + 10);
+
+        // Buy: the router quote already includes fee + tax and matches the fill.
+        (uint256 quoted, uint256 quotedFee) = router.quoteBuy(token, 5 ether);
+        assertEq(quotedFee, (5 ether * 400) / 10_000, "1% fee + 3% tax");
+        uint256 out = _bobBuysWithTsla(token, 5 ether);
+        assertEq(out, quoted, "quote matches fill");
+        assertEq(curve.creatorTaxBalance(), (5 ether * 300) / 10_000, "3% of the buy");
+        assertEq(curve.quoteFeeBalance(), (5 ether * 100) / 10_000, "1% curve fee");
+
+        // Sell: taxed too, and the quote matches what bob receives.
+        uint256 taxAfterBuy = curve.creatorTaxBalance();
+        (uint256 sellQuoted, ) = router.quoteSell(token, out / 2);
+        uint256 before = tsla.balanceOf(bob);
+        vm.startPrank(bob);
+        IERC20(token).approve(address(router), out / 2);
+        router.sell(_sellParams(token, out / 2, address(tsla), "", false));
+        vm.stopPrank();
+        assertEq(tsla.balanceOf(bob) - before, sellQuoted, "sell quote matches");
+        assertGt(curve.creatorTaxBalance(), taxAfterBuy, "sells are taxed too");
+
+        // Everything taxed lands with the creator after sweep + claim.
+        uint256 fee = curve.quoteFeeBalance();
+        uint256 tax = curve.creatorTaxBalance();
+        vm.prank(alice);
+        curve.sweepFees(0);
+        IPonsV2FeeEscrow escrow = IPonsV2FeeEscrow(pons.feeEscrow());
+        assertEq(escrow.balanceOfToken(alice, address(tsla)), fee - (fee * 3_000) / 10_000 + tax);
+    }
+
+    function test_creatorTax_capIsPonsMax() public {
+        // Above Pons's cap: Pons rejects the launch and nothing is recorded.
+        vm.startPrank(alice);
+        PonsLauncher.LaunchParams memory p = _params(address(tsla), 0);
+        p.creatorTaxBps = 1_001;
+        vm.expectRevert("CreatorTaxTooHigh");
+        launcher.launch{value: LAUNCH_FEE}(p);
+        vm.stopPrank();
+        assertEq(launcher.tokenOfPair(address(pair)), address(0));
+
+        // Exactly the cap is accepted.
+        (, MockPonsCurve curve) = _launchWithTax(1_000);
+        assertEq(curve.creatorTaxBps(), 1_000);
+    }
+
     // ─── Same market from both venues ───────────────────────
 
     function test_volumeAndPriceAreSharedWithPons() public {
