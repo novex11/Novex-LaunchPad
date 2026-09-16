@@ -100,7 +100,20 @@ export function ActivityList({
               </p>
             </div>
             <p className="hidden font-mono text-sm tabular-nums text-accent-strong md:block">
-              {r.stockbackUsd > 0 ? `+${formatUsd(r.stockbackUsd)}` : <span className="text-muted-foreground">—</span>}
+              {r.stockbackUsd > 0 ? (
+                <a
+                  href={`${explorerUrl("tx", r.txHash)}?tab=token_transfers`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-0.5 hover:underline"
+                  title="View the Stockback transfer on Blockscout"
+                >
+                  +{formatUsd(r.stockbackUsd)}
+                  <ArrowUpRight size={10} />
+                </a>
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              )}
             </p>
             <div className="hidden items-center justify-end gap-2 md:flex">
               <Badge variant={r.status === "confirmed" ? "success" : "secondary"}>{r.status}</Badge>

@@ -19,7 +19,7 @@ import {
   getTokenByTicker,
   receiptTokenName,
 } from "@compose/config";
-import { parseUnits } from "viem";
+import { formatUnits, parseUnits } from "viem";
 import { fetchDepositCosts, recordDeposit, type DepositCosts } from "@/lib/api";
 import { basketsAvailable, contractsReady } from "@/lib/contracts";
 import {
@@ -124,6 +124,9 @@ export default function CreateBasketContent() {
     ledgerPending?: boolean;
     /** Stockback actually paid on-chain (USD), from the reserve's event. */
     stockbackUsd: number;
+    /** Stockback tokens forwarded to the wallet (formatted) and the token paid in. */
+    stockbackAmount?: string;
+    stockbackToken?: string;
     /** USD value the vault credited after swaps, from the Deposited event. */
     creditedUsd?: number;
   } | null>(null);
@@ -252,7 +255,19 @@ export default function CreateBasketContent() {
       qc.invalidateQueries({ queryKey: ["activity"] });
       qc.invalidateQueries({ queryKey: ["receipt-positions"] });
       setStage("done");
-      setSuccess({ txHash: hash, ledgerPending, stockbackUsd: outcome.stockbackUsd, creditedUsd });
+      setSuccess({
+        txHash: hash,
+        ledgerPending,
+        stockbackUsd: outcome.stockbackUsd,
+        stockbackAmount:
+          outcome.stockbackTokenAmount > 0n
+            ? Number(formatUnits(outcome.stockbackTokenAmount, decimals)).toLocaleString(undefined, {
+                maximumFractionDigits: 6,
+              })
+            : undefined,
+        stockbackToken: outcome.stockbackToken ?? tokenAddress,
+        creditedUsd,
+      });
     } catch (e) {
       setFailedAt(current);
       setStage("error");
@@ -294,7 +309,10 @@ export default function CreateBasketContent() {
               {success.stockbackUsd > 0 ? (
                 <>
                   Stockback of{" "}
-                  <span className="font-mono font-semibold text-accent-strong">{formatUsd(success.stockbackUsd)}</span>{" "}
+                  <span className="font-mono font-semibold text-accent-strong">{formatUsd(success.stockbackUsd)}</span>
+                  {success.stockbackAmount && (
+                    <span className="font-mono"> ({success.stockbackAmount} {depositTicker})</span>
+                  )}{" "}
                   was paid on-chain to your wallet in {depositTicker}.
                 </>
               ) : (
@@ -312,14 +330,36 @@ export default function CreateBasketContent() {
             </div>
             <TxStepper steps={DEPOSIT_STEPS} current="done" txHash={success.txHash} compact className="mt-5" />
             {success.txHash && (
-              <a
-                href={explorerUrl("tx", success.txHash)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-3 inline-flex items-center gap-1 font-mono text-xs text-muted-foreground hover:text-accent-strong"
-              >
-                View transaction ↗
-              </a>
+              <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1">
+                {success.stockbackUsd > 0 && (
+                  <a
+                    href={`${explorerUrl("tx", success.txHash)}?tab=token_transfers`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 font-mono text-xs text-accent-strong hover:underline"
+                  >
+                    View Stockback on Blockscout ↗
+                  </a>
+                )}
+                {success.stockbackUsd > 0 && success.stockbackToken && (
+                  <a
+                    href={explorerUrl("token", success.stockbackToken)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 font-mono text-xs text-muted-foreground hover:text-accent-strong"
+                  >
+                    {depositTicker} token ↗
+                  </a>
+                )}
+                <a
+                  href={explorerUrl("tx", success.txHash)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 font-mono text-xs text-muted-foreground hover:text-accent-strong"
+                >
+                  View transaction ↗
+                </a>
+              </div>
             )}
             <div className="mt-6 flex flex-wrap gap-2">
               <Button asChild>

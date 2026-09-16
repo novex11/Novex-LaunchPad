@@ -148,6 +148,15 @@ export function getWalletStockbackTotal(wallet: string): number {
   return state.walletStockbackTotals[wallet.toLowerCase()] ?? 0;
 }
 
+/** Distinct wallets that ever deposited into a basket, and Stockback recorded for them. */
+export function getBasketStats(): { depositors: number; stockbackUsd: number } {
+  const deposits = state.activity.filter((a) => a.type === "deposit");
+  return {
+    depositors: new Set(deposits.map((a) => a.wallet.toLowerCase())).size,
+    stockbackUsd: deposits.reduce((sum, a) => sum + a.stockbackUsd, 0),
+  };
+}
+
 export function getDirectHoldings(wallet: string): DirectHolding[] {
   const map = state.directHoldings[wallet.toLowerCase()] ?? {};
   return Object.values(map)

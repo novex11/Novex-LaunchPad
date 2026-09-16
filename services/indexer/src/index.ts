@@ -248,6 +248,58 @@ app.get("/vaults", (c) =>
   }),
 );
 
+const reserveAbi = parseAbi([
+  "function cashbackReserve() view returns (address)",
+  "function budgetSpentUsd8() view returns (uint256)",
+]);
+
+let reserveTotalCache: { at: number; usd: number | null } | null = null;
+
+/**
+ * Stockback paid so far, summed across the CashbackReserves the basket vaults
+ * pay from. Null when there is no RPC or no vaults; cached briefly so the
+ * landing page poll does not hit the RPC on every request.
+ */
+async function reserveStockbackPaidUsd(): Promise<number | null> {
+  if (reserveTotalCache && Date.now() - reserveTotalCache.at < 10_000) return reserveTotalCache.usd;
+  const client = getPublicClient();
+  const vaultList = getVaults();
+  let usd: number | null = null;
+  if (client && vaultList.length > 0) {
+    try {
+      const reserves = await Promise.all(
+        vaultList.map((v) =>
+          client.readContract({ address: v.vault, abi: reserveAbi, functionName: "cashbackReserve" }),
+        ),
+      );
+      const unique = [...new Set(reserves.map((r) => r.toLowerCase()))].filter(
+        (r) => r !== "0x0000000000000000000000000000000000000000",
+      ) as `0x${string}`[];
+      const spent = await Promise.all(
+        unique.map((r) => client.readContract({ address: r, abi: reserveAbi, functionName: "budgetSpentUsd8" })),
+      );
+      usd = spent.reduce((sum, v) => sum + Number(v) / 1e8, 0);
+    } catch (err) {
+      console.warn("[indexer] reserve stockback read failed:", err instanceof Error ? err.message : err);
+    }
+  }
+  reserveTotalCache = { at: Date.now(), usd };
+  return usd;
+}
+
+/** Landing-page basket stats: wallets that deposited and Stockback paid out. */
+app.get("/baskets/stats", async (c) => {
+  const [ledger, onChain] = await Promise.all([
+    useDb ? dbStore.getBasketStats(db!) : Promise.resolve(jsonStore.getBasketStats()),
+    reserveStockbackPaidUsd(),
+  ]);
+  return c.json({
+    depositors: ledger.depositors,
+    totalStockbackUsd: onChain ?? ledger.stockbackUsd,
+    source: onChain != null ? "chain" : "ledger",
+  });
+});
+
 app.get("/wallet/:wallet/stockback-total", async (c) => {
   const wallet = c.req.param("wallet");
   const total = useDb

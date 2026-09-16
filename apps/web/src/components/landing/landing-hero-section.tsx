@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useQuery } from "@tanstack/react-query";
 import { ArrowRight } from "@phosphor-icons/react";
 import {
   CASHBACK_CONFIG,
@@ -11,6 +12,8 @@ import { ALL_MARKET_ASSETS } from "@/lib/markets";
 import { useBackendHealth } from "@/hooks/use-backend-health";
 import { useWallet } from "@/hooks/use-wallet";
 import { formatUsd } from "@/lib/utils";
+import { fetchBasketStats } from "@/lib/api";
+import { NumberTicker } from "@/components/ui/number-ticker";
 import { MonoLabel } from "./mono-label";
 import { StatStrip } from "./stat-strip";
 import { LiveMathPanel } from "./live-math-panel";
@@ -25,6 +28,14 @@ const maxRate = Math.max(...rates, DEFAULT_ALLOCATION_RATE);
 export function LandingHeroSection() {
   const { health, allUp } = useBackendHealth();
   const wallet = useWallet();
+  const basketStats = useQuery({
+    queryKey: ["basket-stats"],
+    queryFn: fetchBasketStats,
+    refetchInterval: 15_000,
+    retry: 1,
+  });
+  const liveStat = (value: number | undefined, format: (v: number) => string) =>
+    value == null ? "—" : <NumberTicker value={value} format={format} startOnView={false} />;
 
   return (
     <section className="border-b border-border">
@@ -43,8 +54,14 @@ export function LandingHeroSection() {
             className="mt-8"
             items={[
               { label: "Deposit bonus", value: formatUsd(CASHBACK_CONFIG.depositStockbackUsd), accent: true },
-              { label: "Floor", value: formatUsd(CASHBACK_CONFIG.minEligibleDepositUsd) },
-              { label: "Lifetime cap", value: formatUsd(CASHBACK_CONFIG.perWalletLifetimeCapUsd) },
+              {
+                label: "Depositors",
+                value: liveStat(basketStats.data?.depositors, (v) => Math.round(v).toLocaleString()),
+              },
+              {
+                label: "Stockback paid",
+                value: liveStat(basketStats.data?.totalStockbackUsd, formatUsd),
+              },
               { label: "Assets live", value: ALL_MARKET_ASSETS.length },
               { label: "Quote refresh", value: "15s" },
               {

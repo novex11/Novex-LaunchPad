@@ -205,6 +205,18 @@ export interface VaultResponse {
   contractAddress: string;
 }
 
+export interface BasketStats {
+  /** Distinct wallets that have deposited into a basket. */
+  depositors: number;
+  /** Stockback paid out to users so far, in USD (on-chain reserve total when available). */
+  totalStockbackUsd: number;
+}
+
+export async function fetchBasketStats(): Promise<BasketStats> {
+  const res = await fetch(`${INDEXER_URL}/baskets/stats`, { cache: "no-store" });
+  return parseJson(res);
+}
+
 export async function fetchVault(id: string) {
   const res = await fetch(`${INDEXER_URL}/vault/${id}`);
   return parseJson<VaultResponse>(res);

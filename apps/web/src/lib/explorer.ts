@@ -36,9 +36,9 @@ export function getExplorerBaseUrl(useTestnet = true): string {
   return useTestnet ? TESTNET_EXPLORER : MAINNET_EXPLORER;
 }
 
-/** Build a Blockscout link for an address or transaction hash. */
+/** Build a Blockscout link for an address, token or transaction hash. */
 export function explorerUrl(
-  kind: "address" | "tx",
+  kind: "address" | "tx" | "token",
   value: string,
   useTestnet = true,
 ): string {

@@ -158,6 +158,8 @@ export interface DepositOutcome {
   stockbackTokenAmount: bigint;
   /** Stockback actually paid on-chain, in USD (from the reserve's event). */
   stockbackUsd: number;
+  /** Token the Stockback was paid in (from the reserve's event). */
+  stockbackToken: Address | undefined;
 }
 
 export function useApproveAndDeposit(vaultAddress: `0x${string}` | undefined) {
@@ -222,6 +224,7 @@ export function useApproveAndDeposit(vaultAddress: `0x${string}` | undefined) {
           valueUsd8: undefined,
           stockbackTokenAmount: 0n,
           stockbackUsd: 0,
+          stockbackToken: undefined,
         };
         const vaultLower = vaultAddress.toLowerCase();
         const me = account.toLowerCase();
@@ -239,6 +242,7 @@ export function useApproveAndDeposit(vaultAddress: `0x${string}` | undefined) {
             outcome.stockbackTokenAmount += ev.args.amount;
           } else if (ev.eventName === "StockbackPaid" && ev.args.wallet.toLowerCase() === me) {
             outcome.stockbackUsd += Number(ev.args.usdValue8) / 1e8;
+            outcome.stockbackToken = ev.args.token;
           }
         }
         return outcome;

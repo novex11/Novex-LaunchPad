@@ -33,6 +33,23 @@ export async function getWalletStockbackTotal(
   return rows[0] ? Number(rows[0].totalUsd) : 0;
 }
 
+/** Distinct wallets that ever deposited into a basket, and Stockback recorded for them. */
+export async function getBasketStats(
+  db: Db,
+): Promise<{ depositors: number; stockbackUsd: number }> {
+  const [row] = await db
+    .select({
+      depositors: sql<string>`COUNT(DISTINCT ${activity.wallet})`,
+      stockbackUsd: sql<string>`COALESCE(SUM(CAST(${activity.stockbackUsd} AS numeric)), 0)`,
+    })
+    .from(activity)
+    .where(eq(activity.type, "deposit"));
+  return {
+    depositors: Number(row?.depositors ?? 0),
+    stockbackUsd: Number(row?.stockbackUsd ?? 0),
+  };
+}
+
 export async function getDirectHoldings(
   db: Db,
   wallet: string,
