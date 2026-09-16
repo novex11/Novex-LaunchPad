@@ -20,18 +20,20 @@ interface StockLogoProps {
   className?: string;
 }
 
-/** Non-equity symbols the logo CDN never has; render the monogram directly. */
-const NO_CDN_LOGO = new Set(["USDG", "USDC", "USDT", "DAI", "ETH", "WETH"]);
+/** Crypto symbols the stock logo CDN lacks; served locally (sourced from CoinGecko). */
+const LOCAL_LOGO = new Set(["USDG", "USDC", "USDT", "DAI", "ETH", "WETH"]);
 
 /** Tickers whose CDN logo already failed this session, so we don't refetch. */
 const failedLogos = new Set<string>();
 
 function skipCdn(ticker: string) {
   const t = ticker.toUpperCase();
-  return isForexPair(ticker) || NO_CDN_LOGO.has(t) || failedLogos.has(t);
+  return isForexPair(ticker) || failedLogos.has(t);
 }
 
 export function logoUrl(ticker: string) {
+  const t = ticker.toUpperCase();
+  if (LOCAL_LOGO.has(t)) return `/tokens/${t.toLowerCase()}.png`;
   return `https://assets.parqet.com/logos/symbol/${encodeURIComponent(
     ticker.toUpperCase(),
   )}?format=png`;
@@ -39,8 +41,8 @@ export function logoUrl(ticker: string) {
 
 /**
  * Brand logo by ticker from a free CDN, with a styled monogram fallback.
- * Forex pairs, stablecoins and tickers that already 404'd skip the CDN
- * entirely and render a monogram.
+ * Stablecoins and ETH use bundled logos; forex pairs and tickers that
+ * already 404'd skip the CDN entirely and render a monogram.
  */
 export function StockLogo({ ticker, size = "md", className }: StockLogoProps) {
   const forex = isForexPair(ticker);
