@@ -91,6 +91,25 @@ export const curveCreatorClaims = pgTable(
   (t) => [uniqueIndex("curve_creator_claims_tx_log_idx").on(t.txHash, t.logIndex)],
 );
 
+/**
+ * Pons fee escrow credits swept from a Compose-launched Pons curve to its creator
+ * (quote amount scaled to 18 decimals). The escrow logs claims per quote token
+ * only, so these cap how much of a claim counts as that token's creator reward.
+ */
+export const ponsFeeCredits = pgTable(
+  "pons_fee_credits",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    tokenAddress: text("token_address").notNull(),
+    creatorWallet: text("creator_wallet").notNull(),
+    amount: text("amount").notNull(),
+    txHash: text("tx_hash").notNull(),
+    logIndex: numeric("log_index").notNull().default("0"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex("pons_fee_credits_tx_log_idx").on(t.txHash, t.logIndex)],
+);
+
 export type CurveTokenRow = typeof curveTokens.$inferSelect;
 export type CurveTradeRow = typeof curveTrades.$inferSelect;
 
@@ -389,7 +408,7 @@ export interface TokenStats {
   tokens: number;
   totalMarketCapUsd: number;
   volume24hUsd: number;
-  /** Creator rewards cashed out to date: curve fee claims plus pair fee-share claims (USD at claim time) */
+  /** Creator rewards cashed out to date: curve and Pons escrow fee claims plus pair fee-share claims (USD at claim time) */
   claimedCreatorRewardsUsd: number;
 }
 
@@ -417,6 +436,84 @@ export async function recordCreatorClaim(db: Db, i: CurveClaimInput) {
       createdAt: i.createdAt,
     })
     .onConflictDoNothing();
+}
+
+export interface PonsFeeCreditInput {
+  tokenAddress: string;
+  creator: string;
+  /** Quote amount scaled to 18 decimals. */
+  amount: bigint;
+  txHash: string;
+  logIndex: number;
+  createdAt: Date;
+}
+
+/** Stores a Pons escrow CreditedToken event once. */
+export async function recordPonsFeeCredit(db: Db, i: PonsFeeCreditInput) {
+  await db
+    .insert(ponsFeeCredits)
+    .values({
+      tokenAddress: i.tokenAddress.toLowerCase(),
+      creatorWallet: i.creator.toLowerCase(),
+      amount: i.amount.toString(),
+      txHash: i.txHash.toLowerCase(),
+      logIndex: String(i.logIndex),
+      createdAt: i.createdAt,
+    })
+    .onConflictDoNothing();
+}
+
+/** Credited to a Pons token's creator and not yet counted as claimed (18 decimals). */
+export async function ponsUnclaimedCredit(db: Db, tokenAddress: string): Promise<bigint> {
+  const token = tokenAddress.toLowerCase();
+  const [credits, claims] = await Promise.all([
+    db.select({ amount: ponsFeeCredits.amount }).from(ponsFeeCredits).where(eq(ponsFeeCredits.tokenAddress, token)),
+    db.select({ shares: curveCreatorClaims.shares }).from(curveCreatorClaims).where(eq(curveCreatorClaims.tokenAddress, token)),
+  ]);
+  const credited = credits.reduce((sum, r) => sum + BigInt(r.amount), 0n);
+  const claimed = claims.reduce((sum, r) => sum + BigInt(r.shares), 0n);
+  return credited > claimed ? credited - claimed : 0n;
+}
+
+export interface PonsClaimInput {
+  /** Compose-launched Pons tokens of this creator quoted in the claimed token, oldest first. */
+  tokens: string[];
+  creator: string;
+  /** Claimed quote amount scaled to 18 decimals. */
+  amount: bigint;
+  quotePriceUsd: number;
+  txHash: string;
+  logIndex: number;
+  createdAt: Date;
+}
+
+/**
+ * Attributes a Pons escrow ClaimedToken event to the creator's Compose tokens,
+ * up to what their curves credited, so fees from unrelated Pons tokens with the
+ * same quote never count. Returns the attributed amount (18 decimals).
+ */
+export async function recordPonsCreatorClaim(db: Db, i: PonsClaimInput): Promise<bigint> {
+  let left = i.amount;
+  let part = 0;
+  for (const token of i.tokens) {
+    if (left === 0n) break;
+    const open = await ponsUnclaimedCredit(db, token);
+    const take = open < left ? open : left;
+    if (take === 0n) continue;
+    await recordCreatorClaim(db, {
+      tokenAddress: token,
+      creator: i.creator,
+      shares: take,
+      sharePriceUsd: i.quotePriceUsd,
+      txHash: i.txHash,
+      // One claim can cover several tokens; keep (tx, log) unique per row.
+      logIndex: part === 0 ? i.logIndex : i.logIndex + part / 1000,
+      createdAt: i.createdAt,
+    });
+    left -= take;
+    part += 1;
+  }
+  return i.amount - left;
 }
 
 /** Launchpad header numbers for one curve. */

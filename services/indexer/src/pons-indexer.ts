@@ -28,11 +28,18 @@ const CurveSellEvent = parseAbiItem(
   "event CurveSell(address indexed seller, address indexed recipient, uint256 tokensIn, uint256 quoteOut, uint256 fee, uint256 tax)",
 );
 const CurveCompletedEvent = parseAbiItem("event CurveCompleted(address recipient, uint256 quoteOut, uint256 tokenOut)");
+// Pons's shared fee escrow: sweeps credit a creator per (quote token, source curve), claims log per quote token.
+const CreditedTokenEvent = parseAbiItem(
+  "event CreditedToken(address indexed account, address indexed token, address indexed source, uint256 amount)",
+);
+const ClaimedTokenEvent = parseAbiItem("event ClaimedToken(address indexed account, address indexed token, uint256 amount)");
 
 type LaunchedLog = Log<bigint, number, false, typeof TokenLaunchedEvent>;
 type BuyLog = Log<bigint, number, false, typeof CurveBuyEvent>;
 type SellLog = Log<bigint, number, false, typeof CurveSellEvent>;
 type CompletedLog = Log<bigint, number, false, typeof CurveCompletedEvent>;
+type CreditedLog = Log<bigint, number, false, typeof CreditedTokenEvent>;
+type ClaimedLog = Log<bigint, number, false, typeof ClaimedTokenEvent>;
 
 const curveAbi = parseAbi([
   "function getReserves() view returns (uint256 quoteReserve, uint256 tokenReserve)",
@@ -40,6 +47,8 @@ const curveAbi = parseAbi([
   "function graduationThreshold() view returns (uint256)",
 ]);
 const vaultAbi = parseAbi(["function sharePrice() view returns (uint256)"]);
+const launcherAbi = parseAbi(["function pons() view returns (address)"]);
+const factoryAbi = parseAbi(["function feeEscrow() view returns (address)"]);
 const oracleAbi = parseAbi(["function getPriceUnchecked(address token) view returns (uint256)"]);
 const erc20Abi = parseAbi(["function symbol() view returns (string)", "function decimals() view returns (uint8)"]);
 
@@ -104,6 +113,8 @@ interface PonsTokenInfo {
   curve: Address;
   quoteToken: Address;
   quoteDecimals: number;
+  creator: string;
+  createdAt: Date;
 }
 
 /** Polls PonsLauncher launches and every launched curve's trades with a persisted cursor. */
@@ -123,6 +134,9 @@ export function startPonsIndexer(): (() => void) | null {
 
   const launcherAddr: string = launcher;
   const cursorId = `pons:${launcher.toLowerCase()}`;
+  /** Escrow credits and claims run on their own cursor so they backfill from the start block. */
+  const feesCursorId = `pons-fees:${launcher.toLowerCase()}`;
+  let escrow: Address | null | undefined;
   /** curve address (lower-case) → token info */
   const byCurve = new Map<string, PonsTokenInfo>();
   const usdg = usdgAddress();
@@ -172,6 +186,8 @@ export function startPonsIndexer(): (() => void) | null {
         curve: row.ponsCurve as Address,
         quoteToken: row.quoteToken as Address,
         quoteDecimals: Number(row.quoteDecimals),
+        creator: row.creatorWallet.toLowerCase(),
+        createdAt: row.createdAt,
       });
     }
     bootstrapped = true;
@@ -212,7 +228,15 @@ export function startPonsIndexer(): (() => void) | null {
         pairSharePriceUsd: pairPrice,
       },
     });
-    byCurve.set(curve.toLowerCase(), { token: token.toLowerCase(), pair, curve, quoteToken, quoteDecimals: dec });
+    byCurve.set(curve.toLowerCase(), {
+      token: token.toLowerCase(),
+      pair,
+      curve,
+      quoteToken,
+      quoteDecimals: dec,
+      creator: creator.toLowerCase(),
+      createdAt,
+    });
     console.log(`[pons-indexer] TokenLaunched ${symbol} ${token} on Pons curve ${curve} (quote ${quoteSymbol})`);
   }
 
@@ -304,6 +328,77 @@ export function startPonsIndexer(): (() => void) | null {
     await launchpadStore.setCursor(db!, cursorId, to);
   }
 
+  /** The fee escrow of the Pons factory PonsLauncher launches on; null when it can't be read. */
+  async function feeEscrow(): Promise<Address | null> {
+    if (escrow !== undefined) return escrow;
+    try {
+      const factory = await client!.readContract({ address: launcher!, abi: launcherAbi, functionName: "pons" });
+      escrow = await client!.readContract({ address: factory, abi: factoryAbi, functionName: "feeEscrow" });
+      console.log(`[pons-indexer] Pons fee escrow ${escrow}`);
+    } catch (e) {
+      console.warn("[pons-indexer] Could not read the Pons fee escrow:", e instanceof Error ? e.message : e);
+      escrow = null;
+    }
+    return escrow;
+  }
+
+  async function handleCredited(log: CreditedLog) {
+    const { account, source, amount } = log.args;
+    if (!account || !source || amount == null || !log.transactionHash || log.blockNumber == null) return;
+    const info = byCurve.get(source.toLowerCase());
+    // Only the creator's own fees from a Compose-launched curve count.
+    if (!info || info.creator !== account.toLowerCase()) return;
+    await curveStore.recordPonsFeeCredit(db!, {
+      tokenAddress: info.token,
+      creator: account,
+      amount: to18(amount, info.quoteDecimals),
+      txHash: log.transactionHash,
+      logIndex: log.logIndex ?? 0,
+      createdAt: await blockTime(client!, log.blockNumber),
+    });
+  }
+
+  async function handleClaimed(log: ClaimedLog) {
+    const { account, token: quote, amount } = log.args;
+    if (!account || !quote || !amount || !log.transactionHash || log.blockNumber == null) return;
+    const mine = [...byCurve.values()]
+      .filter((t) => t.creator === account.toLowerCase() && t.quoteToken.toLowerCase() === quote.toLowerCase())
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+    if (mine.length === 0) return;
+    const [createdAt, price] = await Promise.all([
+      blockTime(client!, log.blockNumber),
+      quotePriceUsd(quote, log.blockNumber),
+    ]);
+    const counted = await curveStore.recordPonsCreatorClaim(db!, {
+      tokens: mine.map((t) => t.token),
+      creator: account,
+      amount: to18(amount, mine[0]!.quoteDecimals),
+      quotePriceUsd: price,
+      txHash: log.transactionHash,
+      logIndex: log.logIndex ?? 0,
+      createdAt,
+    });
+    if (counted > 0n) {
+      console.log(`[pons-indexer] ClaimedToken ${account} $${((Number(counted) / 1e18) * price).toFixed(2)} of creator fees`);
+    }
+  }
+
+  async function processFees(from: bigint, to: bigint, escrowAddress: Address) {
+    const logs = sortLogs(
+      await client!.getLogs({
+        address: escrowAddress,
+        events: [CreditedTokenEvent, ClaimedTokenEvent],
+        fromBlock: from,
+        toBlock: to,
+      }),
+    );
+    for (const log of logs) {
+      if (log.eventName === "CreditedToken") await handleCredited(log as unknown as CreditedLog);
+      else if (log.eventName === "ClaimedToken") await handleClaimed(log as unknown as ClaimedLog);
+    }
+    await launchpadStore.setCursor(db!, feesCursorId, to);
+  }
+
   async function tick() {
     if (!bootstrapped) await bootstrap();
     const latest = await client!.getBlockNumber();
@@ -321,6 +416,25 @@ export function startPonsIndexer(): (() => void) | null {
       const to = from + CHUNK - 1n < latest ? from + CHUNK - 1n : latest;
       await processRange(from, to);
       from = to + 1n;
+    }
+
+    // Fees run behind the launch cursor so every credited curve is already tracked.
+    const launchesDone = await launchpadStore.getCursor(db!, cursorId);
+    const escrowAddress = byCurve.size > 0 ? await feeEscrow() : null;
+    if (launchesDone == null || !escrowAddress) return;
+    const feesCursor = await launchpadStore.getCursor(db!, feesCursorId);
+    let feesFrom =
+      feesCursor != null
+        ? feesCursor + 1n
+        : configuredStart > 0n
+          ? configuredStart
+          : launchesDone > DEFAULT_LOOKBACK
+            ? launchesDone - DEFAULT_LOOKBACK
+            : 0n;
+    while (!stopped && feesFrom <= launchesDone) {
+      const to = feesFrom + CHUNK - 1n < launchesDone ? feesFrom + CHUNK - 1n : launchesDone;
+      await processFees(feesFrom, to, escrowAddress);
+      feesFrom = to + 1n;
     }
   }
 
