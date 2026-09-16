@@ -255,6 +255,7 @@ export default function CreateBasketContent() {
       }
       qc.invalidateQueries({ queryKey: ["portfolio"] });
       qc.invalidateQueries({ queryKey: ["activity"] });
+      qc.invalidateQueries({ queryKey: ["basket-volume"] });
       qc.invalidateQueries({ queryKey: ["receipt-positions"] });
       setStage("done");
       setSuccess({

@@ -104,6 +104,7 @@ export default function RedeemPage() {
       qc.invalidateQueries({ queryKey: ["portfolio"] });
       qc.invalidateQueries({ queryKey: ["receipt-positions"] });
       qc.invalidateQueries({ queryKey: ["activity"] });
+      qc.invalidateQueries({ queryKey: ["basket-volume"] });
       router.push("/activity");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Redeem failed");
