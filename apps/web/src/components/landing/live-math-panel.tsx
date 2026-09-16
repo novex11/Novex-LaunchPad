@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { ArrowRight } from "@phosphor-icons/react";
-import { BASKET_CONFIG, CASHBACK_CONFIG, basketAmountPresets, isTestnetMode } from "@compose/config";
+import { BASKET_CONFIG, basketAmountPresets, isTestnetMode, stockbackTier } from "@compose/config";
 import type { Strategy } from "@/lib/api";
 import { useRewardPreview } from "@/hooks/use-reward-preview";
 import { formatUsd } from "@/lib/utils";
@@ -103,7 +103,8 @@ export function LiveMathPanel() {
         ))}
       </div>
       <p className="mt-4 font-mono text-[10px] leading-relaxed text-muted-foreground">
-        {formatUsd(CASHBACK_CONFIG.minEligibleDepositUsd)} floor · reward posts after deposit confirms ·{" "}
+        {formatUsd(stockbackTier(strategy).minDepositUsd)} floor · {formatUsd(stockbackTier(strategy).rewardUsd)} bonus ·
+        reward posts after deposit confirms ·{" "}
         {formatUsd(amount)} → {formatUsd(total)} Stockback
       </p>
       <Link

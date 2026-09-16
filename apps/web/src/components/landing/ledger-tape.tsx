@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, useInView, useReducedMotion, AnimatePresence } from "motion/react";
-import { CASHBACK_CONFIG } from "@compose/config";
+import { STRATEGIES, stockbackTier, type StrategyId } from "@compose/config";
 import type { PreviewResponse } from "@compose/sdk";
 import { cn, formatUsd } from "@/lib/utils";
 import { NumberTicker } from "@/components/ui/number-ticker";
@@ -33,6 +33,7 @@ const MAX_LINES = 4;
  * at a time while the running total counts up; holds, then replays.
  */
 export function LedgerTape({ data, depositTicker, depositUsd, strategy, source }: LedgerTapeProps) {
+  const floorUsd = strategy in STRATEGIES ? stockbackTier(strategy as StrategyId).minDepositUsd : stockbackTier("balanced").minDepositUsd;
   const reduced = useReducedMotion();
   const ref = useRef<HTMLDivElement>(null);
   const inView = useInView(ref, { amount: 0.3 });
@@ -51,7 +52,7 @@ export function LedgerTape({ data, depositTicker, depositUsd, strategy, source }
       {
         kind: "floor",
         label: "Floor",
-        detail: `≥ ${formatUsd(CASHBACK_CONFIG.minEligibleDepositUsd)}`,
+        detail: `≥ ${formatUsd(floorUsd)}`,
         ok: sb.eligible,
       },
       { kind: "bonus", label: "Bonus", detail: "deposit credit", amount: sb.depositStockbackUsd },
@@ -65,7 +66,7 @@ export function LedgerTape({ data, depositTicker, depositUsd, strategy, source }
     if (rest.length) out.push({ kind: "line", label: `+${rest.length} lines`, detail: "remaining basket", amount: restUsd });
     out.push({ kind: "post", label: "Post", detail: sb.eligible ? "credited on confirm" : "below_threshold · no credit", amount: sb.totalStockbackUsd });
     return out;
-  }, [data, depositTicker, depositUsd]);
+  }, [data, depositTicker, depositUsd, floorUsd]);
 
   const total = data?.stockback.totalStockbackUsd ?? 0;
   const running = useMemo(() => {
@@ -198,7 +199,7 @@ export function LedgerTape({ data, depositTicker, depositUsd, strategy, source }
       </ul>
 
       <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
-        Notional is the USD value of the deposit. Below {formatUsd(CASHBACK_CONFIG.minEligibleDepositUsd)} the deposit still runs; the ledger stores it as below_threshold and no credit posts.
+        Notional is the USD value of the deposit. Below {formatUsd(floorUsd)} the deposit still runs; the ledger stores it as below_threshold and no credit posts.
       </p>
     </div>
   );

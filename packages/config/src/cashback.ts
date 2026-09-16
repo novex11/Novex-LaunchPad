@@ -1,4 +1,20 @@
-/** Cashback program configuration */
+import type { StrategyId } from "./strategies.js";
+
+/**
+ * Deposit Stockback per strategy — mirrors CashbackReserve.rewardTiers on-chain.
+ * A deposit earns the flat reward only when it is at least the tier's minimum.
+ */
+export const STOCKBACK_TIERS: Record<StrategyId, { minDepositUsd: number; rewardUsd: number }> = {
+  defensive: { minDepositUsd: 50, rewardUsd: 0.77 },
+  balanced: { minDepositUsd: 50, rewardUsd: 2 },
+  aggressive: { minDepositUsd: 150, rewardUsd: 6 },
+};
+
+export function stockbackTier(strategy: StrategyId): { minDepositUsd: number; rewardUsd: number } {
+  return STOCKBACK_TIERS[strategy];
+}
+
+/** Cashback program configuration (deposit floor + bonus are the Balanced tier; see STOCKBACK_TIERS) */
 export const CASHBACK_CONFIG = {
   minEligibleDepositUsd: 50,
   maxRewardedDepositUsd: 10_000,

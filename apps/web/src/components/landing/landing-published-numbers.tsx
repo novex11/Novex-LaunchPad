@@ -5,6 +5,9 @@ import {
   CASHBACK_CONFIG,
   ALLOCATION_STOCKBACK_RATES,
   DEFAULT_ALLOCATION_RATE,
+  STOCKBACK_TIERS,
+  STRATEGIES,
+  type StrategyId,
 } from "@compose/config";
 import { cn, formatUsd } from "@/lib/utils";
 import { SectionFrame } from "./section-frame";
@@ -20,6 +23,9 @@ const view = { once: true, margin: "-15% 0px" };
 const rates = Object.entries(ALLOCATION_STOCKBACK_RATES).sort((a, b) => b[1] - a[1]);
 const minRate = Math.min(...rates.map(([, r]) => r), DEFAULT_ALLOCATION_RATE);
 const maxRate = Math.max(...rates.map(([, r]) => r), DEFAULT_ALLOCATION_RATE);
+const TIER_ORDER: StrategyId[] = ["defensive", "balanced", "aggressive"];
+const tierRewards = TIER_ORDER.map((s) => STOCKBACK_TIERS[s].rewardUsd);
+const tierFloors = TIER_ORDER.map((s) => STOCKBACK_TIERS[s].minDepositUsd);
 
 /* ------------------------------------------------------------------ */
 /* Mini visualisations — one per published rule                        */
@@ -64,24 +70,27 @@ function FloorGauge() {
   );
 }
 
-/** Credit stamp that posts once when scrolled into view. */
+/** One credit stamp per strategy tier, posting in order when scrolled into view. */
 function BonusStamp() {
   const reduced = useReducedMotion();
   return (
-    <div className="mt-5 flex items-center gap-3">
-      <div className="relative flex h-9 flex-1 items-center border border-border bg-background px-3 font-mono text-xs">
-        <span className="text-muted-foreground">deposit.confirmed</span>
-        <motion.span
-          className="ml-auto text-accent"
-          initial={reduced ? false : { opacity: 0, y: 6 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.5, ease: "easeOut", delay: 0.2 }}
-        >
-          +{formatUsd(CASHBACK_CONFIG.depositStockbackUsd)}
-        </motion.span>
-      </div>
-      <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">flat</span>
+    <div className="mt-5 space-y-1.5">
+      {TIER_ORDER.map((s, i) => (
+        <div key={s} className="relative flex h-8 items-center border border-border bg-background px-3 font-mono text-xs">
+          <span className="text-muted-foreground">
+            {STRATEGIES[s].label} · ≥ {formatUsd(STOCKBACK_TIERS[s].minDepositUsd)}
+          </span>
+          <motion.span
+            className="ml-auto text-accent"
+            initial={reduced ? false : { opacity: 0, y: 6 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.5, ease: "easeOut", delay: 0.2 + i * 0.12 }}
+          >
+            +{formatUsd(STOCKBACK_TIERS[s].rewardUsd)}
+          </motion.span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -117,7 +126,7 @@ function CapBar() {
 
 /** One tick per qualifying deposit until the wallet cap is exhausted. */
 function LifetimeTicks() {
-  const n = Math.floor(CASHBACK_CONFIG.perWalletLifetimeCapUsd / CASHBACK_CONFIG.depositStockbackUsd);
+  const n = Math.floor(CASHBACK_CONFIG.perWalletLifetimeCapUsd / STOCKBACK_TIERS.balanced.rewardUsd);
   return (
     <div className="mt-5">
       <div className="flex flex-wrap gap-1">
@@ -133,7 +142,7 @@ function LifetimeTicks() {
         ))}
       </div>
       <p className="mt-2 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-        {n} qualifying deposits × {formatUsd(CASHBACK_CONFIG.depositStockbackUsd)} bonus
+        {n} Balanced deposits × {formatUsd(STOCKBACK_TIERS.balanced.rewardUsd)} bonus
       </p>
     </div>
   );
@@ -255,13 +264,23 @@ export function LandingPublishedNumbers() {
       index="05"
       eyebrow="Published numbers"
       title="We do not hide the rate."
-      description="Floor, bonus, caps, and per-stock rates are the live reward rule. Operators can tighten them. They cannot invent a second balance."
+      description="Floor, bonus, caps, and per-stock rates are the live reward rule. The deposit bonus depends on the strategy you pick. Operators can tighten them. They cannot invent a second balance."
     >
       <div className="grid grid-cols-1 divide-y divide-border border-b border-border sm:grid-cols-2 sm:divide-x lg:grid-cols-3">
-        <RuleCell index="01" title="Min eligible deposit" value={CASHBACK_CONFIG.minEligibleDepositUsd}>
+        <RuleCell
+          index="01"
+          title="Min eligible deposit"
+          display={`${formatUsd(Math.min(...tierFloors))}–${formatUsd(Math.max(...tierFloors))}`}
+        >
           <FloorGauge />
         </RuleCell>
-        <RuleCell index="02" title="Deposit bonus" value={CASHBACK_CONFIG.depositStockbackUsd} tone="accent" className="sm:border-t-0">
+        <RuleCell
+          index="02"
+          title="Deposit bonus by strategy"
+          display={`${formatUsd(Math.min(...tierRewards))}–${formatUsd(Math.max(...tierRewards))}`}
+          tone="accent"
+          className="sm:border-t-0"
+        >
           <BonusStamp />
         </RuleCell>
         <RuleCell index="03" title="Max rewarded deposit" value={CASHBACK_CONFIG.maxRewardedDepositUsd} decimals={0} className="sm:border-t sm:border-border lg:border-t-0">

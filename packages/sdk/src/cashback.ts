@@ -2,6 +2,8 @@ import {
   ALLOCATION_STOCKBACK_RATES,
   CASHBACK_CONFIG,
   DEFAULT_ALLOCATION_RATE,
+  stockbackTier,
+  type StrategyId,
 } from "@compose/config";
 
 export interface AllocationLine {
@@ -20,16 +22,10 @@ export interface StockbackPreview {
   ineligibilityReason?: string;
 }
 
-export function computeDepositStockback(depositUsd: number): number {
-  if (depositUsd < CASHBACK_CONFIG.minEligibleDepositUsd) return 0;
-  const rewarded = Math.min(
-    depositUsd,
-    CASHBACK_CONFIG.maxRewardedDepositUsd,
-  );
-  if (rewarded >= CASHBACK_CONFIG.minEligibleDepositUsd) {
-    return CASHBACK_CONFIG.depositStockbackUsd;
-  }
-  return 0;
+/** Flat deposit reward for the vault's strategy (CashbackReserve.rewardTiers). */
+export function computeDepositStockback(depositUsd: number, strategy: StrategyId = "balanced"): number {
+  const tier = stockbackTier(strategy);
+  return depositUsd >= tier.minDepositUsd ? tier.rewardUsd : 0;
 }
 
 export function computeAllocationStockback(
@@ -53,19 +49,21 @@ export function computeStockbackPreview(
   depositUsd: number,
   allocations: Array<{ ticker: string; usd: number }>,
   walletLifetimeStockbackUsd = 0,
+  strategy: StrategyId = "balanced",
 ): StockbackPreview {
-  if (depositUsd < CASHBACK_CONFIG.minEligibleDepositUsd) {
+  const tier = stockbackTier(strategy);
+  if (depositUsd < tier.minDepositUsd) {
     return {
       depositStockbackUsd: 0,
       allocationLines: [],
       totalAllocationStockbackUsd: 0,
       totalStockbackUsd: 0,
       eligible: false,
-      ineligibilityReason: `Minimum deposit is $${CASHBACK_CONFIG.minEligibleDepositUsd}`,
+      ineligibilityReason: `Minimum deposit is $${tier.minDepositUsd}`,
     };
   }
 
-  const depositStockback = computeDepositStockback(depositUsd);
+  const depositStockback = computeDepositStockback(depositUsd, strategy);
   const allocationLines = computeAllocationStockback(allocations);
   const totalAllocation = allocationLines.reduce(
     (sum, l) => sum + l.bonusUsd,

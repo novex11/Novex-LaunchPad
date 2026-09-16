@@ -150,9 +150,9 @@ export const stockback: DocPage = {
         <Table
           head={["Parameter", "Value"]}
           rows={[
-            ["Minimum qualifying deposit", "$100"],
+            ["Minimum qualifying deposit", "$50 Defensive and Balanced · $150 Aggressive"],
             ["Maximum rewarded deposit", "$10,000"],
-            ["Deposit bonus", "$2.00 flat"],
+            ["Deposit bonus (flat, by strategy)", "$0.77 Defensive · $2.00 Balanced · $6.00 Aggressive"],
             ["Per-stock allocation reward", "0.3% – 1.0% of the amount bought, by ticker (default 0.5%)"],
             ["Per-wallet lifetime cap", "$50"],
             ["Duplicate guard", "24 hours"],

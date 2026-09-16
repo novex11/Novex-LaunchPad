@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { APPROVED_STOCK_TOKENS, STRATEGIES, isPlaceholderAddress } from "@compose/config";
 import { computeAllocation } from "./allocation.js";
-import { computeStockbackPreview } from "./cashback.js";
+import { computeDepositStockback, computeStockbackPreview } from "./cashback.js";
 import { buildPreview } from "./preview.js";
 import {
   computeSharePrice,
@@ -111,6 +111,21 @@ describe("cashback", () => {
   it("rejects below minimum deposit", () => {
     const preview = computeStockbackPreview(49.99, []);
     expect(preview.eligible).toBe(false);
+  });
+
+  it("pays the strategy's deposit tier", () => {
+    expect(computeDepositStockback(50, "defensive")).toBe(0.77);
+    expect(computeDepositStockback(50, "balanced")).toBe(2);
+    expect(computeDepositStockback(149.99, "aggressive")).toBe(0);
+    expect(computeDepositStockback(150, "aggressive")).toBe(6);
+    expect(computeDepositStockback(49.99, "defensive")).toBe(0);
+  });
+
+  it("aggressive preview needs $150", () => {
+    const below = computeStockbackPreview(149, [], 0, "aggressive");
+    expect(below.eligible).toBe(false);
+    expect(below.ineligibilityReason).toBe("Minimum deposit is $150");
+    expect(computeStockbackPreview(150, [], 0, "aggressive").depositStockbackUsd).toBe(6);
   });
 });
 

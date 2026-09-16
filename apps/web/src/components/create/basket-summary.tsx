@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { ArrowRight, Wallet, WarningCircle, Sparkle, CaretDown } from "@phosphor-icons/react";
-import { CASHBACK_CONFIG, STRATEGIES, receiptTokenName, type StrategyId } from "@compose/config";
+import { STRATEGIES, receiptTokenName, stockbackTier, type StrategyId } from "@compose/config";
 import type { PreviewResponse } from "@compose/sdk";
 import type { DepositCosts } from "@/lib/api";
 import { cn, formatUsd } from "@/lib/utils";
@@ -51,7 +51,8 @@ export function BasketSummary(p: BasketSummaryProps) {
   const [showCosts, setShowCosts] = useState(false);
   const receipt = receiptTokenName(p.depositTicker, p.strategy);
   const stockback = data?.stockback.depositStockbackUsd ?? 0;
-  const floor = CASHBACK_CONFIG.minEligibleDepositUsd;
+  const tier = stockbackTier(p.strategy);
+  const floor = tier.minDepositUsd;
   const gap = Math.max(0, floor - p.depositUsd);
   const eligible = data?.stockback.eligible ?? p.depositUsd >= floor;
   const violations = data?.violations ?? [];
@@ -202,7 +203,7 @@ export function BasketSummary(p: BasketSummaryProps) {
             <div className="flex items-center justify-between text-[11px]">
               <span className="text-muted-foreground">
                 Add <span className="font-mono font-semibold text-foreground">{formatUsd(gap)}</span> to unlock the{" "}
-                {formatUsd(CASHBACK_CONFIG.depositStockbackUsd)} bonus
+                {formatUsd(tier.rewardUsd)} bonus
               </span>
               <span className="font-mono tabular-nums text-muted-foreground">
                 {formatUsd(p.depositUsd)} / {formatUsd(floor)}

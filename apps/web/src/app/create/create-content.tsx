@@ -8,7 +8,6 @@ import { motion } from "motion/react";
 import { ArrowRight, CaretLeft, CheckCircle, WarningCircle, Info } from "@phosphor-icons/react";
 import {
   BASKET_CONFIG,
-  CASHBACK_CONFIG,
   DEPOSIT_ASSETS,
   STRATEGIES,
   basketAmountPresets,
@@ -18,6 +17,7 @@ import {
   type StrategyId,
   getTokenByTicker,
   receiptTokenName,
+  stockbackTier,
 } from "@compose/config";
 import { parseUnits } from "viem";
 import { fetchDepositCosts, recordDeposit, type DepositCosts } from "@/lib/api";
@@ -167,7 +167,8 @@ export default function CreateBasketContent() {
   const openingNet = data ? depositUsd + data.stockback.depositStockbackUsd - externalTotal : 0;
 
   const belowBasketMin = depositUsd > 0 && depositUsd < BASKET_CONFIG.minDepositUsd;
-  const belowStockbackFloor = depositUsd > 0 && depositUsd < CASHBACK_CONFIG.minEligibleDepositUsd;
+  const tier = stockbackTier(strategy);
+  const belowStockbackFloor = depositUsd > 0 && depositUsd < tier.minDepositUsd;
   const hasViolations = (data?.violations?.length ?? 0) > 0;
   const previewIsLive = preview.source === "allocator";
   const pricingReady = Boolean(
@@ -416,8 +417,8 @@ export default function CreateBasketContent() {
             title="Amount"
             hint={
               isTestnetMode()
-                ? `Testnet: baskets from ${formatUsd(BASKET_CONFIG.minDepositUsd)}. Stockback from ${formatUsd(CASHBACK_CONFIG.minEligibleDepositUsd)}.`
-                : `Minimum ${formatUsd(BASKET_CONFIG.minDepositUsd)} to create. ${formatUsd(CASHBACK_CONFIG.minEligibleDepositUsd)}+ for Stockback.`
+                ? `Testnet: baskets from ${formatUsd(BASKET_CONFIG.minDepositUsd)}. ${STRATEGIES[strategy].label} Stockback ${formatUsd(tier.rewardUsd)} from ${formatUsd(tier.minDepositUsd)}.`
+                : `Minimum ${formatUsd(BASKET_CONFIG.minDepositUsd)} to create. ${STRATEGIES[strategy].label} earns ${formatUsd(tier.rewardUsd)} Stockback from ${formatUsd(tier.minDepositUsd)}.`
             }
           >
             <label className="block">
@@ -468,8 +469,8 @@ export default function CreateBasketContent() {
             {!belowBasketMin && belowStockbackFloor && (
               <p className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Info size={14} />
-                Below {formatUsd(CASHBACK_CONFIG.minEligibleDepositUsd)} — the basket still creates, but no Stockback
-                posts.
+                Below {formatUsd(tier.minDepositUsd)} — the basket still creates, but {STRATEGIES[strategy].label}{" "}
+                Stockback needs {formatUsd(tier.minDepositUsd)}+.
               </p>
             )}
           </Section>

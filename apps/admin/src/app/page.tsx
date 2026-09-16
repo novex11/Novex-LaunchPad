@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CASHBACK_CONFIG, LAUNCH_CAPS } from "@compose/config";
+import { CASHBACK_CONFIG, LAUNCH_CAPS, STOCKBACK_TIERS } from "@compose/config";
 
 export default function AdminPage() {
   const [pauses, setPauses] = useState({
@@ -30,7 +30,9 @@ export default function AdminPage() {
           <h3 className="font-medium">Cashback Budget</h3>
           <ul className="mt-4 space-y-2 text-sm text-muted-foreground">
             <li>Global budget: ${CASHBACK_CONFIG.globalBudgetCapUsd.toLocaleString()}</li>
-            <li>Deposit Stockback: ${CASHBACK_CONFIG.depositStockbackUsd}</li>
+            <li>
+              {`Deposit Stockback: $${STOCKBACK_TIERS.defensive.rewardUsd} Defensive · $${STOCKBACK_TIERS.balanced.rewardUsd} Balanced (from $${STOCKBACK_TIERS.balanced.minDepositUsd}) · $${STOCKBACK_TIERS.aggressive.rewardUsd} Aggressive (from $${STOCKBACK_TIERS.aggressive.minDepositUsd})`}
+            </li>
             <li>Per-wallet cap: ${CASHBACK_CONFIG.perWalletLifetimeCapUsd}</li>
             <li>Auto-pause at: {CASHBACK_CONFIG.budgetPauseThreshold * 100}% remaining</li>
           </ul>

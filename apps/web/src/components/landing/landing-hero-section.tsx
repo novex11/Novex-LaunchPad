@@ -4,6 +4,7 @@ import Link from "next/link";
 import { ArrowRight } from "@phosphor-icons/react";
 import {
   CASHBACK_CONFIG,
+  STOCKBACK_TIERS,
   ALLOCATION_STOCKBACK_RATES,
   DEFAULT_ALLOCATION_RATE,
 } from "@compose/config";
@@ -42,8 +43,15 @@ export function LandingHeroSection() {
           <StatStrip
             className="mt-8"
             items={[
-              { label: "Deposit bonus", value: formatUsd(CASHBACK_CONFIG.depositStockbackUsd), accent: true },
-              { label: "Floor", value: formatUsd(CASHBACK_CONFIG.minEligibleDepositUsd) },
+              {
+                label: "Deposit bonus",
+                value: `${formatUsd(STOCKBACK_TIERS.defensive.rewardUsd)}–${formatUsd(STOCKBACK_TIERS.aggressive.rewardUsd)}`,
+                accent: true,
+              },
+              {
+                label: "Floor",
+                value: `${formatUsd(STOCKBACK_TIERS.balanced.minDepositUsd)}–${formatUsd(STOCKBACK_TIERS.aggressive.minDepositUsd)}`,
+              },
               { label: "Lifetime cap", value: formatUsd(CASHBACK_CONFIG.perWalletLifetimeCapUsd) },
               { label: "Assets live", value: ALL_MARKET_ASSETS.length },
               { label: "Quote refresh", value: "15s" },
