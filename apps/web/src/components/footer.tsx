@@ -4,6 +4,7 @@ import Link from "next/link";
 import { motion, useReducedMotion } from "motion/react";
 import { ArrowUpRight } from "@phosphor-icons/react";
 import { Wordmark } from "@/components/navbar";
+import { LogoMark } from "@/components/logo-mark";
 import { HatchPattern } from "@/components/motion/hatch-pattern";
 import { DEFAULT_VAULT_ID, basketsAvailable } from "@/lib/contracts";
 
@@ -136,12 +137,27 @@ export function Footer() {
         </div>
       </div>
 
-      {/* Oversized wordmark — letters rise in one by one */}
+      {/* Oversized wordmark — the compass swings in, then letters rise in one by one */}
       <div
         aria-hidden
-        className="container-page relative select-none overflow-hidden pb-6"
+        className="container-page relative flex select-none items-center gap-[3vw] overflow-hidden pb-6 md:gap-8"
       >
-        <p className="flex text-[22vw] font-semibold leading-[0.8] tracking-[-0.06em] text-foreground opacity-[0.05] md:text-[13rem]">
+        <motion.div
+          className="relative shrink-0"
+          initial={reduced ? false : { rotate: -120, scale: 0.6, opacity: 0 }}
+          whileInView={{ rotate: 0, scale: 1, opacity: 1 }}
+          viewport={{ once: true, margin: "0px 0px -5% 0px" }}
+          transition={{ duration: 1.1, ease }}
+        >
+          <div className="absolute inset-[-20%] rounded-full bg-accent opacity-25 blur-3xl" />
+          <motion.div
+            animate={reduced ? undefined : { rotate: 360 }}
+            transition={{ duration: 60, ease: "linear", repeat: Infinity }}
+          >
+            <LogoMark className="relative h-[14vw] w-[14vw] text-foreground opacity-[0.14] md:h-36 md:w-36" />
+          </motion.div>
+        </motion.div>
+        <p className="flex text-[17vw] font-semibold leading-[0.8] tracking-[-0.06em] text-foreground opacity-[0.05] md:text-[11rem]">
           {"Compose".split("").map((ch, i) => (
             <motion.span
               key={i}

@@ -56,7 +56,7 @@ export function Providers({
           theme: "light",
           accentColor: "#C5D4C0",
           showWalletLoginFirst: true,
-          logo: "/compose-mark.png",
+          logo: "/brand/compose-mark-dark.png",
           walletList: [
             "detected_ethereum_wallets",
             "metamask",

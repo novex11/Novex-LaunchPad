@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { CaretRight, List, X, ArrowLeft, ArrowRight, ArrowSquareOut } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
+import { LogoMark } from "@/components/logo-mark";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { DocsSearch } from "@/components/docs/docs-search";
 import { DOCS_NAV, flatDocs, type DocPage } from "@/content/docs/registry";
@@ -85,8 +86,7 @@ export function DocsShell({ page, children }: { page: DocPage; children: React.R
             <List size={18} />
           </button>
           <Link href="/docs" className="flex items-center gap-2.5" aria-label="Compose docs home">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/brand/compose-mark.svg" alt="" className="h-7 w-7 rounded-md" />
+            <LogoMark className="h-7 w-7 text-foreground" />
             <span className="text-sm font-semibold tracking-tight">Compose</span>
             <span className="hidden rounded-md border border-border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground sm:inline">Docs</span>
           </Link>

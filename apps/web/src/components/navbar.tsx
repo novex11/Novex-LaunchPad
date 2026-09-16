@@ -6,6 +6,7 @@ import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
 import { List, X } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
+import { LogoMark } from "@/components/logo-mark";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { MarketStatusPill } from "@/components/trading/market-status-pill";
 import { DEFAULT_VAULT_ID, basketsAvailable } from "@/lib/contracts";
@@ -35,8 +36,7 @@ function isActive(pathname: string, href: string) {
 export function Wordmark({ className }: { className?: string }) {
   return (
     <Link href="/" className={cn("flex items-center gap-2", className)} aria-label="Compose home">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/compose-mark.png" alt="" aria-hidden width={28} height={28} className="h-7 w-7 rounded-full" />
+      <LogoMark className="h-7 w-7 text-foreground" />
       <span className="text-sm font-semibold tracking-tight">Compose</span>
     </Link>
   );
