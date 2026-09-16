@@ -14,7 +14,8 @@ import { useCurveOnchain, useCurveTokenDetail, useTokenHistory, useTokenLive } f
 import { ponsTokenUrl, usePonsOnchain } from "@/hooks/use-pons-token";
 import { PairAreaChart, type PairAreaMetric } from "@/components/pair/pair-area-chart";
 import { TokenTradePanel } from "@/components/token/token-trade-panel";
-import { PonsCreatorNote, PonsTradePanel } from "@/components/token/pons-trade-panel";
+import { PonsTradePanel } from "@/components/token/pons-trade-panel";
+import { PonsCreatorFees } from "@/components/token/pons-creator-fees";
 import { CurveCreatorFees } from "@/components/token/curve-creator-fees";
 import { AddressChip } from "@/components/launchpad/address-chip";
 import { DualLogoStack } from "@/components/launchpad/dual-logo-stack";
@@ -384,7 +385,7 @@ export default function TokenDetailContent({ address }: { address: string }) {
           <div className="lg:sticky lg:top-24">
             {wallet.address && wallet.address.toLowerCase() === market.creator.toLowerCase() && (
               pons ? (
-                <PonsCreatorNote className="mb-4" ponsUrl={ponsUrl} />
+                <PonsCreatorFees className="mb-4" pons={pons} symbol={symbol} ponsUrl={ponsUrl} />
               ) : curve ? (
                 <CurveCreatorFees
                   className="mb-4"

@@ -15,6 +15,7 @@ import {
   ponsRouterAbi,
   ponsRouterReady,
   ponsV2BondingCurveAbi,
+  ponsV2FeeEscrowAbi,
   ponsV2LaunchFactoryAbi,
 } from "@/lib/contracts";
 import { useContractTx } from "@/lib/tx";
@@ -165,6 +166,8 @@ export interface PonsLaunchInput {
   description?: string;
   website?: string;
   creatorTaxBps?: number;
+  /** Extra wallets exempt from the 3 s snipe tax (max 32); the creator already is. */
+  exemptions?: Address[];
 }
 
 /**
@@ -206,7 +209,7 @@ export function usePonsLaunch() {
                 buybackEnabled: false,
                 expectedEconomics: i.expectedEconomics,
                 salt: `0x${Array.from(salt, (b) => b.toString(16).padStart(2, "0")).join("")}` as Hex,
-                exemptions: [],
+                exemptions: i.exemptions ?? [],
                 devBuyQuote: i.devBuyQuote,
                 minDevTokens: i.minDevTokens,
               },
@@ -568,4 +571,129 @@ export function usePonsTrade() {
   );
 
   return { buy, buyWithShares, sell, sellForShares, stage: s.stage, error: s.error, hash: s.hash, reset: s.reset };
+}
+
+// ─── Creator fees ───────────────────────────────────────
+// Pons never pushes fees to the creator. The 1% curve fee and the creator tax
+// accrue on the token's curve; the creator fee recipient (the pair creator, as
+// set by PonsLauncher) sweeps them into Pons's shared fee escrow and then claims
+// from the escrow. Only the recipient may sweep (the curve reverts with
+// NotFeeSweepOperator for anyone else), so no keeper can do it for them.
+
+export interface PonsCreatorFeeState {
+  escrow: Address;
+  /** Curve fee waiting on the curve, not yet swept (quote units). */
+  curveFee: bigint;
+  /** Creator tax waiting on the curve, not yet swept (quote units). */
+  creatorTax: bigint;
+  /** Pons keeps this share of the curve fee; the rest of it goes to the creator. */
+  protocolShareBps: number;
+  buybackEnabled: boolean;
+  /** What a sweep would credit to the creator right now (quote units). */
+  sweepable: bigint;
+  /** Already swept and waiting in the escrow for the creator to claim (quote units). */
+  claimable: bigint;
+}
+
+/** Fee balances a Pons token's creator can sweep from the curve and claim from the escrow. */
+export function usePonsCreatorFees(i: { curve?: Address; quoteToken?: Address; creator?: Address }): {
+  data: PonsCreatorFeeState | undefined;
+  isLoading: boolean;
+  refetch: () => Promise<unknown>;
+} {
+  const escrow = useReadContract({
+    address: PONS_FACTORY_ADDRESS,
+    abi: ponsV2LaunchFactoryAbi,
+    functionName: "feeEscrow",
+    query: { enabled: ponsLauncherReady, staleTime: Infinity },
+  });
+  const escrowAddress = escrow.data as Address | undefined;
+  const calls = useMemo(
+    () =>
+      i.curve && i.quoteToken && i.creator && escrowAddress
+        ? [
+            { address: i.curve, abi: ponsV2BondingCurveAbi, functionName: "quoteFeeBalance" },
+            { address: i.curve, abi: ponsV2BondingCurveAbi, functionName: "creatorTaxBalance" },
+            { address: i.curve, abi: ponsV2BondingCurveAbi, functionName: "protocolFeeShareBps" },
+            { address: i.curve, abi: ponsV2BondingCurveAbi, functionName: "buybackEnabled" },
+            { address: escrowAddress, abi: ponsV2FeeEscrowAbi, functionName: "balanceOfToken", args: [i.creator, i.quoteToken] },
+          ]
+        : [],
+    [i.curve, i.quoteToken, i.creator, escrowAddress],
+  );
+  const reads = useReadContracts({
+    // Mixed ABIs in one multicall; results are narrowed by position below.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    contracts: calls as any,
+    query: { enabled: calls.length > 0, refetchInterval: REFRESH_MS },
+  });
+  const r = reads.data;
+  const big = (k: number) => (r?.[k]?.status === "success" ? (r[k]!.result as bigint) : 0n);
+
+  let data: PonsCreatorFeeState | undefined;
+  if (escrowAddress && r && r.length === 5) {
+    const curveFee = big(0);
+    const creatorTax = big(1);
+    const protocolShareBps = Number(big(2));
+    const creatorFeeShare = curveFee - (curveFee * BigInt(protocolShareBps)) / 10_000n;
+    data = {
+      escrow: escrowAddress,
+      curveFee,
+      creatorTax,
+      protocolShareBps,
+      buybackEnabled: r[3]?.status === "success" ? (r[3].result as boolean) : false,
+      sweepable: creatorFeeShare + creatorTax,
+      claimable: big(4),
+    };
+  }
+  const refetch = useCallback(() => Promise.all([escrow.refetch(), reads.refetch()]), [escrow, reads]);
+  return { data, isLoading: !data && (escrow.isLoading || reads.isLoading), refetch };
+}
+
+/** Sweep a Pons curve's fees into the escrow and claim them; both must be sent by the creator fee recipient. */
+export function usePonsCreatorFeeActions() {
+  const { send } = useContractTx();
+  const s = useStage();
+  const { setStage, setError, setHash, fail } = s;
+
+  const sweep = useCallback(
+    async (curve: Address): Promise<Hash> => {
+      setError(null);
+      setHash(undefined);
+      try {
+        setStage("submit");
+        // No buyback leg on Compose launches, so no minimum buyback output to protect.
+        const { hash } = await send(
+          { address: curve, abi: ponsV2BondingCurveAbi, functionName: "sweepFees", args: [0n] },
+          { onSubmitted: setHash },
+        );
+        setStage("done");
+        return hash;
+      } catch (e) {
+        return fail(e);
+      }
+    },
+    [send, setStage, setError, setHash, fail],
+  );
+
+  const claim = useCallback(
+    async (escrow: Address, quoteToken: Address): Promise<Hash> => {
+      setError(null);
+      setHash(undefined);
+      try {
+        setStage("submit");
+        const { hash } = await send(
+          { address: escrow, abi: ponsV2FeeEscrowAbi, functionName: "claimToken", args: [quoteToken] },
+          { onSubmitted: setHash },
+        );
+        setStage("done");
+        return hash;
+      } catch (e) {
+        return fail(e);
+      }
+    },
+    [send, setStage, setError, setHash, fail],
+  );
+
+  return { sweep, claim, stage: s.stage, error: s.error, hash: s.hash, reset: s.reset };
 }

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { formatUnits, parseUnits, type Address } from "viem";
+import { formatUnits, isAddress, parseUnits, type Address } from "viem";
 import { useReadContract } from "wagmi";
 import { ArrowRight, ArrowSquareOut, CheckCircle, CircleNotch, RocketLaunch, WarningCircle } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
@@ -31,6 +31,7 @@ const SUPPLY = 10n ** 27n; // 1B × 1e18
 const MAX_DEV_BUY_BPS = 500n; // 5% of supply, enforced on-chain
 const CURVE_FEE_BPS = 100n; // 1% of every buy, in shares
 const DEV_BUY_PRESETS = [0, 1, 2, 3, 5];
+const PONS_MAX_EXEMPTIONS = 32; // Pons caps the snipe-tax exemption list per launch
 
 type Venue = "compose" | "pons";
 
@@ -475,7 +476,18 @@ function PonsLaunchForm({
   const [quoteAddr, setQuoteAddr] = useState<Address | undefined>(ponsQuotes[0]?.address);
   const quote = ponsQuotes.find((q) => q.address === quoteAddr) ?? ponsQuotes[0];
   const [devText, setDevText] = useState("");
+  const [exemptText, setExemptText] = useState("");
   const launcher = usePonsLaunch();
+
+  // Wallets that may buy untaxed inside Pons's 3 s launch window (team, treasury, market maker).
+  const exemptions = useMemo(() => {
+    const raw = exemptText
+      .split(/[\s,;]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const valid = Array.from(new Set(raw.filter((a) => isAddress(a)).map((a) => a.toLowerCase()))) as Address[];
+    return { list: valid, invalid: raw.filter((a) => !isAddress(a)) };
+  }, [exemptText]);
   const busy = launcher.stage === "approve" || launcher.stage === "submit";
 
   const info = usePonsLaunchInfo({ pair, tokenA, tokenB, tickerA, tickerB, decA, decB, selectedQuote: quote?.address });
@@ -516,7 +528,11 @@ function PonsLaunchForm({
         ? `Not enough ${quote.symbol} — you hold ${fmt(quoteBalance, quote.decimals)}`
         : fee === undefined
           ? "Waiting for Pons's launch fee…"
-          : null;
+          : exemptions.invalid.length > 0
+            ? `Not a wallet address: ${exemptions.invalid[0]}`
+            : exemptions.list.length > PONS_MAX_EXEMPTIONS
+              ? `Pons allows at most ${PONS_MAX_EXEMPTIONS} exempt wallets`
+              : null;
 
   async function launch() {
     if (!quote || fee === undefined) return;
@@ -531,6 +547,7 @@ function PonsLaunchForm({
         logo: logoUrl,
         description,
         website: websiteUrl,
+        exemptions: exemptions.list,
       });
       onCreated(result.token);
     } catch {
@@ -542,8 +559,8 @@ function PonsLaunchForm({
     <>
       <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
         One shared market: on Pons the token is quoted in the stock you pick, on Compose it is quoted in this pair&apos;s
-        shares. Price and volume match on both. 1B supply on a Pons v2 curve, 1% trade fee with the creator&apos;s share
-        paid to you by Pons.
+        shares. Price and volume match on both. 1B supply on a Pons v2 curve, 1% trade fee; your share of it accrues
+        on the curve and you sweep and claim it from this token&apos;s page.
         {startMcapUsd !== undefined && startMcapUsd > 0 && ` Starts at ≈ ${formatUsd(startMcapUsd)} market cap.`}
       </p>
 
@@ -595,6 +612,26 @@ function PonsLaunchForm({
         </div>
       )}
 
+      <div className="mt-4">
+        <p className="text-xs text-muted-foreground">
+          Snipe-tax exempt wallets (optional, up to {PONS_MAX_EXEMPTIONS}) · team or treasury wallets that may buy in the
+          first 3 s untaxed
+        </p>
+        <textarea
+          value={exemptText}
+          onChange={(e) => setExemptText(e.target.value)}
+          placeholder="0x… one per line"
+          rows={2}
+          spellCheck={false}
+          className="mt-2 w-full resize-y rounded-xl border border-border bg-surface px-3 py-2 font-mono text-xs outline-none focus:border-accent"
+        />
+        {exemptions.list.length > 0 && (
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            {exemptions.list.length} wallet{exemptions.list.length === 1 ? "" : "s"} exempt besides you
+          </p>
+        )}
+      </div>
+
       <dl className="mt-4 space-y-1 rounded-2xl border border-border bg-surface-muted p-3 font-mono text-[11px]">
         <div className="flex justify-between gap-3">
           <dt className="text-muted-foreground">Pons launch fee</dt>
@@ -606,7 +643,9 @@ function PonsLaunchForm({
         </div>
         <div className="flex justify-between gap-3">
           <dt className="text-muted-foreground">Launch protection</dt>
-          <dd>3s snipe tax, creator exempt</dd>
+          <dd>
+            3s snipe tax · you{exemptions.list.length > 0 ? ` + ${exemptions.list.length}` : ""} exempt
+          </dd>
         </div>
       </dl>
 

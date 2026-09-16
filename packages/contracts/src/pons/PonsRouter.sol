@@ -314,6 +314,12 @@ contract PonsRouter is ReentrancyGuard {
         );
     }
 
+    /// @dev After graduation Pons moves the market into its Uniswap v4 pool; the curve
+    ///      rejects trades, so fail early with a message the UI can show.
+    function _requireOpen(address curve) internal view {
+        require(!IPonsV2BondingCurve(curve).graduated(), "PonsRouter: graduated, trade on Uniswap");
+    }
+
     function _checkPayToken(address token) internal view {
         require(token == usdg || (token == weth && weth != address(0)), "PonsRouter: unsupported token");
     }
@@ -323,6 +329,7 @@ contract PonsRouter is ReentrancyGuard {
         returns (uint256 tokensOut)
     {
         require(quoteIn > 0, "PonsRouter: zero quote");
+        _requireOpen(curve);
         IERC20(quote).forceApprove(curve, quoteIn);
         tokensOut = IPonsV2BondingCurve(curve).buy(quoteIn, minTokensOut, msg.sender);
         IERC20(quote).forceApprove(curve, 0);
@@ -330,6 +337,7 @@ contract PonsRouter is ReentrancyGuard {
 
     function _curveSell(address curve, address token, uint256 tokensIn) internal returns (uint256 quoteOut) {
         require(tokensIn > 0, "PonsRouter: zero amount");
+        _requireOpen(curve);
         IERC20(token).safeTransferFrom(msg.sender, address(this), tokensIn);
         IERC20(token).forceApprove(curve, tokensIn);
         quoteOut = IPonsV2BondingCurve(curve).sell(tokensIn, 0, address(this));

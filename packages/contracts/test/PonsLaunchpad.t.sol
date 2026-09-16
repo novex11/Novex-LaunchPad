@@ -21,7 +21,7 @@ import {MockWRHT} from "../src/mocks/MockWRHT.sol";
 import {MockPonsFactory, MockPonsCurve} from "../src/mocks/MockPons.sol";
 import {PonsLauncher} from "../src/pons/PonsLauncher.sol";
 import {PonsRouter} from "../src/pons/PonsRouter.sol";
-import {IPonsV2LaunchFactory, IPonsV2BondingCurve} from "../src/pons/IPonsV2.sol";
+import {IPonsV2LaunchFactory, IPonsV2BondingCurve, IPonsV2FeeEscrow} from "../src/pons/IPonsV2.sol";
 
 contract PonsLaunchpadTest is Test {
     uint24 constant POOL_FEE = 3000;
@@ -639,12 +639,73 @@ contract PonsLaunchpadTest is Test {
         // Curve trading is closed on both venues; the V4 pool takes over on Pons.
         vm.startPrank(bob);
         tsla.approve(address(router), 1 ether);
-        vm.expectRevert("MockPonsCurve: graduated");
+        vm.expectRevert("PonsRouter: graduated, trade on Uniswap");
         router.buy(_buyParams(token, address(tsla), 1 ether, ""));
         IERC20(token).approve(address(router), 1e18);
-        vm.expectRevert("MockPonsCurve: graduated");
+        vm.expectRevert("PonsRouter: graduated, trade on Uniswap");
         router.sell(_sellParams(token, 1e18, address(tsla), "", false));
         vm.stopPrank();
+    }
+
+    // ─── Creator fees: sweep on the curve, claim from the escrow ──────────
+
+    function test_creatorFees_sweepThenClaim() public {
+        (address token, MockPonsCurve curve) = _launch(0);
+        vm.warp(block.timestamp + 10);
+        _bobBuysWithTsla(token, 5 ether);
+
+        // Fees wait on the curve; nothing reaches the creator by itself.
+        uint256 fee = curve.quoteFeeBalance();
+        uint256 tax = curve.creatorTaxBalance();
+        assertGt(fee, 0);
+        assertEq(tax, 0, "no creator tax configured");
+        IPonsV2FeeEscrow escrow = IPonsV2FeeEscrow(pons.feeEscrow());
+        assertEq(escrow.balanceOfToken(alice, address(tsla)), 0);
+
+        // Only the creator fee recipient (the pair creator) may sweep; the launcher
+        // contract is Pons's deployer of record but has no fee rights.
+        vm.prank(bob);
+        vm.expectRevert("NotFeeSweepOperator");
+        curve.sweepFees(0);
+        vm.prank(address(launcher));
+        vm.expectRevert("NotFeeSweepOperator");
+        curve.sweepFees(0);
+
+        (uint256 quoteBefore, uint256 tokenBefore) = curve.getReserves();
+        vm.prank(alice);
+        curve.sweepFees(0);
+        (uint256 quoteAfter, uint256 tokenAfter) = curve.getReserves();
+        assertEq(quoteAfter, quoteBefore, "sweep must not move the price");
+        assertEq(tokenAfter, tokenBefore);
+        assertEq(curve.quoteFeeBalance(), 0);
+
+        uint256 creatorCut = fee - (fee * curve.protocolFeeShareBps()) / 10_000 + tax;
+        assertEq(escrow.balanceOfToken(alice, address(tsla)), creatorCut);
+
+        uint256 before = tsla.balanceOf(alice);
+        vm.prank(alice);
+        escrow.claimToken(address(tsla));
+        assertEq(tsla.balanceOf(alice) - before, creatorCut);
+        assertEq(escrow.balanceOfToken(alice, address(tsla)), 0);
+    }
+
+    function test_creatorFees_taxAccruesToCreator() public {
+        vm.startPrank(alice);
+        tsla.approve(address(launcher), type(uint256).max);
+        PonsLauncher.LaunchParams memory p = _params(address(tsla), 0);
+        p.creatorTaxBps = 200;
+        (address token, address c, ) = launcher.launch{value: LAUNCH_FEE}(p);
+        vm.stopPrank();
+        MockPonsCurve curve = MockPonsCurve(c);
+        vm.warp(block.timestamp + 10);
+        _bobBuysWithTsla(token, 5 ether);
+        uint256 tax = curve.creatorTaxBalance();
+        assertGt(tax, 0);
+        uint256 fee = curve.quoteFeeBalance();
+        vm.prank(alice);
+        curve.sweepFees(0);
+        IPonsV2FeeEscrow escrow = IPonsV2FeeEscrow(pons.feeEscrow());
+        assertEq(escrow.balanceOfToken(alice, address(tsla)), fee - (fee * 3_000) / 10_000 + tax);
     }
 
     // ─── Same market from both venues ───────────────────────

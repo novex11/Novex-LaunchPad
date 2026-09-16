@@ -5,7 +5,41 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {IPonsV2LaunchFactory, IPonsV2BondingCurve} from "../pons/IPonsV2.sol";
+import {IPonsV2LaunchFactory, IPonsV2BondingCurve, IPonsV2FeeEscrow} from "../pons/IPonsV2.sol";
+
+/// @dev Mirrors PonsV2FeeEscrow: swept fees are credited per recipient and token,
+///      and `claimToken` pays the caller's own balance out.
+contract MockPonsFeeEscrow is IPonsV2FeeEscrow {
+    using SafeERC20 for IERC20;
+
+    mapping(address => uint256) public balanceOf;
+    mapping(address => mapping(address => uint256)) public balanceOfToken;
+
+    function creditToken(address recipient, address token, uint256 amount) external {
+        IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
+        balanceOfToken[recipient][token] += amount;
+    }
+
+    function claim() external {
+        claim(balanceOf[msg.sender]);
+    }
+
+    function claim(uint256 amount) public {
+        balanceOf[msg.sender] -= amount;
+        (bool ok, ) = msg.sender.call{value: amount}("");
+        require(ok, "MockPonsFeeEscrow: eth");
+    }
+
+    function claimToken(address token) external {
+        claimToken(token, balanceOfToken[msg.sender][token]);
+    }
+
+    function claimToken(address token, uint256 amount) public {
+        require(amount > 0, "MockPonsFeeEscrow: nothing to claim");
+        balanceOfToken[msg.sender][token] -= amount;
+        IERC20(token).safeTransfer(msg.sender, amount);
+    }
+}
 
 /// @dev Fixed-supply launch token, minted to the curve like PonsV2LauncherToken.
 contract MockPonsToken is ERC20 {
@@ -43,6 +77,13 @@ contract MockPonsCurve is IPonsV2BondingCurve {
     uint256 public snipeTaxStartBps;
     uint256 public snipeTaxSeconds;
     mapping(address => bool) public snipeTaxExempt;
+    /// @dev Fee plumbing, as on the live curve: fees wait on the curve until the
+    ///      creator fee recipient sweeps them into the shared escrow.
+    address public deployer;
+    address public creatorFeeRecipient;
+    address public feeEscrow;
+    bool public buybackEnabled;
+    uint256 public constant protocolFeeShareBps = 3_000;
 
     struct Fill {
         uint256 spent;
@@ -71,9 +112,12 @@ contract MockPonsCurve is IPonsV2BondingCurve {
         snipeTaxSeconds = snipeTaxSeconds_;
     }
 
-    function initialize(address token_) external {
+    function initialize(address token_, address deployer_, address creatorFeeRecipient_, address feeEscrow_) external {
         require(msg.sender == factory && token == address(0), "MockPonsCurve: init");
         token = token_;
+        deployer = deployer_;
+        creatorFeeRecipient = creatorFeeRecipient_;
+        feeEscrow = feeEscrow_;
         launchSupply = IERC20(token_).balanceOf(address(this));
         trackedTokens = launchSupply;
         // Tokens left on the curve when the real quote reaches the threshold.
@@ -84,6 +128,24 @@ contract MockPonsCurve is IPonsV2BondingCurve {
     function exemptFromSnipeTax(address account) external {
         require(msg.sender == factory, "MockPonsCurve: factory");
         snipeTaxExempt[account] = true;
+    }
+
+    /// @dev Only the creator fee recipient may sweep (the live curve reverts with
+    ///      NotFeeSweepOperator). Pons keeps its protocol share of the curve fee; the
+    ///      creator tax plus the rest of the fee is credited to the recipient in escrow.
+    function sweepFees(uint256) external {
+        require(msg.sender == creatorFeeRecipient, "NotFeeSweepOperator");
+        uint256 fee = quoteFeeBalance;
+        uint256 tax = creatorTaxBalance;
+        if (fee + tax == 0) return;
+        quoteFeeBalance = 0;
+        creatorTaxBalance = 0;
+        trackedQuote -= fee + tax;
+        uint256 protocolCut = (fee * protocolFeeShareBps) / BPS;
+        uint256 creatorCut = fee - protocolCut + tax;
+        IERC20(pairToken).safeTransfer(factory, protocolCut);
+        IERC20(pairToken).forceApprove(feeEscrow, creatorCut);
+        MockPonsFeeEscrow(feeEscrow).creditToken(creatorFeeRecipient, pairToken, creatorCut);
     }
 
     // ─── Views ──────────────────────────────────────────────
@@ -223,9 +285,15 @@ contract MockPonsFactory is IPonsV2LaunchFactory {
     mapping(address => address) public curveOf;
     address[] public launched;
     uint256 public feesCollected;
+    MockPonsFeeEscrow public immutable escrow;
 
     constructor(uint256 launchFee_) {
         launchFee = launchFee_;
+        escrow = new MockPonsFeeEscrow();
+    }
+
+    function feeEscrow() external view returns (address) {
+        return address(escrow);
     }
 
     // ─── Admin (test helpers) ───────────────────────────────
@@ -316,7 +384,8 @@ contract MockPonsFactory is IPonsV2LaunchFactory {
             snipeTaxSeconds
         );
         MockPonsToken t = new MockPonsToken{salt: salt}(params.name, params.symbol, SUPPLY, address(c));
-        c.initialize(address(t));
+        address recipient = params.creatorFeeRecipient == address(0) ? msg.sender : params.creatorFeeRecipient;
+        c.initialize(address(t), msg.sender, recipient, address(escrow));
         token = address(t);
         curve = address(c);
     }

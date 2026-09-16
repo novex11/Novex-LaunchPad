@@ -50,11 +50,49 @@ a second lens on it:
 
 What changes versus `ComposeCurve`: the curve reserve is one stock (or USDG)
 held by Pons, not the pair share, so token buys no longer create demand for
-both stocks. Compose's 30% protocol share of curve fees goes away (Pons takes
-its own protocol cut and pays the creator directly); a splitter as
-`creatorFeeRecipient` or a router fee can restore it later. Fees on the Pons
-side: 1% curve fee (protocol / buyback / creator per Pons policy) plus an
-optional creator tax up to 10%.
+both stocks. Compose's 30% protocol share of curve fees goes away (Pons keeps
+its own 30% protocol share of the 1% curve fee; the remaining 70% plus any
+creator tax belongs to the creator). A splitter as `creatorFeeRecipient` or a
+router fee can restore a Compose cut later. Fees on the Pons side: 1% curve fee
+plus an optional creator tax up to 10%.
+
+## Creator fees: sweep, then claim (verified on-chain 2026-09-16)
+
+Pons never pushes fees to the creator. This was checked against live curves
+and matches cudapad.com (a frontend + keeper built purely on Pons v2) and
+docs.ponsfamily.com/docs/v2:
+
+| Step | Where | Who |
+|---|---|---|
+| Accrue | on the token's curve: `quoteFeeBalance()` (curve fee) and `creatorTaxBalance()` (creator tax) | every buy/sell |
+| Sweep | `curve.sweepFees(minBuybackTokensOut)` credits the creator's share to the shared fee escrow `0xd3AFEB2a57f70eF218Aa82451c51B2fb0416Ac9e` and pays Pons its protocol share | **only the creator fee recipient** (`NotFeeSweepOperator` for anyone else, including the launch's deployer) |
+| Claim | `escrow.claimToken(quote)` (or `claim()` for ETH quotes) pays `msg.sender`'s balance | the creator fee recipient |
+| After graduation | `sweepPoolFees(poolId, minConversionQuoteOut, minBuybackTokensOut)` on the Pons meme hook, then the same claim | the creator fee recipient |
+
+`PonsLauncher` sets `creatorFeeRecipient = msg.sender` (the pair creator), so
+the creator can do all of this from their own wallet, and nobody else can do it
+for them; a keeper cannot sweep on the creator's behalf. The web exposes both
+steps on the token page (`PonsCreatorFees`, backed by `usePonsCreatorFees` and
+`usePonsCreatorFeeActions`). The recipient can be changed later through the
+factory's `setCreatorFeeRecipient(token, newRecipient)`, behind a 3-day timelock
+(`CREATOR_FEE_RECIPIENT_TIMELOCK = 259200`), which is the path to a fee
+splitter if Compose wants a cut.
+
+## Deployer of record on Pons
+
+The Pons factory attributes each launch to `msg.sender`, so Pons shows
+`PonsLauncher` as the deployer of tokens launched from Compose (the creator is
+still the fee recipient, exempt from the snipe tax, and receives the dev buy).
+`launchTokenFor(params, configId, quote, deployer, exemptions)` would fix the
+attribution, but it reverts with `NotLaunchForwarder` for anyone except Pons's
+own launch-and-buy forwarder `0xe33E9E479dF8802cb0866d5d05258bEc4cF62948`, so
+it needs Pons to whitelist our launcher. Until then, an "adopt an existing
+Pons token" path (creator launches on Pons directly, then links the token to
+the pair on Compose) is the alternative; see follow-ups.
+
+Other facts checked on-chain: `snipeTaxSeconds() = 3`, `snipeTaxStartBps() =
+9900`, `maxCreatorTaxBps() = 1000`, curves are full contracts (not clones) and
+are not verified on Sourcify; only the factory is.
 
 ## Deploy
 
@@ -76,15 +114,35 @@ pre-cutover PairFactory `0x5Aa9…E764`. The launcher's factory is immutable, so
 they cannot see pairs on the live factory `0x14F7…dc69` (PR #5) and must be
 redeployed; the config keeps `ponsLauncher` / `ponsRouter` empty until then.
 
-## Follow-ups (not in this change)
+## Done on this branch
 
-1. **Indexer**: ingest `CurveBuy` / `CurveSell` from each launched curve
-   (topics from `IPonsV2BondingCurve`) and convert quote → USD → pair shares
-   for candles and volume; add `TokenLaunched` from `PonsLauncher`.
-2. **Web**: launch page step "launch on Pons" after `launchPair`; token page
-   reads `PonsRouter` views; trade widget calls `buy` / `buyWithShares` /
-   `sell` / `sellForShares`.
-3. **Post-graduation**: Pons moves liquidity into a Uniswap v4 pool with the
-   `PonsV2MemeHook`; the router needs a v4 leg for graduated tokens.
-4. **Config**: add `ponsFactory`, `ponsLauncher`, `ponsRouter` to the mainnet
-   contracts config once deployed.
+- Indexer ingests `TokenLaunched` from `PonsLauncher` and `CurveBuy` /
+  `CurveSell` from every launched curve, converting quote → USD → pair shares
+  (`services/indexer/src/pons-indexer.ts`).
+- Web: "Launch on Pons" venue on the pair page (quote pick, dev buy, snipe-tax
+  exemptions, pinned economics), token page on `PonsRouter` views, trade panel
+  paying/receiving ETH, USDG, the quote stock or pair shares, creator fee
+  sweep + claim, graduated tokens link to Pons.
+- `PonsRouter` refuses trades on a graduated curve with
+  `PonsRouter: graduated, trade on Uniswap` instead of bubbling Pons's error.
+- Config keys `ponsFactory`, `ponsLauncher`, `ponsRouter` in the mainnet and
+  testnet deployment JSON; addresses filled in by `scripts/deploy-pons.sh`.
+
+## Follow-ups (phase 2)
+
+1. **Post-graduation trading**: Pons moves liquidity into a Uniswap v4 pool
+   (`PoolManager 0x8366a3…e40951`, `PonsV2MemeHook 0xE5e702…6Be044`, locker
+   `0x267444…574952`); the router needs a v4 leg so the pair-share lens keeps
+   working, and the creator fee card needs `sweepPoolFees` on the hook.
+2. **Adopt an existing Pons token**: let a creator who launched on Pons
+   directly (creator as deployer of record, Pons's own launch-and-buy) link
+   that token to their pair: `curve.deployer() == msg.sender == vault.creator()`,
+   quote ∈ pair legs ∪ USDG, name/symbol equal to the receipt's.
+3. **Compose fee share**: a splitter contract set as the creator fee recipient
+   through the factory's timelocked `setCreatorFeeRecipient`.
+4. **Indexer**: read the escrow's `Credited*` / `Claimed*` events to show
+   lifetime creator earnings; today the card reads live balances only.
+5. **Deploy target**: redeploy against the PairFactory that `main` will use
+   after PR #10 (`0x94E271F4B53B536E867c128792B62701d9eC4f5A`, PairRouter
+   `0x2562c91CaD2d998a6ECaC4cAbe9033abEBb06Fa3`), not the PR #5 one, so the
+   launcher does not go stale again.

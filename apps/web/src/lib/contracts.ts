@@ -24,6 +24,7 @@ import ponsLauncherAbiJson from "./abis/PonsLauncher.json";
 import ponsRouterAbiJson from "./abis/PonsRouter.json";
 import ponsV2LaunchFactoryAbiJson from "./abis/PonsV2LaunchFactory.json";
 import ponsV2BondingCurveAbiJson from "./abis/PonsV2BondingCurve.json";
+import ponsV2FeeEscrowAbiJson from "./abis/PonsV2FeeEscrow.json";
 
 export const strategyVaultAbi = strategyVaultAbiJson as Abi;
 export const receiptTokenAbi = receiptTokenAbiJson as Abi;
@@ -41,6 +42,8 @@ export const ponsLauncherAbi = ponsLauncherAbiJson as Abi;
 export const ponsRouterAbi = ponsRouterAbiJson as Abi;
 export const ponsV2LaunchFactoryAbi = ponsV2LaunchFactoryAbiJson as Abi;
 export const ponsV2BondingCurveAbi = ponsV2BondingCurveAbiJson as Abi;
+/** Pons's shared fee escrow: swept creator fees wait here until the creator claims them. */
+export const ponsV2FeeEscrowAbi = ponsV2FeeEscrowAbiJson as Abi;
 
 /** ERC-20 subset used across the app. */
 export const erc20Abi = [

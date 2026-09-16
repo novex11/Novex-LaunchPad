@@ -346,15 +346,16 @@ export const creatorTokens: DocPage = {
           <p>
             A pair creator can launch the pair&apos;s token on Pons v2 instead of the Compose curve. The token keeps the
             pair&apos;s name and symbol, but its market is a Pons bonding curve quoted in one of the pair&apos;s two stocks
-            (or USDG). It is listed on ponsfamily.com from the launch block, and the creator receives Pons&apos;s creator
-            fee share directly.
+            (or USDG). It is listed on ponsfamily.com from the launch block. The creator&apos;s share of the 1% curve fee
+            (70%, plus any creator tax) accrues on the curve; the creator sweeps it into Pons&apos;s fee escrow and claims
+            it from the token page. Only the creator&apos;s wallet can do either.
           </p>
           <p>
             There is one market, not two. Every Compose trade on such a token is routed onto the same Pons curve by{" "}
             <C>PonsRouter</C>, whether it is paid in ETH, USDG, the quote stock or the pair&apos;s shares. Compose shows the
             Pons price re-quoted in USD and in pair shares, so price and volume match on both sites by construction.
             Launching costs Pons&apos;s 0.0005 ETH launch fee; Pons taxes buys in the first three seconds after launch
-            (99% decaying to zero), with the creator exempt.
+            (99% decaying to zero), with the creator and up to 32 wallets the creator lists at launch exempt.
           </p>
         </>
       ),

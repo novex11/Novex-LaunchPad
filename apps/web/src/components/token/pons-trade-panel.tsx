@@ -539,19 +539,3 @@ function Row({ label, value, strong }: { label: string; value: string; strong?: 
     </div>
   );
 }
-
-/** Creator-side note for Pons tokens: Pons pays the creator directly, nothing to claim here. */
-export function PonsCreatorNote({ ponsUrl, className }: { ponsUrl: string; className?: string }) {
-  return (
-    <section className={cn("rounded-[1.5rem] border border-border bg-surface p-4 text-xs text-muted-foreground", className)}>
-      <p className="font-semibold text-foreground">Your creator fees</p>
-      <p className="mt-1 leading-relaxed">
-        This token trades on a Pons v2 curve. Pons pays the creator&apos;s share of every trade fee straight to your wallet, so
-        there is nothing to claim on Compose.{" "}
-        <a href={ponsUrl} target="_blank" rel="noopener noreferrer" className="text-accent-strong underline">
-          Manage it on Pons ↗
-        </a>
-      </p>
-    </section>
-  );
-}
