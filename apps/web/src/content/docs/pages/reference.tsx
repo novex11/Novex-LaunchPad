@@ -296,7 +296,7 @@ export const config: DocPage = {
               ["chain.ts", "Chain definitions, USDG, WETH and Uniswap addresses"],
               ["tokens.ts", "Mainnet stock token registry and the testnet faucet list, categories, trading hours"],
               ["strategies.ts", "Category bands, single-stock caps, retention per strategy"],
-              ["cashback.ts", "Stockback floor, bonus, per-ticker rates, lifetime cap"],
+              ["cashback.ts", "Stockback floor, bonus bands, per-ticker rates, lifetime cap"],
               ["basket.ts", "Minimum basket deposit per network and amount presets"],
               ["launchpad.ts", "Weight and fee ranges, seed presets, pool defaults"],
               ["testnet.ts", "Loader for testnet-deployments.json"],

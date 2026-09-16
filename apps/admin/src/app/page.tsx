@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CASHBACK_CONFIG, LAUNCH_CAPS, STOCKBACK_TIERS } from "@compose/config";
+import { CASHBACK_CONFIG, LAUNCH_CAPS, STOCKBACK_BANDS, STRATEGIES, type StrategyId } from "@compose/config";
 
 export default function AdminPage() {
   const [pauses, setPauses] = useState({
@@ -30,9 +30,12 @@ export default function AdminPage() {
           <h3 className="font-medium">Cashback Budget</h3>
           <ul className="mt-4 space-y-2 text-sm text-muted-foreground">
             <li>Global budget: ${CASHBACK_CONFIG.globalBudgetCapUsd.toLocaleString()}</li>
-            <li>
-              {`Deposit Stockback: $${STOCKBACK_TIERS.defensive.rewardUsd} Defensive · $${STOCKBACK_TIERS.balanced.rewardUsd} Balanced (from $${STOCKBACK_TIERS.balanced.minDepositUsd}) · $${STOCKBACK_TIERS.aggressive.rewardUsd} Aggressive (from $${STOCKBACK_TIERS.aggressive.minDepositUsd})`}
-            </li>
+            {(Object.keys(STOCKBACK_BANDS) as StrategyId[]).map((s) => (
+              <li key={s}>
+                {`Deposit Stockback ${STRATEGIES[s].label}: ${STOCKBACK_BANDS[s].map((b) => `$${b.minDepositUsd.toLocaleString()} → $${b.rewardUsd}`).join(" · ")}`}
+              </li>
+            ))}
+            <li>Duplicate guard: {CASHBACK_CONFIG.duplicateGuardHours}h per wallet</li>
             <li>Per-wallet cap: ${CASHBACK_CONFIG.perWalletLifetimeCapUsd}</li>
             <li>Auto-pause at: {CASHBACK_CONFIG.budgetPauseThreshold * 100}% remaining</li>
           </ul>

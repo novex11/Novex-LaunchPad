@@ -4,7 +4,10 @@ import Link from "next/link";
 import { ArrowRight } from "@phosphor-icons/react";
 import {
   CASHBACK_CONFIG,
-  STOCKBACK_TIERS,
+  STOCKBACK_BANDS,
+  stockbackTier,
+  stockbackTopBand,
+  type StrategyId,
   ALLOCATION_STOCKBACK_RATES,
   DEFAULT_ALLOCATION_RATE,
 } from "@compose/config";
@@ -22,6 +25,10 @@ import { PixelText } from "@/components/motion/pixel-text";
 const rates = Object.values(ALLOCATION_STOCKBACK_RATES);
 const minRate = Math.min(...rates, DEFAULT_ALLOCATION_RATE);
 const maxRate = Math.max(...rates, DEFAULT_ALLOCATION_RATE);
+const strategies = Object.keys(STOCKBACK_BANDS) as StrategyId[];
+const entryRewards = strategies.map((s) => stockbackTier(s).rewardUsd);
+const topRewards = strategies.map((s) => stockbackTopBand(s).rewardUsd);
+const floors = strategies.map((s) => stockbackTier(s).minDepositUsd);
 
 export function LandingHeroSection() {
   const { health, allUp } = useBackendHealth();
@@ -36,7 +43,8 @@ export function LandingHeroSection() {
             <PixelText as="h1" lines={["Deposit one stock.", "Own the market."]} className="statement-1 text-foreground" />
           </div>
           <p className="mt-6 max-w-xl text-sm leading-relaxed text-muted-foreground md:text-base">
-            Qualifying deposits convert into a managed basket at a published Stockback rate.
+            Qualifying deposits convert into a managed basket at a published Stockback rate:
+            the bigger the deposit, the bigger the Stockback, paid instantly.
             Buy and sell tokenized stocks in real time, or build a basket and earn rewards
             calculated live before you commit.
           </p>
@@ -44,13 +52,13 @@ export function LandingHeroSection() {
             className="mt-8"
             items={[
               {
-                label: "Deposit bonus",
-                value: `${formatUsd(STOCKBACK_TIERS.defensive.rewardUsd)}–${formatUsd(STOCKBACK_TIERS.aggressive.rewardUsd)}`,
+                label: "Deposit Stockback",
+                value: `${formatUsd(Math.min(...entryRewards))}–${formatUsd(Math.max(...topRewards))}`,
                 accent: true,
               },
               {
                 label: "Floor",
-                value: `${formatUsd(STOCKBACK_TIERS.balanced.minDepositUsd)}–${formatUsd(STOCKBACK_TIERS.aggressive.minDepositUsd)}`,
+                value: `${formatUsd(Math.min(...floors))}–${formatUsd(Math.max(...floors))}`,
               },
               { label: "Lifetime cap", value: formatUsd(CASHBACK_CONFIG.perWalletLifetimeCapUsd) },
               { label: "Assets live", value: ALL_MARKET_ASSETS.length },

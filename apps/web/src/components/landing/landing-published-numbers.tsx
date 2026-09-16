@@ -5,7 +5,9 @@ import {
   CASHBACK_CONFIG,
   ALLOCATION_STOCKBACK_RATES,
   DEFAULT_ALLOCATION_RATE,
-  STOCKBACK_TIERS,
+  STOCKBACK_BANDS,
+  stockbackTier,
+  stockbackTopBand,
   STRATEGIES,
   type StrategyId,
 } from "@compose/config";
@@ -24,16 +26,21 @@ const rates = Object.entries(ALLOCATION_STOCKBACK_RATES).sort((a, b) => b[1] - a
 const minRate = Math.min(...rates.map(([, r]) => r), DEFAULT_ALLOCATION_RATE);
 const maxRate = Math.max(...rates.map(([, r]) => r), DEFAULT_ALLOCATION_RATE);
 const TIER_ORDER: StrategyId[] = ["defensive", "balanced", "aggressive"];
-const tierRewards = TIER_ORDER.map((s) => STOCKBACK_TIERS[s].rewardUsd);
-const tierFloors = TIER_ORDER.map((s) => STOCKBACK_TIERS[s].minDepositUsd);
+const entryRewards = TIER_ORDER.map((s) => stockbackTier(s).rewardUsd);
+const topRewards = TIER_ORDER.map((s) => stockbackTopBand(s).rewardUsd);
+const tierFloors = TIER_ORDER.map((s) => stockbackTier(s).minDepositUsd);
+/** Deposit size that reaches the top band (same for every strategy today). */
+const topBandFromUsd = Math.max(...TIER_ORDER.map((s) => stockbackTopBand(s).minDepositUsd));
+/** $0.77 / $10 — drop the cents on whole dollars. */
+const usdShort = (n: number) => (Number.isInteger(n) ? usd0(n) : formatUsd(n));
 
 /* ------------------------------------------------------------------ */
 /* Mini visualisations — one per published rule                        */
 /* ------------------------------------------------------------------ */
 
-/** Deposit axis 0 → max with a marker at the floor. */
+/** Deposit axis 0 → top band with a marker at the floor. */
 function FloorGauge() {
-  const pct = (CASHBACK_CONFIG.minEligibleDepositUsd / CASHBACK_CONFIG.maxRewardedDepositUsd) * 100;
+  const pct = (CASHBACK_CONFIG.minEligibleDepositUsd / topBandFromUsd) * 100;
   return (
     <div className="mt-5">
       <div className="relative h-1.5 w-full bg-surface-muted">
@@ -64,22 +71,20 @@ function FloorGauge() {
       </div>
       <div className="mt-2 flex justify-between font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
         <span>$0 · no credit</span>
-        <span className="text-accent">floor → rewarded</span>
+        <span className="text-accent">floor → top band</span>
       </div>
     </div>
   );
 }
 
-/** One credit stamp per strategy tier, posting in order when scrolled into view. */
+/** One credit stamp per strategy: entry band → top band, posting in order when scrolled into view. */
 function BonusStamp() {
   const reduced = useReducedMotion();
   return (
     <div className="mt-5 space-y-1.5">
       {TIER_ORDER.map((s, i) => (
         <div key={s} className="relative flex h-8 items-center border border-border bg-background px-3 font-mono text-xs">
-          <span className="text-muted-foreground">
-            {STRATEGIES[s].label} · ≥ {formatUsd(STOCKBACK_TIERS[s].minDepositUsd)}
-          </span>
+          <span className="text-muted-foreground">{STRATEGIES[s].label}</span>
           <motion.span
             className="ml-auto text-accent"
             initial={reduced ? false : { opacity: 0, y: 6 }}
@@ -87,7 +92,10 @@ function BonusStamp() {
             viewport={{ once: true }}
             transition={{ duration: 0.5, ease: "easeOut", delay: 0.2 + i * 0.12 }}
           >
-            +{formatUsd(STOCKBACK_TIERS[s].rewardUsd)}
+            +{usdShort(stockbackTier(s).rewardUsd)}
+            <span className="text-muted-foreground"> at {usd0(stockbackTier(s).minDepositUsd)} → </span>
+            +{usdShort(stockbackTopBand(s).rewardUsd)}
+            <span className="text-muted-foreground"> at {usd0(stockbackTopBand(s).minDepositUsd)}</span>
           </motion.span>
         </div>
       ))}
@@ -95,38 +103,46 @@ function BonusStamp() {
   );
 }
 
-/** Bar that fills to the cap and stops — with an overflow ghost. */
-function CapBar() {
+/** Balanced bands as rising steps: each column is a band's reward, labelled by the deposit that reaches it. */
+function BandLadder() {
+  const bands = STOCKBACK_BANDS.balanced;
+  const top = Math.max(...bands.map((b) => b.rewardUsd));
   return (
     <div className="mt-5">
-      <div className="relative h-1.5 w-full bg-surface-muted">
-        <motion.div
-          className="absolute inset-y-0 left-0 w-[76%] origin-left bg-accent"
-          initial={{ scaleX: 0 }}
-          whileInView={{ scaleX: 1 }}
-          viewport={view}
-          transition={{ duration: 1.1, ease }}
-        />
-        <motion.div
-          className="absolute inset-y-0 left-[76%] right-0 origin-left bg-[repeating-linear-gradient(90deg,var(--border)_0_3px,transparent_3px_6px)]"
-          initial={{ opacity: 0 }}
-          whileInView={{ opacity: 1 }}
-          viewport={view}
-          transition={{ delay: 1.1, duration: 0.4 }}
-        />
-        <span className="absolute -top-1 left-[76%] h-3.5 w-px bg-foreground" />
+      <div className="flex h-12 items-end gap-1">
+        {bands.map((b, i) => (
+          <div key={b.minDepositUsd} className="flex h-full flex-1 flex-col justify-end">
+            <motion.div
+              className="w-full origin-bottom bg-accent"
+              style={{ height: `${(b.rewardUsd / top) * 100}%`, opacity: 0.45 + (b.rewardUsd / top) * 0.55 }}
+              initial={{ scaleY: 0 }}
+              whileInView={{ scaleY: 1 }}
+              viewport={view}
+              transition={{ delay: 0.15 + i * 0.12, duration: 0.5, ease }}
+            />
+          </div>
+        ))}
       </div>
-      <div className="mt-2 flex justify-between font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-        <span className="text-accent">rewarded notional</span>
-        <span>excess · settles, no credit</span>
+      <div className="mt-1 flex gap-1 font-mono text-[10px] tabular-nums text-muted-foreground">
+        {bands.map((b) => (
+          <span key={b.minDepositUsd} className="flex-1 text-center">
+            {usd0(b.minDepositUsd)}
+          </span>
+        ))}
       </div>
+      <p className="mt-2 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+        Balanced · {usdShort(bands[0]!.rewardUsd)} → {usdShort(top)} · paid instantly
+      </p>
     </div>
   );
 }
 
 /** One tick per qualifying deposit until the wallet cap is exhausted. */
 function LifetimeTicks() {
-  const n = Math.floor(CASHBACK_CONFIG.perWalletLifetimeCapUsd / STOCKBACK_TIERS.balanced.rewardUsd);
+  const entry = stockbackTier("balanced").rewardUsd;
+  const topReward = stockbackTopBand("balanced").rewardUsd;
+  const n = Math.floor(CASHBACK_CONFIG.perWalletLifetimeCapUsd / entry);
+  const nTop = Math.floor(CASHBACK_CONFIG.perWalletLifetimeCapUsd / topReward);
   return (
     <div className="mt-5">
       <div className="flex flex-wrap gap-1">
@@ -142,7 +158,7 @@ function LifetimeTicks() {
         ))}
       </div>
       <p className="mt-2 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-        {n} Balanced deposits × {formatUsd(STOCKBACK_TIERS.balanced.rewardUsd)} bonus
+        {n} Balanced deposits × {usdShort(entry)} · or {nTop} at the {usdShort(topReward)} top band
       </p>
     </div>
   );
@@ -264,7 +280,7 @@ export function LandingPublishedNumbers() {
       index="05"
       eyebrow="Published numbers"
       title="We do not hide the rate."
-      description="Floor, bonus, caps, and per-stock rates are the live reward rule. The deposit bonus depends on the strategy you pick. Operators can tighten them. They cannot invent a second balance."
+      description="Floor, bonus, caps, and per-stock rates are the live reward rule. The deposit bonus grows with deposit size, by strategy, and is paid instantly. Operators can tighten them. They cannot invent a second balance."
     >
       <div className="grid grid-cols-1 divide-y divide-border border-b border-border sm:grid-cols-2 sm:divide-x lg:grid-cols-3">
         <RuleCell
@@ -276,15 +292,15 @@ export function LandingPublishedNumbers() {
         </RuleCell>
         <RuleCell
           index="02"
-          title="Deposit bonus by strategy"
-          display={`${formatUsd(Math.min(...tierRewards))}–${formatUsd(Math.max(...tierRewards))}`}
+          title="Deposit bonus by size"
+          display={`${formatUsd(Math.min(...entryRewards))}–${formatUsd(Math.max(...topRewards))}`}
           tone="accent"
           className="sm:border-t-0"
         >
           <BonusStamp />
         </RuleCell>
-        <RuleCell index="03" title="Max rewarded deposit" value={CASHBACK_CONFIG.maxRewardedDepositUsd} decimals={0} className="sm:border-t sm:border-border lg:border-t-0">
-          <CapBar />
+        <RuleCell index="03" title="Top band from" value={topBandFromUsd} decimals={0} className="sm:border-t sm:border-border lg:border-t-0">
+          <BandLadder />
         </RuleCell>
         <RuleCell index="04" title="Lifetime cap per wallet" value={CASHBACK_CONFIG.perWalletLifetimeCapUsd} className="sm:border-t sm:border-border">
           <LifetimeTicks />

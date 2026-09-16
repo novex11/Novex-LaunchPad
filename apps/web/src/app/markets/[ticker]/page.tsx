@@ -5,7 +5,7 @@ import { useParams, notFound } from "next/navigation";
 import Link from "next/link";
 import { motion } from "motion/react";
 import { CaretLeft, Star } from "@phosphor-icons/react";
-import { CASHBACK_CONFIG, ALLOCATION_STOCKBACK_RATES, DEFAULT_ALLOCATION_RATE } from "@compose/config";
+import { CASHBACK_CONFIG, ALLOCATION_STOCKBACK_RATES, DEFAULT_ALLOCATION_RATE, stockbackTopBand } from "@compose/config";
 import { getMarketStock, isForexPair } from "@/lib/markets";
 import { useQuote } from "@/hooks/use-quotes";
 import { useWatchlist } from "@/hooks/use-watchlist";
@@ -163,7 +163,7 @@ export default function StockDetailPage() {
               <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
                 {forex
                   ? `${stock.name} is available as a tokenized forex pair on Robinhood Chain. Forex tokens track live exchange rates via onchain oracles and can be included in a basket for currency diversification.`
-                  : `${stock.name} is available as a Robinhood Stock Token on Robinhood Chain. Tokenized exposure tracks the underlying price but does not grant legal rights in the security. Deposits of ${formatUsd(CASHBACK_CONFIG.minEligibleDepositUsd)} or more into a basket earn a ${formatUsd(CASHBACK_CONFIG.depositStockbackUsd)} bonus plus ${(rate * 100).toFixed(2)}% on the ${ticker} allocation.`}
+                  : `${stock.name} is available as a Robinhood Stock Token on Robinhood Chain. Tokenized exposure tracks the underlying price but does not grant legal rights in the security. Deposits of ${formatUsd(CASHBACK_CONFIG.minEligibleDepositUsd)} or more into a basket earn an instant bonus that grows with size, from ${formatUsd(CASHBACK_CONFIG.depositStockbackUsd)} up to ${formatUsd(stockbackTopBand("balanced").rewardUsd)} on Balanced, plus ${(rate * 100).toFixed(2)}% on the ${ticker} allocation.`}
               </p>
             </div>
             <div className="rounded-3xl border border-border bg-surface p-6 md:col-span-5">

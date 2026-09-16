@@ -1,7 +1,7 @@
 "use client";
 
 import { Wallet, Stack, Scales, Gift, ChartLineUp, ArrowCounterClockwise } from "@phosphor-icons/react";
-import { STOCKBACK_TIERS } from "@compose/config";
+import { stockbackTier, stockbackTopBand } from "@compose/config";
 import { useRewardPreview } from "@/hooks/use-reward-preview";
 import { formatUsd } from "@/lib/utils";
 import { SectionFrame } from "./section-frame";
@@ -44,15 +44,15 @@ export function LandingHowItPays() {
           {
             index: "03",
             icon: <Scales size={14} />,
-            title: `Clear the ${formatUsd(STOCKBACK_TIERS.balanced.minDepositUsd)} floor (${formatUsd(STOCKBACK_TIERS.aggressive.minDepositUsd)} Aggressive)`,
+            title: `Clear the ${formatUsd(stockbackTier("balanced").minDepositUsd)} floor (${formatUsd(stockbackTier("aggressive").minDepositUsd)} Aggressive)`,
             body: "Deposits below the floor can still settle. They do not write Stockback to the ledger.",
             status: eligible ? "eligible" : "below_threshold",
           },
           {
             index: "04",
             icon: <Gift size={14} />,
-            title: "Bonus + per-stock rate",
-            body: `Deposit bonus by strategy: ${formatUsd(STOCKBACK_TIERS.defensive.rewardUsd)} Defensive, ${formatUsd(STOCKBACK_TIERS.balanced.rewardUsd)} Balanced, ${formatUsd(STOCKBACK_TIERS.aggressive.rewardUsd)} Aggressive.`,
+            title: "Bigger deposit, bigger bonus",
+            body: `Paid instantly, and it grows with deposit size: Defensive ${formatUsd(stockbackTier("defensive").rewardUsd)} → ${formatUsd(stockbackTopBand("defensive").rewardUsd)}, Balanced ${formatUsd(stockbackTier("balanced").rewardUsd)} → ${formatUsd(stockbackTopBand("balanced").rewardUsd)}, Aggressive ${formatUsd(stockbackTier("aggressive").rewardUsd)} → ${formatUsd(stockbackTopBand("aggressive").rewardUsd)}. Plus a per-stock rate.`,
             status: data ? `+${formatUsd(data.stockback.totalStockbackUsd)} stockback` : "pricing…",
           },
           {

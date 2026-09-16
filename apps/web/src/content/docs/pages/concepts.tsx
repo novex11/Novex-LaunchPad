@@ -151,13 +151,35 @@ export const stockback: DocPage = {
           head={["Parameter", "Value"]}
           rows={[
             ["Minimum qualifying deposit", "$50 Defensive and Balanced · $150 Aggressive"],
-            ["Maximum rewarded deposit", "$10,000"],
-            ["Deposit bonus (flat, by strategy)", "$0.77 Defensive · $2.00 Balanced · $6.00 Aggressive"],
+            ["Deposit bonus (by deposit size)", "$0.77 – $20.00, see bands below · paid instantly"],
             ["Per-stock allocation reward", "0.3% – 1.0% of the amount bought, by ticker (default 0.5%)"],
             ["Per-wallet lifetime cap", "$50"],
             ["Duplicate guard", "24 hours"],
           ]}
         />
+      ),
+    },
+    {
+      id: "bands",
+      title: "Deposit bonus bands",
+      keywords: ["bands", "deposit size", "bonus", "defensive", "balanced", "aggressive", "instant"],
+      body: (
+        <>
+          <p>
+            The bigger the deposit, the bigger the bonus. A deposit earns the reward of the highest band it reaches, paid
+            instantly in the deposited stock token, subject to the wallet cap and duplicate guard.
+          </p>
+          <Table
+            head={["Deposit", "Defensive", "Balanced", "Aggressive"]}
+            rows={[
+              ["$50", "$0.77", "$2.00", "—"],
+              ["$150", "$1.50", "$3.00", "$6.00"],
+              ["$250", "$2.50", "$4.00", "$8.00"],
+              ["$500", "$5.00", "$7.00", "$12.00"],
+              ["$1,000 and above", "$10.00", "$12.00", "$20.00"],
+            ]}
+          />
+        </>
       ),
     },
     {
@@ -167,8 +189,8 @@ export const stockback: DocPage = {
       body: (
         <>
           <p>
-            The vault calls <C>CashbackReserve.payDepositStockback</C> after minting shares. The reserve checks the floor, the
-            budget, the wallet cap and the duplicate guard, then transfers reward tokens which the vault forwards to you.
+            The vault calls <C>CashbackReserve.payDepositStockback</C> after minting shares. The reserve looks up the band for
+            the deposit size (<C>rewardUsd8For</C>), checks the floor, the budget, the wallet cap and the duplicate guard, then transfers reward tokens which the vault forwards to you.
             The call is wrapped so a reward failure never blocks a deposit.
           </p>
           <Callout type="note">
