@@ -32,6 +32,11 @@ function TypeBadge({ type }: { type: string }) {
   );
 }
 
+/** Basket vault symbols are t{DEPOSIT}-{STRATEGY} (tTSLA-B), so the deposit stock gives the row its logo. */
+function basketDepositTicker(vaultId?: string | null): string | undefined {
+  return vaultId?.match(/^t([A-Z0-9.]+)-[A-Z]$/)?.[1];
+}
+
 export function ActivityList({
   records,
   loading,
@@ -60,6 +65,7 @@ export function ActivityList({
     <ul className="divide-y divide-border-subtle">
       {rows.map((r) => {
         const ticker = r.assets?.[0];
+        const logoTicker = ticker ?? basketDepositTicker(r.vaultId);
         return (
           <li
             key={r.id ?? r.txHash}
@@ -67,7 +73,7 @@ export function ActivityList({
           >
             <TypeBadge type={r.type} />
             <span className="hidden md:block">
-              {ticker ? <StockLogo ticker={ticker} size="sm" /> : <span className="block h-8 w-8 rounded-lg bg-surface-muted" />}
+              {logoTicker ? <StockLogo ticker={logoTicker} size="sm" /> : <span className="block h-8 w-8 rounded-lg bg-surface-muted" />}
             </span>
             <div className="min-w-0">
               <p className="truncate text-sm font-medium">

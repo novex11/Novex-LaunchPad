@@ -163,7 +163,8 @@ export default function CreateBasketContent() {
   const externalTotal =
     costs?.estimatedTotalExternalUsd ??
     (data ? data.externalCosts.estimatedGasUsd + data.externalCosts.estimatedMarketCostUsd : 0);
-  const openingNet = data ? depositUsd + data.stockback.totalStockbackUsd - externalTotal : 0;
+  // Only the flat deposit bonus is paid on-chain (CashbackReserve), so previews count nothing else.
+  const openingNet = data ? depositUsd + data.stockback.depositStockbackUsd - externalTotal : 0;
 
   const belowBasketMin = depositUsd > 0 && depositUsd < BASKET_CONFIG.minDepositUsd;
   const belowStockbackFloor = depositUsd > 0 && depositUsd < CASHBACK_CONFIG.minEligibleDepositUsd;
@@ -559,7 +560,7 @@ export default function CreateBasketContent() {
       <MobileConfirmBar
         visible={depositUsd > 0}
         depositUsd={depositUsd}
-        stockbackUsd={data?.stockback.totalStockbackUsd ?? 0}
+        stockbackUsd={data?.stockback.depositStockbackUsd ?? 0}
         openingNet={openingNet}
         authenticated={wallet.authenticated}
         canConfirm={canConfirm}

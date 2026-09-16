@@ -87,7 +87,7 @@ async function main() {
   const dep = await send("deposit", () => wallet.writeContract({ address: vault, abi: vaultAbi, functionName: "deposit", args: [amount, minShares] }));
   const shares = await client.readContract({ address: receipt, abi: erc20, functionName: "balanceOf", args: [account.address] });
   const nav = await client.readContract({ address: vault, abi: vaultAbi, functionName: "navUsd8" });
-  console.log(`   shares: ${formatUnits(shares, 18)}  vault NAV: $${formatUnits(nav, 8)}  gas: ${dep.gasUsed}`);
+  console.log(`   shares: ${formatUnits(shares, 8)}  vault NAV: $${formatUnits(nav, 8)}  gas: ${dep.gasUsed}`);
   for (const t of mixTokens) {
     const b = await client.readContract({ address: t, abi: erc20, functionName: "balanceOf", args: [vault] });
     console.log(`   vault holds ${formatUnits(b, 18)} ${symbolOf(t)}`);
@@ -96,14 +96,14 @@ async function main() {
 
   const half = shares / 2n;
   const value8 = (nav * half) / (await client.readContract({ address: vault, abi: vaultAbi, functionName: "totalShares" }));
-  console.log(`\nRedeeming ${formatUnits(half, 18)} shares as the proportional basket (≥ $${formatUnits((value8 * 98n) / 100n, 8)})`);
+  console.log(`\nRedeeming ${formatUnits(half, 8)} shares as the proportional basket (≥ $${formatUnits((value8 * 98n) / 100n, 8)})`);
   await send("redeem (basket)", () =>
     wallet.writeContract({ address: vault, abi: vaultAbi, functionName: "redeem", args: [half, 1, (value8 * 98n) / 100n] }),
   );
 
   const rest = await client.readContract({ address: receipt, abi: erc20, functionName: "balanceOf", args: [account.address] });
   const expectedOut = ((value8 * 10n ** 18n) / price * 97n) / 100n;
-  console.log(`\nRedeeming ${formatUnits(rest, 18)} shares back to ${ticker} (≥ ${formatUnits(expectedOut, 18)} ${ticker})`);
+  console.log(`\nRedeeming ${formatUnits(rest, 8)} shares back to ${ticker} (≥ ${formatUnits(expectedOut, 18)} ${ticker})`);
   const before = await client.readContract({ address: token, abi: erc20, functionName: "balanceOf", args: [account.address] });
   await send("redeem (original asset)", () =>
     wallet.writeContract({ address: vault, abi: vaultAbi, functionName: "redeem", args: [rest, 0, expectedOut] }),
@@ -111,7 +111,7 @@ async function main() {
   const after = await client.readContract({ address: token, abi: erc20, functionName: "balanceOf", args: [account.address] });
   console.log(`   received ${formatUnits(after - before, 18)} ${ticker}`);
   const left = await client.readContract({ address: receipt, abi: erc20, functionName: "balanceOf", args: [account.address] });
-  if (left !== 0n) throw new Error(`still holding ${formatUnits(left, 18)} shares`);
+  if (left !== 0n) throw new Error(`still holding ${formatUnits(left, 8)} shares`);
   console.log("\n✅  Basket deposit + both redeem modes succeeded on testnet");
 }
 

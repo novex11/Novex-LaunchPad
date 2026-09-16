@@ -10,7 +10,7 @@ import {OracleAdapter} from "./OracleAdapter.sol";
 contract CashbackReserve is Ownable {
     using SafeERC20 for IERC20;
 
-    uint256 public minEligibleDepositUsd8 = 100e8;
+    uint256 public minEligibleDepositUsd8 = 50e8;
     uint256 public maxRewardedDepositUsd8 = 10_000e8;
     uint256 public depositStockbackUsd8 = 2e8;
     uint256 public globalBudgetUsd8 = 100_000e8;

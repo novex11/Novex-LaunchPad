@@ -109,7 +109,7 @@ describe("cashback", () => {
   });
 
   it("rejects below minimum deposit", () => {
-    const preview = computeStockbackPreview(50, []);
+    const preview = computeStockbackPreview(49.99, []);
     expect(preview.eligible).toBe(false);
   });
 });

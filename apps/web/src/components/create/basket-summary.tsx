@@ -50,7 +50,7 @@ export function BasketSummary(p: BasketSummaryProps) {
   const [hover, setHover] = useState<string | null>(null);
   const [showCosts, setShowCosts] = useState(false);
   const receipt = receiptTokenName(p.depositTicker, p.strategy);
-  const stockback = data?.stockback.totalStockbackUsd ?? 0;
+  const stockback = data?.stockback.depositStockbackUsd ?? 0;
   const floor = CASHBACK_CONFIG.minEligibleDepositUsd;
   const gap = Math.max(0, floor - p.depositUsd);
   const eligible = data?.stockback.eligible ?? p.depositUsd >= floor;
@@ -130,7 +130,6 @@ export function BasketSummary(p: BasketSummaryProps) {
                 </li>
               ))
             : data.allocation.map((a, i) => {
-                const line = data.stockback.allocationLines.find((l) => l.ticker === a.ticker);
                 return (
                   <motion.li
                     key={a.ticker}
@@ -154,12 +153,7 @@ export function BasketSummary(p: BasketSummaryProps) {
                         <motion.div className="h-full rounded-full" style={{ background: chartColor(i) }} animate={{ width: `${a.weight * 100}%` }} transition={{ type: "spring", stiffness: 120, damping: 20 }} />
                       </div>
                     </div>
-                    <div className="text-right font-mono text-xs tabular-nums">
-                      <div>{formatUsd(a.usd)}</div>
-                      <div className={cn(line && line.bonusUsd > 0 ? "text-accent-strong" : "text-muted-foreground")}>
-                        {line && line.bonusUsd > 0 ? `+${formatUsd(line.bonusUsd)}` : "—"}
-                      </div>
-                    </div>
+                    <div className="text-right font-mono text-xs tabular-nums">{formatUsd(a.usd)}</div>
                   </motion.li>
                 );
               })}
@@ -200,10 +194,6 @@ export function BasketSummary(p: BasketSummaryProps) {
             <div className="flex justify-end gap-3">
               <dt className="text-muted-foreground">Bonus</dt>
               <dd>{formatUsd(data?.stockback.depositStockbackUsd ?? 0)}</dd>
-            </div>
-            <div className="flex justify-end gap-3">
-              <dt className="text-muted-foreground">Per stock</dt>
-              <dd>{formatUsd((data?.stockback.allocationLines ?? []).reduce((s, l) => s + l.bonusUsd, 0))}</dd>
             </div>
           </dl>
         </div>
