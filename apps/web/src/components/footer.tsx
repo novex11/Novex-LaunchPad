@@ -149,7 +149,6 @@ export function Footer() {
           viewport={{ once: true, margin: "0px 0px -5% 0px" }}
           transition={{ duration: 1.1, ease }}
         >
-          <div className="absolute inset-[-20%] rounded-full bg-accent opacity-25 blur-3xl" />
           <motion.div
             animate={reduced ? undefined : { rotate: 360 }}
             transition={{ duration: 60, ease: "linear", repeat: Infinity }}
