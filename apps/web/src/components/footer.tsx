@@ -12,7 +12,7 @@ const columns = [
   {
     title: "Product",
     links: [
-      { href: "/markets", label: "Markets" },
+      { href: "/markets", label: "Markets (upgrading)" },
       { href: "/create", label: "Create basket" },
       { href: "/launch", label: "Launch a token" },
       { href: "/portfolio", label: "Portfolio" },

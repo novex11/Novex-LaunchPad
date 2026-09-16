@@ -10,6 +10,7 @@ import { LogoMark } from "@/components/logo-mark";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { MarketStatusPill } from "@/components/trading/market-status-pill";
 import { DEFAULT_VAULT_ID, basketsAvailable } from "@/lib/contracts";
+import { MARKETS_LOCKED } from "@/lib/markets-lock";
 
 const WalletControls = dynamic(
   () => import("./wallet-controls").then((m) => m.WalletControls),
@@ -27,6 +28,14 @@ const links = [
   { href: "/docs", label: "Docs" },
   { href: "/legal/risk", label: "Risk" },
 ];
+
+function UpgradingBadge() {
+  return (
+    <span className="ml-1.5 rounded-full bg-accent-subtle px-1.5 py-0.5 align-middle font-mono text-[9px] uppercase tracking-wider text-accent-strong">
+      Upgrading
+    </span>
+  );
+}
 
 function isActive(pathname: string, href: string) {
   if (href.startsWith("/vault")) return pathname.startsWith("/vault");
@@ -68,6 +77,7 @@ export function Navbar() {
                 )}
               >
                 {l.label}
+                {MARKETS_LOCKED && l.href === "/markets" && <UpgradingBadge />}
               </Link>
             ))}
           </nav>
@@ -104,6 +114,7 @@ export function Navbar() {
               >
                 <span className="text-accent">{String(i + 1).padStart(2, "0")}</span>
                 {l.label}
+                {MARKETS_LOCKED && l.href === "/markets" && <UpgradingBadge />}
               </Link>
             ))}
           </nav>

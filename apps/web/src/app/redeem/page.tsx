@@ -158,7 +158,7 @@ export default function RedeemPage() {
                 <Link href="/create">Create a basket</Link>
               </Button>
               <Button asChild variant="outline">
-                <Link href="/markets">Markets</Link>
+                <Link href="/launchpad">Launchpad</Link>
               </Button>
             </div>
           }

@@ -91,9 +91,6 @@ export default function PortfolioPage() {
               <Link href="/redeem">Redeem</Link>
             </Button>
           )}
-          <Button asChild variant="outline">
-            <Link href="/markets">Trade</Link>
-          </Button>
           <Button asChild>
             <Link href="/create">
               New basket
@@ -146,7 +143,7 @@ export default function PortfolioPage() {
                 <Link href="/create">Create a basket</Link>
               </Button>
               <Button asChild variant="outline">
-                <Link href="/markets">Browse markets</Link>
+                <Link href="/launchpad">Launchpad</Link>
               </Button>
             </div>
           }
@@ -285,12 +282,7 @@ export default function PortfolioPage() {
             ) : holdingsMtm.length === 0 ? (
               <EmptyState
                 title="No direct holdings"
-                description="Stocks bought from the markets page appear here, marked to market."
-                action={
-                  <Button asChild size="sm" variant="outline">
-                    <Link href="/markets">Buy a stock</Link>
-                  </Button>
-                }
+                description="Direct stock trading is paused while Markets is upgraded."
                 className="m-4 border-0 bg-transparent py-10"
               />
             ) : (

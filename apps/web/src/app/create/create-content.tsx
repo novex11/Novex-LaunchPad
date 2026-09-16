@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useQueryClient } from "@tanstack/react-query";
 import { motion } from "motion/react";
-import { ArrowRight, CaretLeft, CheckCircle, WarningCircle, Info } from "@phosphor-icons/react";
+import { ArrowRight, CheckCircle, WarningCircle, Info } from "@phosphor-icons/react";
 import {
   BASKET_CONFIG,
   DEPOSIT_ASSETS,
@@ -435,15 +435,7 @@ export default function CreateBasketContent() {
 
   return (
     <div className="container-page relative min-h-[100dvh] py-8 pb-32 md:py-10 lg:pb-10">
-      <Link
-        href={`/markets/${depositTicker}`}
-        className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
-      >
-        <CaretLeft size={14} />
-        {depositTicker} chart
-      </Link>
-
-      <div className="mt-5 grid gap-6 md:grid-cols-12 md:items-end">
+      <div className="grid gap-6 md:grid-cols-12 md:items-end">
         <div className="md:col-span-8">
           <p className="label-caps">Create basket</p>
           <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">

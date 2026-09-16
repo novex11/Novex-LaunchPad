@@ -56,8 +56,8 @@ export default function ActivityPage() {
             <Link href="/portfolio">Portfolio</Link>
           </Button>
           <Button asChild>
-            <Link href="/markets">
-              Trade
+            <Link href="/create">
+              Create a basket
               <ArrowRight size={14} weight="bold" />
             </Link>
           </Button>
@@ -122,7 +122,7 @@ export default function ActivityPage() {
           loading={isLoading}
           emptyAction={
             <Button asChild size="sm">
-              <Link href="/markets">Browse markets</Link>
+              <Link href="/create">Create a basket</Link>
             </Button>
           }
         />
