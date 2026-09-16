@@ -3,7 +3,14 @@
 import { useState } from "react";
 import Link from "next/link";
 import { ArrowRight } from "@phosphor-icons/react";
-import { BASKET_CONFIG, basketAmountPresets, isTestnetMode, stockbackTier } from "@compose/config";
+import {
+  BASKET_CONFIG,
+  basketAmountPresets,
+  isTestnetMode,
+  nextStockbackBand,
+  stockbackForDeposit,
+  stockbackTier,
+} from "@compose/config";
 import type { Strategy } from "@/lib/api";
 import { useRewardPreview } from "@/hooks/use-reward-preview";
 import { formatUsd } from "@/lib/utils";
@@ -24,6 +31,8 @@ export function LiveMathPanel() {
   const [strategy, setStrategy] = useState<Strategy>("balanced");
   const { data, source } = useRewardPreview({ depositTicker: asset, depositUsd: amount, strategy });
   const total = data?.stockback.totalStockbackUsd ?? 0;
+  const bandBonus = stockbackForDeposit(strategy, amount);
+  const nextBand = nextStockbackBand(strategy, amount);
 
   return (
     <BracketPanel>
@@ -103,8 +112,9 @@ export function LiveMathPanel() {
         ))}
       </div>
       <p className="mt-4 font-mono text-[10px] leading-relaxed text-muted-foreground">
-        {formatUsd(stockbackTier(strategy).minDepositUsd)} floor · {formatUsd(stockbackTier(strategy).rewardUsd)} bonus ·
-        reward posts after deposit confirms ·{" "}
+        {formatUsd(stockbackTier(strategy).minDepositUsd)} floor · {formatUsd(bandBonus)} bonus at this size ·{" "}
+        {nextBand ? `${formatUsd(nextBand.rewardUsd)} from ${formatUsd(nextBand.minDepositUsd)} · ` : "top band · "}
+        paid instantly ·{" "}
         {formatUsd(amount)} → {formatUsd(total)} Stockback
       </p>
       <Link

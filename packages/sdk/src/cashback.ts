@@ -2,6 +2,7 @@ import {
   ALLOCATION_STOCKBACK_RATES,
   CASHBACK_CONFIG,
   DEFAULT_ALLOCATION_RATE,
+  stockbackForDeposit,
   stockbackTier,
   type StrategyId,
 } from "@compose/config";
@@ -22,10 +23,9 @@ export interface StockbackPreview {
   ineligibilityReason?: string;
 }
 
-/** Flat deposit reward for the vault's strategy (CashbackReserve.rewardTiers). */
+/** Instant deposit reward: the highest band the deposit reaches (CashbackReserve.rewardBands). */
 export function computeDepositStockback(depositUsd: number, strategy: StrategyId = "balanced"): number {
-  const tier = stockbackTier(strategy);
-  return depositUsd >= tier.minDepositUsd ? tier.rewardUsd : 0;
+  return stockbackForDeposit(strategy, depositUsd);
 }
 
 export function computeAllocationStockback(

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { ArrowRight } from "@phosphor-icons/react";
-import { CASHBACK_CONFIG } from "@compose/config";
+import { CASHBACK_CONFIG, stockbackTier, stockbackTopBand } from "@compose/config";
 import { formatUsd } from "@/lib/utils";
 import { BracketPanel } from "./bracket-panel";
 import { MonoLabel } from "./mono-label";
@@ -46,13 +46,17 @@ export function LandingCloseSection() {
             <MonoLabel index="05">Published ratio</MonoLabel>
             <p className="mt-4 font-mono text-lg">NVDA → tNVDA-B</p>
             <p className="mt-2 font-mono text-3xl tabular-nums text-accent md:text-4xl">
-              {formatUsd(CASHBACK_CONFIG.depositStockbackUsd)}
+              {formatUsd(stockbackTier("balanced").rewardUsd)}–{formatUsd(stockbackTopBand("balanced").rewardUsd)}
             </p>
-            <p className="label-mono mt-1">Deposit bonus</p>
+            <p className="label-mono mt-1">Deposit bonus · grows with size</p>
             <dl className="mt-6 divide-y divide-border font-mono text-xs">
               <div className="flex justify-between py-2">
                 <dt className="text-muted-foreground">Floor</dt>
                 <dd>{formatUsd(CASHBACK_CONFIG.minEligibleDepositUsd)}</dd>
+              </div>
+              <div className="flex justify-between py-2">
+                <dt className="text-muted-foreground">Top band</dt>
+                <dd>{formatUsd(stockbackTopBand("balanced").minDepositUsd)}+</dd>
               </div>
               <div className="flex justify-between py-2">
                 <dt className="text-muted-foreground">Cap</dt>

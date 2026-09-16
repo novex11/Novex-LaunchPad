@@ -269,28 +269,27 @@ contract StrategyVault is Ownable, ReentrancyGuard {
         }
     }
 
+    /// @dev Pays the Stockback band for this deposit in the deposit asset. A reserve that
+    ///      is empty, paused or capped never blocks a deposit, but a payout starved of gas
+    ///      reverts the deposit instead of silently skipping, so a wallet's gas estimate
+    ///      always leaves room for it.
     function _tryCashback(address user, uint256 depositUsd8) internal {
         if (address(cashbackReserve) == address(0)) return;
 
+        uint256 rewardUsd8 = cashbackReserve.quoteReward(strategy, user, depositUsd8);
+        if (rewardUsd8 == 0) return;
         uint256 rewardTokenPrice = oracle.getPrice(depositAsset);
-        if (rewardTokenPrice == 0) return;
-
-        uint256 rewardUsd8 = cashbackReserve.rewardUsd8For(strategy);
-        uint256 rewardAmount = (rewardUsd8 * 1e18) / rewardTokenPrice;
+        uint256 rewardAmount = (rewardUsd8 * 10 ** IERC20Metadata(depositAsset).decimals()) / rewardTokenPrice;
         if (rewardAmount == 0) return;
 
         // payDepositStockback sends reward tokens to this vault; we forward to user.
-        // Wrapped in try/catch so deposits succeed even if cashback fails.
-        try cashbackReserve.payDepositStockback(
-            user,
-            depositAsset,
-            rewardAmount,
-            depositUsd8
-        ) {
+        uint256 gasBefore = gasleft();
+        try cashbackReserve.payDepositStockback(user, depositAsset, rewardAmount, depositUsd8) {
             IERC20(depositAsset).safeTransfer(user, rewardAmount);
             emit CashbackForwarded(user, rewardAmount);
         } catch {
-            // Cashback unavailable — deposit still succeeds
+            // A call that failed with under 1/64 of its gas left ran out of gas.
+            require(gasleft() > gasBefore / 64, "StrategyVault: out of gas");
         }
     }
 

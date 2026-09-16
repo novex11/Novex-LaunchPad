@@ -1,23 +1,65 @@
 import type { StrategyId } from "./strategies.js";
 
-/**
- * Deposit Stockback per strategy — mirrors CashbackReserve.rewardTiers on-chain.
- * A deposit earns the flat reward only when it is at least the tier's minimum.
- */
-export const STOCKBACK_TIERS: Record<StrategyId, { minDepositUsd: number; rewardUsd: number }> = {
-  defensive: { minDepositUsd: 50, rewardUsd: 0.77 },
-  balanced: { minDepositUsd: 50, rewardUsd: 2 },
-  aggressive: { minDepositUsd: 150, rewardUsd: 6 },
-};
-
-export function stockbackTier(strategy: StrategyId): { minDepositUsd: number; rewardUsd: number } {
-  return STOCKBACK_TIERS[strategy];
+export interface StockbackBand {
+  minDepositUsd: number;
+  rewardUsd: number;
 }
 
-/** Cashback program configuration (deposit floor + bonus are the Balanced tier; see STOCKBACK_TIERS) */
+/**
+ * Deposit Stockback bands per strategy — mirrors CashbackReserve.rewardBands on-chain.
+ * A deposit earns the reward of the highest band it reaches, paid instantly.
+ */
+export const STOCKBACK_BANDS: Record<StrategyId, StockbackBand[]> = {
+  defensive: [
+    { minDepositUsd: 50, rewardUsd: 0.77 },
+    { minDepositUsd: 150, rewardUsd: 1.5 },
+    { minDepositUsd: 250, rewardUsd: 2.5 },
+    { minDepositUsd: 500, rewardUsd: 5 },
+    { minDepositUsd: 1_000, rewardUsd: 10 },
+  ],
+  balanced: [
+    { minDepositUsd: 50, rewardUsd: 2 },
+    { minDepositUsd: 150, rewardUsd: 3 },
+    { minDepositUsd: 250, rewardUsd: 4 },
+    { minDepositUsd: 500, rewardUsd: 7 },
+    { minDepositUsd: 1_000, rewardUsd: 12 },
+  ],
+  aggressive: [
+    { minDepositUsd: 150, rewardUsd: 6 },
+    { minDepositUsd: 250, rewardUsd: 8 },
+    { minDepositUsd: 500, rewardUsd: 12 },
+    { minDepositUsd: 1_000, rewardUsd: 20 },
+  ],
+};
+
+/** A strategy's entry band: its minimum deposit and the reward it starts at. */
+export function stockbackTier(strategy: StrategyId): StockbackBand {
+  return STOCKBACK_BANDS[strategy][0]!;
+}
+
+/** A strategy's top band: the largest reward and the deposit that reaches it. */
+export function stockbackTopBand(strategy: StrategyId): StockbackBand {
+  const bands = STOCKBACK_BANDS[strategy];
+  return bands[bands.length - 1]!;
+}
+
+/** Band reward for a deposit (CashbackReserve.rewardUsd8For), before the wallet cap. */
+export function stockbackForDeposit(strategy: StrategyId, depositUsd: number): number {
+  let reward = 0;
+  for (const band of STOCKBACK_BANDS[strategy]) {
+    if (depositUsd >= band.minDepositUsd) reward = band.rewardUsd;
+  }
+  return reward;
+}
+
+/** The next band a deposit could reach, if any. */
+export function nextStockbackBand(strategy: StrategyId, depositUsd: number): StockbackBand | undefined {
+  return STOCKBACK_BANDS[strategy].find((band) => band.minDepositUsd > depositUsd);
+}
+
+/** Cashback program configuration (deposit floor + bonus are the Balanced entry band; see STOCKBACK_BANDS) */
 export const CASHBACK_CONFIG = {
   minEligibleDepositUsd: 50,
-  maxRewardedDepositUsd: 10_000,
   depositStockbackUsd: 2,
   perWalletLifetimeCapUsd: 50,
   globalBudgetCapUsd: 100_000,

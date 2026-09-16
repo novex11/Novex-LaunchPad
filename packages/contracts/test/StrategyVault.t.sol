@@ -283,8 +283,8 @@ contract StrategyVaultTest is Test {
         vm.prank(user);
         vault.deposit(1 ether, 0);
 
-        // Deposit value = 1 NVDA * $500 = $500 → eligible for $2 stockback
-        // $2 stockback in NVDA terms = 2e8 * 1e18 / 500e8 = 0.004e18
+        // Deposit value = 1 NVDA * $500 = $500 → Balanced $500 band pays $7
+        // $7 stockback in NVDA terms = 7e8 * 1e18 / 500e8 = 0.014e18
         uint256 userNvdaAfter = nvda.balanceOf(user);
         // User spent 1 ether NVDA but got some cashback back
         uint256 spent = userNvdaBefore - userNvdaAfter;
@@ -296,7 +296,7 @@ contract StrategyVaultTest is Test {
         vault.deposit(1 ether, 0);
 
         assertGt(cashback.walletStockbackUsd8(user), 0, "cashback tracked");
-        assertEq(cashback.walletStockbackUsd8(user), 2e8, "cashback = $2 flat");
+        assertEq(cashback.walletStockbackUsd8(user), 7e8, "cashback = $7 Balanced band at $500");
     }
 
     // ─── B.4: Proportional redeem ───────────────────────────

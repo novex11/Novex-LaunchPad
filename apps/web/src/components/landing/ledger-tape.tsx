@@ -55,7 +55,7 @@ export function LedgerTape({ data, depositTicker, depositUsd, strategy, source }
         detail: `≥ ${formatUsd(floorUsd)}`,
         ok: sb.eligible,
       },
-      { kind: "bonus", label: "Bonus", detail: "deposit credit", amount: sb.depositStockbackUsd },
+      { kind: "bonus", label: "Bonus", detail: "size band · instant", amount: sb.depositStockbackUsd },
       ...head.map<Row>((l) => ({
         kind: "line",
         label: l.ticker,
