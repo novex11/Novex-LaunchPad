@@ -211,7 +211,7 @@ export const contractsReady =
 /** Managed baskets can be created on this network */
 export const basketsAvailable = contractsReady;
 
-/** A vault id that exists on this network, for "Vaults" links (tTSLA-B on testnet, tNVDA-B on mainnet). */
+/** A vault id that exists on this network, for "Vaults" links. Only meaningful when `basketsAvailable`. */
 export const DEFAULT_VAULT_ID = (() => {
   const vaults = testnet?.vaults ?? mainnet?.vaults ?? {};
   const tickers = Object.keys(vaults);
