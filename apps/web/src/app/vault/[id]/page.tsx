@@ -15,7 +15,7 @@ import { RowSkeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { MetricBand } from "@/components/app/metric-band";
 import { HatchPattern } from "@/components/motion/hatch-pattern";
-import { DEFAULT_VAULT_ID } from "@/lib/contracts";
+import { DEFAULT_VAULT_ID, basketsAvailable } from "@/lib/contracts";
 
 const spring = { type: "spring", stiffness: 100, damping: 20 } as const;
 
@@ -52,17 +52,33 @@ export default function VaultPage() {
             )}
           </div>
         </div>
-        <div className="md:col-span-4 md:text-right">
-          <Button asChild>
-            <Link href={`/create?deposit=${vault?.depositAsset ?? "NVDA"}&strategy=${vault?.strategy ?? "balanced"}`}>
-              Deposit into this vault
-              <ArrowRight size={14} weight="bold" />
-            </Link>
-          </Button>
-        </div>
+        {basketsAvailable && (
+          <div className="md:col-span-4 md:text-right">
+            <Button asChild>
+              <Link href={`/create?deposit=${vault?.depositAsset ?? "NVDA"}&strategy=${vault?.strategy ?? "balanced"}`}>
+                Deposit into this vault
+                <ArrowRight size={14} weight="bold" />
+              </Link>
+            </Button>
+          </div>
+        )}
       </div>
 
-      {isError && (
+      {!basketsAvailable && (
+        <EmptyState
+          icon={VaultIcon}
+          title="Basket vaults are not live on this network yet"
+          description="No basket vault contracts are deployed here, so there is nothing to deposit into."
+          className="mt-10"
+          action={
+            <Button asChild variant="outline" size="sm">
+              <Link href="/launchpad">Go to Launchpad</Link>
+            </Button>
+          }
+        />
+      )}
+
+      {basketsAvailable && isError && (
         <EmptyState
           tone="error"
           icon={VaultIcon}
@@ -77,7 +93,7 @@ export default function VaultPage() {
         />
       )}
 
-      {!isError && (
+      {basketsAvailable && !isError && (
         <>
           <MetricBand
             className="mt-8"

@@ -435,7 +435,10 @@ export function PonsTradePanel(props: PonsTradePanelProps) {
             </>
           )}
           <Row label="Route" value={route} />
-          <Row label="Fees" value={`1% Pons curve · ${swapLabel}${method === "SHARES" ? " · no pair deposit fee" : ""}`} />
+          <Row
+            label="Fees"
+            value={`${pons.curveFeeBps / 100}% Pons curve${pons.creatorTaxBps > 0 ? ` + ${pons.creatorTaxBps / 100}% creator tax` : ""} · ${swapLabel}${method === "SHARES" ? " · no pair deposit fee" : ""}`}
+          />
           <div className="flex items-center justify-between gap-3 pt-1">
             <dt className="text-muted-foreground">Max slippage</dt>
             <dd className="flex gap-1">

@@ -357,6 +357,13 @@ export const creatorTokens: DocPage = {
             Launching costs Pons&apos;s 0.0005 ETH launch fee; Pons taxes buys in the first three seconds after launch
             (99% decaying to zero), with the creator and up to 32 wallets the creator lists at launch exempt.
           </p>
+          <p>
+            Like a launch made on Pons itself, the creator can set a creator tax when launching, from none up to
+            Pons&apos;s cap (currently 10%). Pons charges it on every buy and sell on top of the 1% curve fee, in the quote
+            asset, and credits it to the creator alongside their share of the curve fee. It is fixed at launch and cannot
+            be changed afterwards. The token page shows it next to the fees so traders see the full cost before they
+            trade.
+          </p>
         </>
       ),
     },
