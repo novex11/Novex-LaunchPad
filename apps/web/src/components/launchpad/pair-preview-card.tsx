@@ -62,6 +62,8 @@ export function PairPreviewCard({
         {hasBanner ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
+            // Keyed by URL: onError hides the element, and a reused <img> would stay hidden for the next URL.
+            key={bannerUrl.trim()}
             src={bannerUrl.trim()}
             alt=""
             className="h-full w-full object-cover"
@@ -102,6 +104,7 @@ export function PairPreviewCard({
           {hasLogo ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
+              key={logoUrl.trim()}
               src={logoUrl.trim()}
               alt=""
               className="h-16 w-16 rounded-2xl border-4 border-surface bg-surface object-cover shadow-float md:h-[4.5rem] md:w-[4.5rem]"
