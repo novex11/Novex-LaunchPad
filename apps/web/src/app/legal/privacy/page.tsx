@@ -176,7 +176,7 @@ const sections: LegalSection[] = [
         </p>
         <p>
           To exercise these rights, email{" "}
-          <strong>{LEGAL.privacyEmail}</strong>. Because wallets are pseudonymous, we may
+          <a href={`mailto:${LEGAL.privacyEmail}`} className="font-semibold underline">{LEGAL.privacyEmail}</a>. Because wallets are pseudonymous, we may
           ask you to sign a message with the relevant wallet to verify the request.
         </p>
       </>
@@ -218,7 +218,7 @@ const sections: LegalSection[] = [
     title: "Contact",
     body: (
       <p>
-        Questions about this policy can be sent to <strong>{LEGAL.privacyEmail}</strong>.
+        Questions about this policy can be sent to <a href={`mailto:${LEGAL.privacyEmail}`} className="font-semibold underline">{LEGAL.privacyEmail}</a>.
       </p>
     ),
   },

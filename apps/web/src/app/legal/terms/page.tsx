@@ -340,7 +340,7 @@ const sections: LegalSection[] = [
     title: "Contact",
     body: (
       <p>
-        Questions about these Terms can be sent to <strong>{LEGAL.contactEmail}</strong>.
+        Questions about these Terms can be sent to <a href={`mailto:${LEGAL.contactEmail}`} className="font-semibold underline">{LEGAL.contactEmail}</a>.
       </p>
     ),
   },

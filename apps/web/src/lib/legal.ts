@@ -6,8 +6,8 @@
 export const LEGAL = {
   brand: "Compose",
   entityName: "[Compose legal entity name]",
-  contactEmail: "[legal@your-domain]",
-  privacyEmail: "[privacy@your-domain]",
+  contactEmail: "contact@usecompose.xyz",
+  privacyEmail: "contact@usecompose.xyz",
   governingLaw: "[governing jurisdiction]",
   venue: "[courts of the governing jurisdiction]",
   effectiveDate: "September 14, 2026",
