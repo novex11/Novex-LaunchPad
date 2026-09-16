@@ -170,7 +170,8 @@ if [[ "$MODE" == fork ]]; then
     BEFORE="$(call "$NEW_RESERVE" 'walletStockbackUsd8(address)(uint256)' "$USER")"
     cast send "$NVDA" 'transfer(address,uint256)' "$USER" "$AMT" --from "$WHALE" --unlocked --rpc-url "$RPC" >/dev/null
     cast send "$NVDA" 'approve(address,uint256)' "$VAULT" "$AMT" --from "$USER" --unlocked --rpc-url "$RPC" >/dev/null
-    local TX; TX="$(cast send "$VAULT" 'deposit(uint256,uint256)' "$AMT" 0 --from "$USER" --unlocked --rpc-url "$RPC" --json | node -pe 'JSON.parse(require("fs").readFileSync(0)).transactionHash')"
+    # Padded gas like the web app: at a bare estimate the grant can run out of gas, which reverts the deposit.
+    local TX; TX="$(cast send "$VAULT" 'deposit(uint256,uint256)' "$AMT" 0 --gas-limit 6000000 --from "$USER" --unlocked --rpc-url "$RPC" --json | node -pe 'const r=JSON.parse(require("fs").readFileSync(0)); if (r.status!=="0x1") { console.error("   ❌ deposit reverted", r.transactionHash); process.exit(1) } r.transactionHash')" || exit 1
     AFTER="$(call "$NEW_RESERVE" 'walletStockbackUsd8(address)(uint256)' "$USER")"
     local GRANTED; GRANTED="$(big "BigInt('$AFTER')-BigInt('$BEFORE')")"
     printf "   strategy %s deposit \$%-7s → granted \$%s (vesting)\n" "$S" "$USD" "$(big "Number('$GRANTED')/1e8")"
@@ -205,7 +206,7 @@ if [[ "$MODE" == fork ]]; then
   new_user; deposit 1 300 300000000
   V="$(vault_of 1)"; R="$(cast call "$V" 'receiptToken()(address)' --rpc-url "$RPC")"
   SH="$(call "$R" 'balanceOf(address)(uint256)' "$USER")"
-  cast send "$V" 'redeem(uint256,uint8,uint256)' "$SH" 1 0 --from "$USER" --unlocked --rpc-url "$RPC" >/dev/null
+  cast send "$V" 'redeem(uint256,uint8,uint256)' "$SH" 1 0 --gas-limit 6000000 --from "$USER" --unlocked --rpc-url "$RPC" --json | node -e 'const r=JSON.parse(require("fs").readFileSync(0)); if (r.status!=="0x1") { console.error("   ❌ redeem reverted", r.transactionHash); process.exit(1) }' 
   [[ "$(call "$NEW_RESERVE" 'walletStockbackUsd8(address)(uint256)' "$USER")" == 0 ]] || { echo "❌  grant not forfeited"; exit 1; }
   echo "   ✅ forfeited"
   echo "   claim after 7 days:"
